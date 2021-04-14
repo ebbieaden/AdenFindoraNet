@@ -11,6 +11,7 @@ members = [
     "components/txn_builder",
     "components/wasm",
     "components/wallet",
+    "components/wallet_mobile",
     "components/account_simulator",
     # "components/trash/auditor",
     # "components/trash/xfrnote",
