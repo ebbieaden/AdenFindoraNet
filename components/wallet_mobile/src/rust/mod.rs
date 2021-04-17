@@ -5,14 +5,13 @@ mod crypto;
 mod data_model;
 #[cfg(test)]
 mod tests;
-mod transaction;
-mod types;
+pub mod transaction;
+pub mod types;
 mod util;
 
 pub use crypto::*;
 pub use data_model::*;
 pub use transaction::*;
-pub use types::*;
 pub use util::*;
 
 /// Constant defining the git commit hash and commit date of the commit this library was built

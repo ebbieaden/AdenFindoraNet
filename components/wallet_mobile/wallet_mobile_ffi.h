@@ -10,6 +10,10 @@
 
 typedef struct AuthenticatedKVLookup AuthenticatedKVLookup;
 
+typedef struct FeeInputs FeeInputs;
+
+typedef struct XfrPublicKey XfrPublicKey;
+
 char *ffi_build_id(void);
 
 char *ffi_random_asset_type(void);
@@ -20,9 +24,31 @@ bool ffi_verify_authenticated_txn(const char *state_commitment, const char *auth
 
 struct AuthenticatedKVLookup *ffi_authenticated_kv_lookup_new(void);
 
-void ffi_authenticated_kv_lookup_destroy(struct AuthenticatedKVLookup *data);
-
 bool ffi_verify_authenticated_custom_data_result(const char *state_commitment,
                                                  const struct AuthenticatedKVLookup *authenticated_res);
+
+uint64_t ffi_calculate_fee(uint64_t ir_numerator,
+                           uint64_t ir_denominator,
+                           uint64_t outstanding_balance);
+
+struct XfrPublicKey *ffi_get_null_pk(void);
+
+char *ffi_create_default_policy_info(void);
+
+char *ffi_create_debt_policy_info(uint64_t ir_numerator,
+                                  uint64_t ir_denominator,
+                                  const char *fiat_code,
+                                  uint64_t loan_amount);
+
+char *ffi_create_debt_memo(uint64_t ir_numerator,
+                           uint64_t ir_denominator,
+                           const char *fiat_code,
+                           uint64_t loan_amount);
+
+void ffi_fee_inputs_free(struct FeeInputs *ptr);
+
+void ffi_authenticated_kv_lookup_free(struct AuthenticatedKVLookup *ptr);
+
+void ffi_xfr_public_key_free(struct XfrPublicKey *ptr);
 
 #endif /* wallet_mobile_ffi_h */

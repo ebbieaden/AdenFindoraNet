@@ -25,7 +25,7 @@ pub extern "system" fn Java_com_findora_JniApi_assetTypeFromValue(
     let mut buf = [0u8; ASSET_TYPE_LENGTH];
     buf.copy_from_slice(input.as_ref());
 
-    let asset_type = asset_type_from_value(buf);
+    let asset_type = rs_asset_type_from_value(buf);
     let output = env
         .new_string(asset_type)
         .expect("Couldn't create java string!");
@@ -49,7 +49,7 @@ pub extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedTxn(
         .expect("Couldn't get java string!")
         .into();
 
-    raw_verify_authenticated_txn(state_commitment, authenticated_txn).unwrap_or(false)
+    rs_verify_authenticated_txn(state_commitment, authenticated_txn).unwrap_or(false)
         as jboolean
 }
 
@@ -90,6 +90,6 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedCustomA
 
     let res = &mut *(authenticated_res_ptr as *mut AuthenticatedKVLookup);
 
-    raw_verify_authenticated_custom_data_result(state_commitment, &res.value)
+    rs_verify_authenticated_custom_data_result(state_commitment, &res.value)
         .unwrap_or(false) as jboolean
 }
