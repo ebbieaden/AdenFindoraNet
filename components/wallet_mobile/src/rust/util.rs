@@ -1,3 +1,8 @@
+#[cfg(target_arch = "wasm32")]
+use core::fmt::Display;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
@@ -11,4 +16,10 @@ pub fn c_char_to_string(cchar: *const c_char) -> String {
 pub fn string_to_c_char(r_string: String) -> *mut c_char {
     let c_str = CString::new(r_string).expect("CString::new failed");
     c_str.into_raw()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[inline(always)]
+pub fn error_to_jsvalue<T: Display>(e: T) -> JsValue {
+    JsValue::from_str(&e.to_string())
 }
