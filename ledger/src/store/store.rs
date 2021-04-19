@@ -6,6 +6,7 @@ use crate::data_model::errors::PlatformError;
 use crate::data_model::*;
 use crate::policies::{calculate_fee, DebtMemo};
 use crate::policy_script::policy_check_txn;
+use crate::staking::Staking;
 use crate::{inp_fail, inv_fail};
 use bitmap::{BitMap, SparseMap};
 use cryptohash::sha256::Digest as BitDigest;
@@ -21,9 +22,9 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::mem;
 use std::path::Path;
 use std::path::PathBuf;
-use std::u64;
 use utils::HasInvariants;
 use utils::{HashOf, ProofOf, Serialized, SignatureOf};
 use zei::setup::PublicParams;
@@ -140,6 +141,8 @@ pub trait LedgerUpdate<RNG: RngCore + CryptoRng> {
     // kludge for consensus with heartbeat
     fn pulse_block(block: &mut Self::Block) -> u64;
     fn block_pulse_count(block: &Self::Block) -> u64;
+
+    fn get_staking_mut(&mut self) -> &mut Staking;
 }
 
 // TODO(joe/keyao): which of these methods should be in `LedgerAccess`?
@@ -177,6 +180,8 @@ pub trait ArchiveAccess {
         &self,
         height: u64,
     ) -> Option<HashOf<Option<StateCommitmentData>>>;
+
+    fn get_staking(&self) -> &Staking;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -267,6 +272,8 @@ pub struct LedgerStatus {
 
     // Sliding window of operations for replay attack prevention
     sliding_set: SlidingSet<[u8; 8]>,
+
+    staking: Staking,
 }
 
 pub struct LedgerState {
@@ -460,6 +467,7 @@ impl LedgerStatus {
             state_commitment_data: None,
             block_commit_count: 0,
             pulse_count: 0,
+            staking: Staking::new(),
         };
 
         Ok(ledger)
@@ -472,7 +480,7 @@ impl LedgerStatus {
 
     #[cfg(feature = "TESTING")]
     #[allow(non_snake_case)]
-    pub fn TESTING_check_txn_effects(&self, txn: TxnEffect) -> Result<TxnEffect> {
+    pub fn TESTING_check_txn_effects(&self, txn: &TxnEffect) -> Result<()> {
         self.check_txn_effects(txn).c(d!())
     }
 
@@ -487,7 +495,7 @@ impl LedgerStatus {
     //
     #[allow(clippy::clone_double_ref)]
     #[allow(clippy::cognitive_complexity)]
-    fn check_txn_effects(&self, txn_effect: TxnEffect) -> Result<TxnEffect> {
+    fn check_txn_effects(&self, txn_effect: &TxnEffect) -> Result<()> {
         // The current transactions seq_id must be within the sliding window over seq_ids
         let (rand, seq_id) = (
             txn_effect.txn.body.no_replay_token.get_rand(),
@@ -829,7 +837,7 @@ impl LedgerStatus {
             }
         }
 
-        Ok(txn_effect)
+        Ok(())
     }
 
     // This function assumes that `block` is COMPLETELY CONSISTENT with the
@@ -843,6 +851,9 @@ impl LedgerStatus {
         &mut self,
         block: &mut BlockEffect,
     ) -> HashMap<TxnTempSID, (TxnSID, Vec<TxoSID>)> {
+        // swap them directly
+        mem::swap(&mut self.staking, &mut block.staking_simulator);
+
         for no_replay_token in block.no_replay_tokens.iter() {
             let (rand, seq_id) = (
                 no_replay_token.get_rand(),
@@ -940,12 +951,11 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
     }
 
     fn start_block(&mut self) -> Result<BlockEffect> {
-        let mut block_ctx = None;
-        std::mem::swap(&mut self.block_ctx, &mut block_ctx);
-        match block_ctx {
-            None => Err(eg!(PlatformError::InputsError(None))),
-            // Probably should be a more relevant error
-            Some(block) => Ok(block),
+        if let Some(mut block) = self.block_ctx.take() {
+            block.staking_simulator = self.get_staking().clone();
+            Ok(block)
+        } else {
+            Err(eg!(PlatformError::InputsError(None)))
         }
     }
 
@@ -954,11 +964,10 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
         block: &mut BlockEffect,
         txn: TxnEffect,
     ) -> Result<TxnTempSID> {
-        block.add_txn_effect(
-            self.status
-                .check_txn_effects(txn)
-                .c(d!(PlatformError::Unknown))?,
-        )
+        self.status
+            .check_txn_effects(&txn)
+            .c(d!())
+            .and_then(|_| block.add_txn_effect(txn).c(d!()))
     }
 
     fn abort_block(&mut self, block: BlockEffect) -> HashMap<TxnTempSID, Transaction> {
@@ -1144,6 +1153,10 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
     fn block_pulse_count(block: &Self::Block) -> u64 {
         block.get_pulse_count()
     }
+
+    fn get_staking_mut(&mut self) -> &mut Staking {
+        &mut self.status.staking
+    }
 }
 
 impl LedgerUpdate<ChaChaRng> for LedgerStateChecker {
@@ -1281,6 +1294,10 @@ impl LedgerUpdate<ChaChaRng> for LedgerStateChecker {
     fn block_pulse_count(block: &Self::Block) -> u64 {
         block.get_pulse_count()
     }
+
+    fn get_staking_mut(&mut self) -> &mut Staking {
+        &mut self.0.status.staking
+    }
 }
 
 impl LedgerStateChecker {
@@ -1365,9 +1382,7 @@ impl LedgerStateChecker {
 }
 
 impl LedgerState {
-    #[cfg(feature = "TESTING")]
-    #[allow(non_snake_case)]
-    pub fn TESTING_get_status(&self) -> &LedgerStatus {
+    pub fn get_status(&self) -> &LedgerStatus {
         &self.status
     }
 
@@ -2202,6 +2217,10 @@ impl ArchiveAccess for LedgerState {
             .get((block_height - 1) as usize)
             .cloned()
     }
+
+    fn get_staking(&self) -> &Staking {
+        &self.status.staking
+    }
 }
 
 pub mod helpers {
@@ -2538,7 +2557,7 @@ pub mod helpers {
 /// Currently this should only be used for tests.
 pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
     const FRA_DECIMAL: u8 = 6;
-    const FRA_AMOUNT: u64 = 21000000000000000;
+    const FRA_AMOUNT: u64 = 2_1000_0000_0000_0000;
 
     /*
      * Define FRA

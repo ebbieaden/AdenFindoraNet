@@ -28,6 +28,8 @@ use submission_server::{convert_tx, SubmissionServer, TxnForward};
 use zei::xfr::structs::{XfrAmount, XfrAssetType};
 
 mod config;
+mod staking;
+
 use config::ABCIConfig;
 
 static TX_PENDING_CNT: AtomicU16 = AtomicU16::new(0);
@@ -134,11 +136,7 @@ impl abci::Application for ABCISubmissionServer {
 
         if let Some(tx) = convert_tx(req.get_tx()) {
             info!("converted: {:?}", tx);
-            if tx.in_blk_list()
-                || !tx.check_fee()
-                || !tx.check_fra_no_illegal_issuance(
-                    TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed),
-                )
+            if !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
                 || ruc::info!(TxnEffect::compute_effect(tx)).is_err()
             {
                 resp.set_code(1);
@@ -164,12 +162,7 @@ impl abci::Application for ABCISubmissionServer {
         if let Some(tx) = convert_tx(req.get_tx()) {
             info!("converted: {:?}", tx);
 
-            if !tx.in_blk_list()
-                && tx.check_fee()
-                && tx.check_fra_no_illegal_issuance(
-                    TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed),
-                )
-            {
+            if tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)) {
                 // set attr(tags) if any
                 let attr = gen_tendermint_attr(&tx);
                 if 0 < attr.len() {
@@ -212,20 +205,21 @@ impl abci::Application for ABCISubmissionServer {
     }
 
     fn end_block(&mut self, _req: &RequestEndBlock) -> ResponseEndBlock {
-        // TODO: this should propagate errors instead of panicking
-        {
-            let mut la = self.la.write();
-            if la.block_txn_count() == 0 {
-                info!("end_block: pulsing block");
-                la.pulse_block();
-            } else if !la.all_commited() {
-                info!("end_block: ending block");
-                if let Err(e) = la.end_block().c(d!()) {
-                    info!("end_block failure: {:?}", e.generate_log());
-                }
+        let mut la = self.la.write();
+        if la.block_txn_count() == 0 {
+            info!("end_block: pulsing block");
+            la.pulse_block();
+        } else if !la.all_commited() {
+            info!("end_block: ending block");
+            if let Err(e) = la.end_block().c(d!()) {
+                info!("end_block failure: {:?}", e.generate_log());
             }
         }
-        ResponseEndBlock::new()
+
+        let mut resp = ResponseEndBlock::new();
+        let vs = staking::get_validators(la.get_committed_state().read().get_staking());
+        resp.set_validator_updates(RepeatedField::from_vec(vs));
+        resp
     }
 
     fn commit(&mut self, _req: &RequestCommit) -> ResponseCommit {
@@ -431,6 +425,7 @@ fn gen_tendermint_attr_addr(tx: &Transaction) -> (Vec<TagAttr>, Vec<TagAttr>) {
                 Operation::UpdateMemo(d) => {
                     append_attr!(d);
                 }
+                _ => {}
             }
 
             base

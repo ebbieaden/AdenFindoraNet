@@ -4,6 +4,7 @@ extern crate unicode_normalization;
 
 use super::errors;
 use crate::policy_script::{Policy, PolicyGlobals, TxnPolicyData};
+use crate::staking;
 use crate::{des_fail, ser_fail};
 use bitmap::SparseMap;
 use chrono::prelude::*;
@@ -976,13 +977,16 @@ impl UpdateMemo {
     }
 }
 
+#[non_exhaustive]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Operation {
     TransferAsset(TransferAsset),
     IssueAsset(IssueAsset),
     DefineAsset(DefineAsset),
     UpdateMemo(UpdateMemo),
-    // ... etc...
+    Delegation(staking::ops::delegation::DelegationOps),
+    UpdateValidator(staking::ops::update_validator::UpdateValidatorOps),
+    Governance(staking::ops::governance::GovernanceOps),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
@@ -1304,6 +1308,14 @@ lazy_static! {
 pub const TX_FEE_MIN: u64 = 10_000;
 
 impl Transaction {
+    /// All-in-one checker
+    pub fn is_basic_valid(&self, td_height: i64) -> bool {
+        !self.in_blk_list()
+            && self.basicly_safe()
+            && self.check_fee()
+            && self.fra_no_illegal_issuance(td_height)
+    }
+
     /// A simple fee checker for mainnet v1.0.
     ///
     /// The check logic is as follows:
@@ -1327,11 +1339,6 @@ impl Transaction {
     /// > in the same transaction with its defination and issuing,
     /// > or the transaction can NOT pass the check of `apply_transaction(...)`
     pub fn check_fee(&self) -> bool {
-        // Basic stateless validations for checkTx
-        if !self.validate_basic() {
-            return false;
-        }
-
         // This method can not completely solve the DOS risk,
         // we should further limit the number of txo[s] in every operation.
         //
@@ -1366,7 +1373,7 @@ impl Transaction {
         })
     }
 
-    pub fn validate_basic(&self) -> bool {
+    pub fn basicly_safe(&self) -> bool {
         lazy_static! {
             static ref MAX_OPS_PER_TX: usize = env::var("MAX_OPS_PER_TX")
                 .map(|n| pnk!(n.parse::<usize>()))
@@ -1417,7 +1424,7 @@ impl Transaction {
     }
 
     /// Issuing FRA is denied except in the genesis block.
-    pub fn check_fra_no_illegal_issuance(&self, tendermint_block_height: i64) -> bool {
+    pub fn fra_no_illegal_issuance(&self, tendermint_block_height: i64) -> bool {
         #[cfg(feature = "debugenv")]
         const HEIGHT_LIMIT: i64 = 2000;
 

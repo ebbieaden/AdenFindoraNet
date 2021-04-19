@@ -313,6 +313,7 @@ pub fn txn_log_info(txn: &Transaction) {
                     update_memo.body.new_memo.0
                 );
             }
+            _ => {}
         };
     }
 }

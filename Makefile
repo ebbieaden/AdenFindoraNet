@@ -13,6 +13,7 @@ all: build_release
 
 export CARGO_NET_GIT_FETCH_WITH_CLI = true
 export PROTOC = $(shell which protoc)
+export STAKING_INITIAL_VALIDATOR_INFO_CONFIG = $(shell pwd)/tools/staking_initial_config.json
 
 ifdef DBG
 target_dir = debug
@@ -87,6 +88,9 @@ test:
 	cargo test --release --workspace -- --test-threads=1
 	cargo test --release --workspace -- --ignored
 
+staking_test:
+	cargo test --release staking_cosig -- --test-threads=1
+
 bench:
 	cargo bench --workspace
 
@@ -101,6 +105,9 @@ test_status:
 	make build_release
 
 fmt:
+	@ cargo fmt
+
+fmtall:
 	@ bash ./tools/fmt.sh
 
 clean:
