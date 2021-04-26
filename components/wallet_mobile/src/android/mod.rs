@@ -1,3 +1,4 @@
+use crate::rust::types;
 use crate::rust::*;
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jbyteArray, jlong, jstring};
@@ -60,7 +61,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_authenticatedKVLookupNew(
     _class: JClass,
 ) -> jlong {
     unimplemented!()
-    // let val = AuthenticatedKVLookup{
+    // let val = types::AuthenticatedKVLookup{
     // };
     //
     // Box::into_raw(Box::new(val)) as jlong
@@ -73,7 +74,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_authenticatedKVLookupDestr
     authenticated_res_ptr: jlong,
 ) {
     let _boxed_authenticated_res =
-        Box::from_raw(authenticated_res_ptr as *mut AuthenticatedKVLookup);
+        Box::from_raw(authenticated_res_ptr as *mut types::AuthenticatedKVLookup);
 }
 
 #[no_mangle]
@@ -88,8 +89,8 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedCustomA
         .expect("Couldn't get java string!")
         .into();
 
-    let res = &mut *(authenticated_res_ptr as *mut AuthenticatedKVLookup);
+    let res = &mut *(authenticated_res_ptr as *mut types::AuthenticatedKVLookup);
 
-    rs_verify_authenticated_custom_data_result(state_commitment, &res.value)
+    rs_verify_authenticated_custom_data_result(state_commitment, &res)
         .unwrap_or(false) as jboolean
 }
