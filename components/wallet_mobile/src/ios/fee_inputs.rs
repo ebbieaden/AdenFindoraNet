@@ -1,19 +1,19 @@
 use crate::rust::transaction::FeeInputs as RawFeeInputs;
 use crate::rust::types::*;
 
-pub unsafe extern "C" fn ffi_fee_inputs_new() -> *mut FeeInputs {
+pub extern "C" fn findora_ffi_fee_inputs_new() -> *mut FeeInputs {
     Box::into_raw(Box::new(RawFeeInputs::new().into()))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ffi_fee_inputs_free(ptr: *mut FeeInputs) {
+pub unsafe extern "C" fn findora_ffi_fee_inputs_free(ptr: *mut FeeInputs) {
     if ptr.is_null() {
         return;
     }
     Box::from_raw(ptr);
 }
 
-pub unsafe extern "C" fn ffi_fee_inputs_append(
+pub unsafe extern "C" fn findora_ffi_fee_inputs_append(
     ptr: *mut FeeInputs,
     am: u64,
     tr: *const TxoRef,

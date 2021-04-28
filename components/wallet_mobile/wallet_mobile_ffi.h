@@ -12,43 +12,64 @@ typedef struct AuthenticatedKVLookup AuthenticatedKVLookup;
 
 typedef struct FeeInputs FeeInputs;
 
+typedef struct XfrKeyPair XfrKeyPair;
+
 typedef struct XfrPublicKey XfrPublicKey;
 
-char *ffi_build_id(void);
+char *findora_ffi_build_id(void);
 
-char *ffi_random_asset_type(void);
+char *findora_ffi_random_asset_type(void);
 
-char *ffi_asset_type_from_value(const char *code);
+char *findora_ffi_asset_type_from_value(const char *code);
 
-bool ffi_verify_authenticated_txn(const char *state_commitment, const char *authenticated_txn);
+bool findora_ffi_verify_authenticated_txn(const char *state_commitment,
+                                          const char *authenticated_txn);
 
-struct AuthenticatedKVLookup *ffi_authenticated_kv_lookup_new(void);
+struct AuthenticatedKVLookup *findora_ffi_authenticated_kv_lookup_new(void);
 
-bool ffi_verify_authenticated_custom_data_result(const char *state_commitment,
-                                                 const struct AuthenticatedKVLookup *authenticated_res);
+bool findora_ffi_verify_authenticated_custom_data_result(const char *state_commitment,
+                                                         const struct AuthenticatedKVLookup *authenticated_res);
 
-uint64_t ffi_calculate_fee(uint64_t ir_numerator,
-                           uint64_t ir_denominator,
-                           uint64_t outstanding_balance);
+uint64_t findora_ffi_calculate_fee(uint64_t ir_numerator,
+                                   uint64_t ir_denominator,
+                                   uint64_t outstanding_balance);
 
-struct XfrPublicKey *ffi_get_null_pk(void);
+struct XfrPublicKey *findora_ffi_get_null_pk(void);
 
-char *ffi_create_default_policy_info(void);
+char *findora_ffi_create_default_policy_info(void);
 
-char *ffi_create_debt_policy_info(uint64_t ir_numerator,
-                                  uint64_t ir_denominator,
-                                  const char *fiat_code,
-                                  uint64_t loan_amount);
+char *findora_ffi_create_debt_policy_info(uint64_t ir_numerator,
+                                          uint64_t ir_denominator,
+                                          const char *fiat_code,
+                                          uint64_t loan_amount);
 
-char *ffi_create_debt_memo(uint64_t ir_numerator,
-                           uint64_t ir_denominator,
-                           const char *fiat_code,
-                           uint64_t loan_amount);
+char *findora_ffi_create_debt_memo(uint64_t ir_numerator,
+                                   uint64_t ir_denominator,
+                                   const char *fiat_code,
+                                   uint64_t loan_amount);
 
-void ffi_fee_inputs_free(struct FeeInputs *ptr);
+char *findora_ffi_generate_mnemonic_custom(uint8_t words_len, const char *lang);
 
-void ffi_authenticated_kv_lookup_free(struct AuthenticatedKVLookup *ptr);
+char *findora_ffi_decryption_pbkdf2_aes256gcm(char *enc_key_pair, const char *password);
 
-void ffi_xfr_public_key_free(struct XfrPublicKey *ptr);
+char *findora_ffi_encryption_pbkdf2_aes256gcm(const char *key_pair, const char *password);
+
+struct XfrKeyPair *findora_ffi_keypair_from_str(const char *key_pair_str);
+
+char *findora_ffi_public_key_to_bech32(const struct XfrPublicKey *key);
+
+char *findora_ffi_get_pub_key_str(const struct XfrKeyPair *key);
+
+struct XfrKeyPair *findora_ffi_restore_keypair_from_mnemonic_default(const char *phrase);
+
+char *findora_ffi_keypair_to_str(const struct XfrKeyPair *key_pair);
+
+struct XfrKeyPair *findora_ffi_create_keypair_from_secret(const char *sk_str);
+
+void findora_ffi_fee_inputs_free(struct FeeInputs *ptr);
+
+void findora_ffi_authenticated_kv_lookup_free(struct AuthenticatedKVLookup *ptr);
+
+void findora_ffi_xfr_public_key_free(struct XfrPublicKey *ptr);
 
 #endif /* wallet_mobile_ffi_h */

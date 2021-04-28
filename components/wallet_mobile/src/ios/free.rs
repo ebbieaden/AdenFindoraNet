@@ -1,7 +1,7 @@
 use crate::rust::types::{AuthenticatedKVLookup, XfrPublicKey};
 
 #[no_mangle]
-pub unsafe extern "C" fn ffi_authenticated_kv_lookup_free(
+pub unsafe extern "C" fn findora_ffi_authenticated_kv_lookup_free(
     ptr: *mut AuthenticatedKVLookup,
 ) {
     if ptr.is_null() {
@@ -11,7 +11,7 @@ pub unsafe extern "C" fn ffi_authenticated_kv_lookup_free(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ffi_xfr_public_key_free(ptr: *mut XfrPublicKey) {
+pub unsafe extern "C" fn findora_ffi_xfr_public_key_free(ptr: *mut XfrPublicKey) {
     if ptr.is_null() {
         return;
     }
