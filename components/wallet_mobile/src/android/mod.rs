@@ -80,7 +80,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedCustomA
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_findora_JniApi_generateMnemonicCustom(
+pub extern "system" fn Java_com_findora_JniApi_generateMnemonicCustom(
     env: JNIEnv,
     _: JClass,
     words_len: jint,
@@ -98,7 +98,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_generateMnemonicCustom(
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_findora_JniApi_decryptionPbkdf2Aes256gcm(
+pub extern "system" fn Java_com_findora_JniApi_decryptionPbkdf2Aes256gcm(
     env: JNIEnv,
     _: JClass,
     enc_key_pair: jbyteArray,
@@ -117,7 +117,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_decryptionPbkdf2Aes256gcm(
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_findora_JniApi_encryptionPbkdf2Aes256gcm(
+pub extern "system" fn Java_com_findora_JniApi_encryptionPbkdf2Aes256gcm(
     env: JNIEnv,
     _: JClass,
     key_pair: JString,
@@ -137,7 +137,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_encryptionPbkdf2Aes256gcm(
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_findora_JniApi_keypairFromStr(
+pub extern "system" fn Java_com_findora_JniApi_keypairFromStr(
     env: JNIEnv,
     _: JClass,
     text: JString,
@@ -177,7 +177,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_getPubKeyStr(
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_findora_JniApi_restore_keypairFromMnemonicDefault(
+pub extern "system" fn Java_com_findora_JniApi_restore_keypairFromMnemonicDefault(
     env: JNIEnv,
     _: JClass,
     phrase: JString,
@@ -203,7 +203,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_keypairToStr(
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_findora_JniApi_createKeypairFromSecret(
+pub extern "system" fn Java_com_findora_JniApi_createKeypairFromSecret(
     env: JNIEnv,
     _: JClass,
     sk_str: JString,
