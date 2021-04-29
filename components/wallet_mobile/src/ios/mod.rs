@@ -11,6 +11,7 @@ use std::ptr;
 use zei::xfr::structs::ASSET_TYPE_LENGTH;
 
 #[no_mangle]
+/// Returns the git commit hash and commit date of the commit this library was built against.
 pub extern "C" fn findora_ffi_build_id() -> *mut c_char {
     string_to_c_char(build_id())
 }
@@ -21,6 +22,7 @@ pub extern "C" fn findora_ffi_random_asset_type() -> *mut c_char {
 }
 
 #[no_mangle]
+/// Generates asset type as a Base64 string from a JSON-serialized JavaScript value.
 pub extern "C" fn findora_ffi_asset_type_from_value(code: *const c_char) -> *mut c_char {
     let mut dst = [0u8; ASSET_TYPE_LENGTH];
     let c_str = unsafe { CStr::from_ptr(code) };
@@ -29,6 +31,14 @@ pub extern "C" fn findora_ffi_asset_type_from_value(code: *const c_char) -> *mut
 }
 
 #[no_mangle]
+/// Given a serialized state commitment and transaction, returns true if the transaction correctly
+/// hashes up to the state commitment and false otherwise.
+/// @param {string} state_commitment - String representing the state commitment.
+/// @param {string} authenticated_txn - String representing the transaction.
+/// @see {@link module:Network~Network#getTxn|Network.getTxn} for instructions on fetching a transaction from the ledger.
+/// @see {@link module:Network~Network#getStateCommitment|Network.getStateCommitment}
+/// for instructions on fetching a ledger state commitment.
+/// @throws Will throw an error if the state commitment or the transaction fails to deserialize.
 pub extern "C" fn findora_ffi_verify_authenticated_txn(
     state_commitment: *const c_char,
     authenticated_txn: *const c_char,
@@ -51,6 +61,12 @@ pub extern "C" fn findora_ffi_authenticated_kv_lookup_new()
 }
 
 #[no_mangle]
+/// Given a serialized state commitment and an authenticated custom data result, returns true if the custom data result correctly
+/// hashes up to the state commitment and false otherwise.
+/// @param {string} state_commitment - String representing the state commitment.
+/// @param {JsValue} authenticated_txn - JSON-encoded value representing the authenticated custom
+/// data result.
+/// @throws Will throw an error if the state commitment or the authenticated result fail to deserialize.
 pub unsafe extern "C" fn findora_ffi_verify_authenticated_custom_data_result(
     state_commitment: *const c_char,
     authenticated_res: *const types::AuthenticatedKVLookup,
@@ -123,6 +139,9 @@ pub extern "C" fn findora_ffi_create_debt_memo(
 }
 
 #[no_mangle]
+/// Generate mnemonic with custom length and language.
+/// - @param `wordslen`: acceptable value are one of [ 12, 15, 18, 21, 24 ]
+/// - @param `lang`: acceptable value are one of [ "en", "zh", "zh_traditional", "fr", "it", "ko", "sp", "jp" ]
 pub extern "C" fn findora_ffi_generate_mnemonic_custom(
     words_len: u8,
     lang: *const c_char,
@@ -169,6 +188,8 @@ pub extern "C" fn findora_ffi_encryption_pbkdf2_aes256gcm(
 }
 
 #[no_mangle]
+/// Constructs a transfer key pair from a hex-encoded string.
+/// The encode a key pair, use `keypair_to_str` function.
 pub extern "C" fn findora_ffi_keypair_from_str(
     key_pair_str: *const c_char,
 ) -> *mut types::XfrKeyPair {
@@ -180,6 +201,7 @@ pub extern "C" fn findora_ffi_keypair_from_str(
 }
 
 #[no_mangle]
+/// Returns bech32 encoded representation of an XfrPublicKey.
 pub unsafe extern "C" fn findora_ffi_public_key_to_bech32(
     key: *const types::XfrPublicKey,
 ) -> *mut c_char {
@@ -189,6 +211,7 @@ pub unsafe extern "C" fn findora_ffi_public_key_to_bech32(
 }
 
 #[no_mangle]
+/// Extracts the public key as a string from a transfer key pair.
 pub unsafe extern "C" fn findora_ffi_get_pub_key_str(
     key: *const types::XfrKeyPair,
 ) -> *mut c_char {
@@ -198,6 +221,8 @@ pub unsafe extern "C" fn findora_ffi_get_pub_key_str(
 }
 
 #[no_mangle]
+/// Restore the XfrKeyPair from a mnemonic with a default bip44-path,
+/// that is "m/44'/917'/0'/0/0" ("m/44'/coin'/account'/change/address").
 pub unsafe extern "C" fn findora_ffi_restore_keypair_from_mnemonic_default(
     phrase: *const c_char,
 ) -> *mut types::XfrKeyPair {
@@ -214,6 +239,8 @@ pub unsafe extern "C" fn findora_ffi_restore_keypair_from_mnemonic_default(
 }
 
 #[no_mangle]
+/// Expresses a transfer key pair as a hex-encoded string.
+/// To decode the string, use `keypair_from_str` function.
 pub unsafe extern "C" fn findora_ffi_keypair_to_str(
     key_pair: *const types::XfrKeyPair,
 ) -> *mut c_char {
@@ -234,4 +261,11 @@ pub unsafe extern "C" fn findora_ffi_create_keypair_from_secret(
     } else {
         ptr::null_mut()
     }
+}
+
+#[no_mangle]
+/// Creates a new transfer key pair.
+pub unsafe extern "C" fn findora_ffi_new_keypair() -> *mut types::XfrKeyPair {
+    let boxed_data = Box::new(types::XfrKeyPair::from(new_keypair()));
+    Box::into_raw(boxed_data)
 }

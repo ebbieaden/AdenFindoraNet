@@ -8,6 +8,7 @@ use jni::JNIEnv;
 use zei::xfr::structs::ASSET_TYPE_LENGTH;
 
 #[no_mangle]
+/// Returns the git commit hash and commit date of the commit this library was built against.
 pub extern "system" fn Java_com_findora_JniApi_buildId(
     env: JNIEnv,
     // this is the class that owns our
@@ -24,6 +25,7 @@ pub extern "system" fn Java_com_findora_JniApi_buildId(
 }
 
 #[no_mangle]
+/// Generates asset type as a Base64 string from a JSON-serialized JavaScript value.
 pub extern "system" fn Java_com_findora_JniApi_assetTypeFromValue(
     env: JNIEnv,
     _: JClass,
@@ -41,6 +43,14 @@ pub extern "system" fn Java_com_findora_JniApi_assetTypeFromValue(
 }
 
 #[no_mangle]
+/// Given a serialized state commitment and transaction, returns true if the transaction correctly
+/// hashes up to the state commitment and false otherwise.
+/// @param {string} state_commitment - String representing the state commitment.
+/// @param {string} authenticated_txn - String representing the transaction.
+/// @see {@link module:Network~Network#getTxn|Network.getTxn} for instructions on fetching a transaction from the ledger.
+/// @see {@link module:Network~Network#getStateCommitment|Network.getStateCommitment}
+/// for instructions on fetching a ledger state commitment.
+/// @throws Will throw an error if the state commitment or the transaction fails to deserialize.
 pub extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedTxn(
     env: JNIEnv,
     _: JClass,
@@ -62,6 +72,12 @@ pub extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedTxn(
 }
 
 #[no_mangle]
+/// Given a serialized state commitment and an authenticated custom data result, returns true if the custom data result correctly
+/// hashes up to the state commitment and false otherwise.
+/// @param {string} state_commitment - String representing the state commitment.
+/// @param {JsValue} authenticated_txn - JSON-encoded value representing the authenticated custom
+/// data result.
+/// @throws Will throw an error if the state commitment or the authenticated result fail to deserialize.
 pub unsafe extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedCustomAataResult(
     env: JNIEnv,
     _: JClass,
@@ -80,6 +96,9 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedCustomA
 }
 
 #[no_mangle]
+/// Generate mnemonic with custom length and language.
+/// - @param `wordslen`: acceptable value are one of [ 12, 15, 18, 21, 24 ]
+/// - @param `lang`: acceptable value are one of [ "en", "zh", "zh_traditional", "fr", "it", "ko", "sp", "jp" ]
 pub extern "system" fn Java_com_findora_JniApi_generateMnemonicCustom(
     env: JNIEnv,
     _: JClass,
@@ -137,6 +156,8 @@ pub extern "system" fn Java_com_findora_JniApi_encryptionPbkdf2Aes256gcm(
 }
 
 #[no_mangle]
+/// Constructs a transfer key pair from a hex-encoded string.
+/// The encode a key pair, use `keypair_to_str` function.
 pub extern "system" fn Java_com_findora_JniApi_keypairFromStr(
     env: JNIEnv,
     _: JClass,
@@ -151,6 +172,7 @@ pub extern "system" fn Java_com_findora_JniApi_keypairFromStr(
 }
 
 #[no_mangle]
+/// Returns bech32 encoded representation of an XfrPublicKey.
 pub unsafe extern "system" fn Java_com_findora_JniApi_publicKeyToBech32(
     env: JNIEnv,
     _: JClass,
@@ -163,6 +185,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_publicKeyToBech32(
 }
 
 #[no_mangle]
+/// Extracts the public key as a string from a transfer key pair.
 pub unsafe extern "system" fn Java_com_findora_JniApi_getPubKeyStr(
     env: JNIEnv,
     _: JClass,
@@ -177,6 +200,8 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_getPubKeyStr(
 }
 
 #[no_mangle]
+/// Restore the XfrKeyPair from a mnemonic with a default bip44-path,
+/// that is "m/44'/917'/0'/0/0" ("m/44'/coin'/account'/change/address").
 pub extern "system" fn Java_com_findora_JniApi_restore_keypairFromMnemonicDefault(
     env: JNIEnv,
     _: JClass,
@@ -191,6 +216,8 @@ pub extern "system" fn Java_com_findora_JniApi_restore_keypairFromMnemonicDefaul
 }
 
 #[no_mangle]
+/// Expresses a transfer key pair as a hex-encoded string.
+/// To decode the string, use `keypair_from_str` function.
 pub unsafe extern "system" fn Java_com_findora_JniApi_keypairToStr(
     env: JNIEnv,
     _: JClass,
@@ -213,5 +240,15 @@ pub extern "system" fn Java_com_findora_JniApi_createKeypairFromSecret(
         .expect("Couldn't get java string!")
         .into();
     let keypair = create_keypair_from_secret(sk).unwrap();
+    Box::into_raw(Box::new(types::XfrKeyPair::from(keypair))) as jlong
+}
+
+#[no_mangle]
+/// Creates a new transfer key pair.
+pub extern "system" fn Java_com_findora_JniApi_newKeypair(
+    _env: JNIEnv,
+    _: JClass,
+) -> jlong {
+    let keypair = new_keypair();
     Box::into_raw(Box::new(types::XfrKeyPair::from(keypair))) as jlong
 }
