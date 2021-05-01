@@ -428,10 +428,6 @@ impl HasInvariants for LedgerState {
             status2.utxo_map_path = self.status.utxo_map_path.clone();
             status2.utxo_map_versions = self.status.utxo_map_versions.clone();
 
-            // dbg!(&status2);
-            // dbg!(&self.status);
-            debug_assert!(*status2 == self.status);
-
             std::fs::remove_dir_all(tmp_dir).c(d!())?;
         }
         Ok(())
@@ -595,7 +591,6 @@ impl LedgerStatus {
                     &code
                 ))));
             }
-            debug_assert!(txn_effect.new_issuance_nums.contains_key(&code));
 
             // Asset issuance should match the currently registered key
         }
@@ -611,9 +606,6 @@ impl LedgerStatus {
         //  - NOTE: this relies on the sequence numbers appearing in sorted
         //    order
         for (code, seq_nums) in txn_effect.new_issuance_nums.iter() {
-            debug_assert!(txn_effect.issuance_keys.contains_key(&code));
-            // dbg!(&(code, seq_nums));
-
             let iss_key = txn_effect.issuance_keys.get(&code).c(d!())?;
             let asset_type = self
                 .asset_types
@@ -642,10 +634,7 @@ impl LedgerStatus {
                     // If a transaction defines and then issues, it should pass.
                     // However, if there is a bug elsewhere in validation, panicking
                     // is better than allowing incorrect issuances to pass through.
-                    .or_else(|| {
-                        debug_assert!(txn_effect.new_asset_codes.contains_key(&code));
-                        Some(&0)
-                    })
+                    .or_else(|| Some(&0))
                     .c(d!())?;
                 let min_seq_num = seq_nums.first().c(d!())?;
                 if min_seq_num < curr_seq_num_limit {
@@ -851,9 +840,6 @@ impl LedgerStatus {
         &mut self,
         block: &mut BlockEffect,
     ) -> HashMap<TxnTempSID, (TxnSID, Vec<TxoSID>)> {
-        // swap them directly
-        mem::swap(&mut self.staking, &mut block.staking_simulator);
-
         for no_replay_token in block.no_replay_tokens.iter() {
             let (rand, seq_id) = (
                 no_replay_token.get_rand(),
@@ -869,7 +855,6 @@ impl LedgerStatus {
         // Remove consumed UTXOs
         for (inp_sid, _) in block.input_txos.drain() {
             // Remove from ledger status
-            debug_assert!(self.utxos.contains_key(&inp_sid));
             self.utxos.remove(&inp_sid);
         }
 
@@ -894,8 +879,6 @@ impl LedgerStatus {
             let next_txn = &mut self.next_txn;
             let next_txo = &mut self.next_txo;
 
-            debug_assert!(block.txos.len() == block.txns.len());
-            debug_assert!(block.txos.len() == block.temp_sids.len());
             for (ix, txos) in block.temp_sids.iter().zip(block.txos.drain(..)) {
                 let txn_sid = *next_txn;
                 next_txn.0 += 1;
@@ -906,6 +889,13 @@ impl LedgerStatus {
                     let txo_sid = *next_txo;
                     next_txo.0 += 1;
                     if let Some(tx_output) = txo {
+                        // for staking logic
+                        if block.staking_simulator.coinbase_pubkey()
+                            == tx_output.record.public_key
+                        {
+                            block.staking_simulator.coinbase_recharge(txo_sid);
+                        }
+
                         self.utxos.insert(txo_sid, Utxo(tx_output));
                         txn_utxo_sids.push(txo_sid);
                     }
@@ -924,22 +914,29 @@ impl LedgerStatus {
 
         // Register new asset types
         for (code, asset_type) in block.new_asset_codes.drain() {
-            debug_assert!(!self.asset_types.contains_key(&code));
             self.asset_types.insert(code, asset_type.clone());
         }
 
         // issuance_keys should already have been checked
         block.issuance_keys.clear();
 
-        debug_assert_eq!(block.clone(), {
-            let mut def: BlockEffect = Default::default();
-            def.txns = block.txns.clone();
-            def.temp_sids = block.temp_sids.clone();
-            def.pulse_count = block.pulse_count;
-            def
-        });
+        // for staking logic
+        {
+            block.staking_simulator.set_custom_block_height(
+                1 + block.pulse_count + self.block_commit_count + self.pulse_count,
+            );
+            block.staking_simulator.deletation_process();
+            block.staking_simulator.validator_apply_current();
+            block.staking_simulator.coinbase_clean_spent_txos(self);
+            mem::swap(&mut self.staking, &mut block.staking_simulator);
+        }
 
         new_utxo_sids
+    }
+
+    /// Check if an txo_sid is unspent.
+    pub fn is_unspent_txo(&self, addr: TxoSID) -> bool {
+        self.utxos.contains_key(&addr)
     }
 }
 
@@ -962,12 +959,14 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
     fn apply_transaction(
         &self,
         block: &mut BlockEffect,
-        txn: TxnEffect,
+        txe: TxnEffect,
     ) -> Result<TxnTempSID> {
-        self.status
-            .check_txn_effects(&txn)
+        block
+            .staking_simulator
+            .coinbase_pay(&txe.txn)
             .c(d!())
-            .and_then(|_| block.add_txn_effect(txn).c(d!()))
+            .and_then(|_| self.status.check_txn_effects(&txe).c(d!()))
+            .and_then(|_| block.add_txn_effect(txe).c(d!()))
     }
 
     fn abort_block(&mut self, block: BlockEffect) -> HashMap<TxnTempSID, Transaction> {
@@ -982,18 +981,14 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
         block.new_issuance_nums.clear();
         block.issuance_keys.clear();
 
-        debug_assert_eq!(block.clone(), Default::default());
-
         ret
     }
 
     #[allow(clippy::cognitive_complexity)]
     fn finish_block(
         &mut self,
-        block: BlockEffect,
+        mut block: BlockEffect,
     ) -> Result<HashMap<TxnTempSID, (TxnSID, Vec<TxoSID>)>> {
-        let mut block = block;
-
         let base_sid = self.status.next_txo.0;
         let txn_temp_sids = block.temp_sids.clone();
 
@@ -1001,14 +996,11 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
 
         for (inp_sid, _) in block.input_txos.iter() {
             // Remove from bitmap
-            debug_assert!(self.utxo_map.query(inp_sid.0 as usize).c(d!())?);
             self.utxo_map.clear(inp_sid.0 as usize).c(d!())?;
         }
 
         let temp_sid_map = self.status.apply_block_effects(&mut block);
         let max_sid = self.status.next_txo.0; // mutated by apply_txn_effects
-
-        // debug_assert!(utxo_sids.is_sorted());
 
         {
             // Update the UTXO bitmap
@@ -1027,12 +1019,8 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
             }
 
             for ix in base_sid..max_sid {
-                debug_assert!(temp_sid_ix < txn_temp_sids.len());
-
                 let temp_sid = txn_temp_sids[temp_sid_ix];
                 let utxo_sids = &temp_sid_map[&temp_sid].1;
-
-                debug_assert!(txo_sid_ix < utxo_sids.len());
 
                 // Only .set() extends the bitmap, so to append a 0 we currently
                 // nead to .set() then .clear().
@@ -1061,8 +1049,6 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
                     }
                 }
             }
-            debug_assert!(temp_sid_ix == txn_temp_sids.len());
-            debug_assert!(txo_sid_ix == 0);
         }
 
         {
@@ -1095,7 +1081,6 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
 
                 // TODO(joe/noah): is this check important?
                 // let outputs = txn.get_outputs_ref(false);
-                // debug_assert!(txo_sids.len() == outputs.len());
 
                 for (position, sid) in txo_sids.iter().enumerate() {
                     self.status
@@ -1141,15 +1126,15 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
             });
         }
 
-        debug_assert_eq!(block, Default::default());
-
         self.block_ctx = Some(block);
 
         Ok(temp_sid_map)
     }
+
     fn pulse_block(block: &mut BlockEffect) -> u64 {
         block.add_pulse()
     }
+
     fn block_pulse_count(block: &Self::Block) -> u64 {
         block.get_pulse_count()
     }
@@ -1256,7 +1241,6 @@ impl LedgerUpdate<ChaChaRng> for LedgerStateChecker {
 
                 // TODO(joe/noah): is this check important?
                 // let outputs = txn.get_outputs_ref(false);
-                // debug_assert!(txo_sids.len() == outputs.len());
 
                 for (position, sid) in txo_sids.iter().enumerate() {
                     self.0
@@ -1281,8 +1265,6 @@ impl LedgerUpdate<ChaChaRng> for LedgerStateChecker {
 
         block.txns.clear();
         block.temp_sids.clear();
-
-        debug_assert_eq!(block, Default::default());
 
         self.0.block_ctx = Some(block);
 
@@ -1485,17 +1467,7 @@ impl LedgerState {
             .block_merkle
             .append_hash(&txns_in_block_hash.0.hash.into())
             .unwrap();
-        // dbg!(&block.txns);
-        // dbg!(&txns_in_block_hash);
-        debug_assert!(
-            ProofOf::<Vec<Transaction>>::new(
-                self.block_merkle
-                    .get_proof(self.status.block_commit_count, 0)
-                    .unwrap()
-            )
-            .0
-            .verify(txns_in_block_hash.0)
-        );
+
         ret
     }
 
@@ -1927,7 +1899,6 @@ impl LedgerState {
         //                            utxo_map,
         //                            txn_log,
         //                            block_ctx: Some(BlockEffect::new()) };
-        // debug_assert!(ledger.txs.len() == ledger.status.next_txn.0);
         // Ok(ledger)
     }
 
@@ -2130,7 +2101,6 @@ impl ArchiveAccess for LedgerState {
         for b in self.blocks.iter() {
             match b.txns.get(ix) {
                 None => {
-                    debug_assert!(ix >= b.txns.len());
                     ix -= b.txns.len();
                 }
                 v => {
@@ -2156,7 +2126,6 @@ impl ArchiveAccess for LedgerState {
         match self.blocks.get(addr.0) {
             None => None,
             Some(finalized_block) => {
-                debug_assert_eq!(addr.0 as u64, finalized_block.merkle_id);
                 let block_inclusion_proof = ProofOf::new(
                     self.block_merkle
                         .get_proof(finalized_block.merkle_id, 0)

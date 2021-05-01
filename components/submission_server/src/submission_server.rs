@@ -1,9 +1,7 @@
 #![deny(warnings)]
 
 use ledger::data_model::errors::PlatformError;
-use ledger::data_model::{
-    Operation, Transaction, TxnEffect, TxnSID, TxnTempSID, TxoSID,
-};
+use ledger::data_model::{Transaction, TxnEffect, TxnSID, TxnTempSID, TxoSID};
 use ledger::store::*;
 use log::info;
 use parking_lot::RwLock;
@@ -175,12 +173,10 @@ where
                 .finish_block(block)
                 .expect("Ledger could not finish block");
             // Update status of all committed transactions
-            for (txn_temp_sid, handle, txn) in self.pending_txns.drain(..) {
+            for (txn_temp_sid, handle, _txn) in self.pending_txns.drain(..) {
                 let committed_txn_info = finalized_txns.get(&txn_temp_sid).c(d!())?;
                 self.txn_status
                     .insert(handle, TxnStatus::Committed(committed_txn_info.clone()));
-
-                txn_log_info(&txn);
             }
             info!("Block ended. Statuses of committed transactions are now updated");
             // Empty temp_sids after the block is finished
@@ -281,40 +277,6 @@ where
                 Ok(txn_handle)
             }
         }
-    }
-}
-
-pub fn txn_log_info(txn: &Transaction) {
-    for op in &txn.body.operations {
-        match op {
-            Operation::DefineAsset(define_asset_op) => info!(
-                "Asset Definition: New asset with code {} defined",
-                define_asset_op.body.asset.code.to_base64()
-            ),
-            Operation::IssueAsset(issue_asset_op) => {
-                info!(
-                    "Asset Issuance: Issued asset {} with {} new outputs. Sequence number is {}.",
-                    issue_asset_op.body.code.to_base64(),
-                    issue_asset_op.body.num_outputs,
-                    issue_asset_op.body.seq_num
-                );
-            }
-            Operation::TransferAsset(xfr_asset_op) => {
-                info!(
-                    "Asset Transfer: Transfer with {} inputs and {} outputs",
-                    xfr_asset_op.body.inputs.len(),
-                    xfr_asset_op.body.outputs.len()
-                );
-            }
-            Operation::UpdateMemo(update_memo) => {
-                info!(
-                    "Updating memo of asset type {} to {}",
-                    update_memo.body.asset_type.to_base64(),
-                    update_memo.body.new_memo.0
-                );
-            }
-            _ => {}
-        };
     }
 }
 

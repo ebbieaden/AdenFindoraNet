@@ -6,6 +6,7 @@
 
 use super::MAX_TOTAL_POWER;
 use crate::staking::Staking;
+use cryptohash::sha256::{self, Digest};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -121,9 +122,17 @@ where
     /// Verify co-signatures based on current validators.
     pub fn verify(&self, staking: &Staking) -> Result<()> {
         staking
-            .get_current_validators()
+            .validator_get_current()
             .ok_or(eg!())
             .and_then(|vd| self.check_cosigs(vd.get_cosig_rule()).c(d!()))
+    }
+
+    /// Generate sha256 digest.
+    #[inline(always)]
+    pub fn hash(&self) -> Result<Digest> {
+        bincode::serialize(self)
+            .c(d!())
+            .map(|bytes| sha256::hash(&bytes))
     }
 }
 

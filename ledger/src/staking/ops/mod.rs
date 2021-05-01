@@ -8,5 +8,6 @@
 //!
 
 pub mod delegation;
+pub mod fra_distribution;
 pub mod governance;
 pub mod update_validator;

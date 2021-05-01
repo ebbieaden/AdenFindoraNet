@@ -3,9 +3,16 @@
 extern crate unicode_normalization;
 
 use super::errors;
-use crate::policy_script::{Policy, PolicyGlobals, TxnPolicyData};
-use crate::staking;
-use crate::{des_fail, ser_fail};
+use crate::{
+    des_fail,
+    policy_script::{Policy, PolicyGlobals, TxnPolicyData},
+    ser_fail,
+    staking::ops::{
+        delegation::DelegationOps, fra_distribution::FraDistributionOps,
+        governance::GovernanceOps, update_validator::UpdateValidatorOps,
+    },
+};
+
 use bitmap::SparseMap;
 use chrono::prelude::*;
 use cryptohash::sha256::Digest as BitDigest;
@@ -536,7 +543,19 @@ pub struct CredentialProof {
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct SmartContract;
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Deserialize,
+    Eq,
+    Hash,
+    PartialEq,
+    Serialize,
+    Ord,
+    PartialOrd,
+)]
 pub struct TxoSID(pub u64);
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -977,16 +996,16 @@ impl UpdateMemo {
     }
 }
 
-#[non_exhaustive]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Operation {
     TransferAsset(TransferAsset),
     IssueAsset(IssueAsset),
     DefineAsset(DefineAsset),
     UpdateMemo(UpdateMemo),
-    Delegation(staking::ops::delegation::DelegationOps),
-    UpdateValidator(staking::ops::update_validator::UpdateValidatorOps),
-    Governance(staking::ops::governance::GovernanceOps),
+    Delegation(DelegationOps),
+    UpdateValidator(UpdateValidatorOps),
+    Governance(GovernanceOps),
+    FraDistribution(FraDistributionOps),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
@@ -1311,7 +1330,6 @@ impl Transaction {
     /// All-in-one checker
     pub fn is_basic_valid(&self, td_height: i64) -> bool {
         !self.in_blk_list()
-            && self.basicly_safe()
             && self.check_fee()
             && self.fra_no_illegal_issuance(td_height)
     }
@@ -1373,55 +1391,55 @@ impl Transaction {
         })
     }
 
-    pub fn basicly_safe(&self) -> bool {
-        lazy_static! {
-            static ref MAX_OPS_PER_TX: usize = env::var("MAX_OPS_PER_TX")
-                .map(|n| pnk!(n.parse::<usize>()))
-                .unwrap_or(10);
-            static ref MAX_INPUTS_PER_OP: usize = env::var("MAX_INPUTS_PER_OP")
-                .map(|n| pnk!(n.parse::<usize>()))
-                .unwrap_or(25);
-            static ref MAX_OUTPUTS_PER_OP: usize = env::var("MAX_OUTPUTS_PER_OP")
-                .map(|n| pnk!(n.parse::<usize>()))
-                .unwrap_or(25);
-            static ref MAX_MEMO_LEN: usize = env::var("MAX_MEMO_LEN")
-                .map(|n| pnk!(n.parse::<usize>()))
-                .unwrap_or(64);
-        }
+    // pub fn basicly_safe(&self) -> bool {
+    //     lazy_static! {
+    //         static ref MAX_OPS_PER_TX: usize = env::var("MAX_OPS_PER_TX")
+    //             .map(|n| pnk!(n.parse::<usize>()))
+    //             .unwrap_or(10);
+    //         static ref MAX_INPUTS_PER_OP: usize = env::var("MAX_INPUTS_PER_OP")
+    //             .map(|n| pnk!(n.parse::<usize>()))
+    //             .unwrap_or(25);
+    //         static ref MAX_OUTPUTS_PER_OP: usize = env::var("MAX_OUTPUTS_PER_OP")
+    //             .map(|n| pnk!(n.parse::<usize>()))
+    //             .unwrap_or(25);
+    //         static ref MAX_MEMO_LEN: usize = env::var("MAX_MEMO_LEN")
+    //             .map(|n| pnk!(n.parse::<usize>()))
+    //             .unwrap_or(64);
+    //     }
 
-        if self.body.operations.len() > *MAX_OPS_PER_TX {
-            return false;
-        }
-        // Currently allow only four types of operations  TransferAsset,DefineAsset,UpdateMemo,IssueAsset
-        // Reject any other operations . This is a a quick fix for main-net 1.0
-        // In case the transaction contains an invalid operation the whole tx is rejected and not just the specific operations
-        for o in self.body.operations.iter() {
-            if let Operation::TransferAsset(ref x) = o {
-                if x.body.outputs.len() > *MAX_OUTPUTS_PER_OP {
-                    return false;
-                }
-                if x.body.inputs.len() > *MAX_INPUTS_PER_OP {
-                    return false;
-                }
-                continue;
-            } else if let Operation::DefineAsset(ref x) = o {
-                if x.body.asset.memo.0.len() > *MAX_MEMO_LEN {
-                    return false;
-                }
-                continue;
-            } else if let Operation::UpdateMemo(ref x) = o {
-                if x.body.new_memo.0.len() > *MAX_MEMO_LEN {
-                    return false;
-                }
-                continue;
-            } else if let Operation::IssueAsset(ref _x) = o {
-                continue;
-            } else {
-                return false; // If the transaction contains any other operation just reject the transaction for now
-            }
-        }
-        true
-    }
+    //     if self.body.operations.len() > *MAX_OPS_PER_TX {
+    //         return false;
+    //     }
+    //     // Currently allow only four types of operations  TransferAsset,DefineAsset,UpdateMemo,IssueAsset
+    //     // Reject any other operations . This is a a quick fix for main-net 1.0
+    //     // In case the transaction contains an invalid operation the whole tx is rejected and not just the specific operations
+    //     for o in self.body.operations.iter() {
+    //         if let Operation::TransferAsset(ref x) = o {
+    //             if x.body.outputs.len() > *MAX_OUTPUTS_PER_OP {
+    //                 return false;
+    //             }
+    //             if x.body.inputs.len() > *MAX_INPUTS_PER_OP {
+    //                 return false;
+    //             }
+    //             continue;
+    //         } else if let Operation::DefineAsset(ref x) = o {
+    //             if x.body.asset.memo.0.len() > *MAX_MEMO_LEN {
+    //                 return false;
+    //             }
+    //             continue;
+    //         } else if let Operation::UpdateMemo(ref x) = o {
+    //             if x.body.new_memo.0.len() > *MAX_MEMO_LEN {
+    //                 return false;
+    //             }
+    //             continue;
+    //         } else if let Operation::IssueAsset(ref _x) = o {
+    //             continue;
+    //         } else {
+    //             return false; // If the transaction contains any other operation just reject the transaction for now
+    //         }
+    //     }
+    //     true
+    // }
 
     /// Issuing FRA is denied except in the genesis block.
     pub fn fra_no_illegal_issuance(&self, tendermint_block_height: i64) -> bool {

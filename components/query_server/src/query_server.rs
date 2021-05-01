@@ -359,23 +359,21 @@ where
 // 5. Signer of a memo_update txn
 fn get_related_addresses(txn: &Transaction) -> HashSet<XfrAddress> {
     let mut related_addresses = HashSet::new();
+
+    macro_rules! staking_gen {
+        ($op: expr) => {
+            $op.get_related_pubkeys().into_iter().for_each(|pk| {
+                related_addresses.insert(XfrAddress { key: pk });
+            });
+        };
+    }
+
     for op in &txn.body.operations {
         match op {
-            Operation::Delegation(d) => {
-                d.get_related_pubkeys().into_iter().for_each(|pk| {
-                    related_addresses.insert(XfrAddress { key: pk });
-                });
-            }
-            Operation::UpdateValidator(u) => {
-                u.get_related_pubkeys().into_iter().for_each(|pk| {
-                    related_addresses.insert(XfrAddress { key: pk });
-                });
-            }
-            Operation::Governance(g) => {
-                g.get_related_pubkeys().into_iter().for_each(|pk| {
-                    related_addresses.insert(XfrAddress { key: pk });
-                });
-            }
+            Operation::Delegation(i) => staking_gen!(i),
+            Operation::UpdateValidator(i) => staking_gen!(i),
+            Operation::Governance(i) => staking_gen!(i),
+            Operation::FraDistribution(i) => staking_gen!(i),
             Operation::TransferAsset(transfer) => {
                 for input in transfer.body.transfer.inputs.iter() {
                     related_addresses.insert(XfrAddress {
@@ -404,7 +402,6 @@ fn get_related_addresses(txn: &Transaction) -> HashSet<XfrAddress> {
                     key: update_memo.pubkey,
                 });
             }
-            _ => {}
         }
     }
     related_addresses

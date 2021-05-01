@@ -2,7 +2,15 @@ use crate::data_model::errors::PlatformError;
 use crate::data_model::*;
 use crate::policies::{compute_debt_swap_effect, DebtSwapEffect};
 use crate::policy_script::{run_txn_check, TxnCheckInputs, TxnPolicyData};
-use crate::staking::{self, ops::delegation::found_delegated_addresses};
+use crate::staking::{
+    self,
+    ops::{
+        delegation::{found_delegated_addresses, DelegationOps},
+        fra_distribution::FraDistributionOps,
+        governance::GovernanceOps,
+        update_validator::UpdateValidatorOps,
+    },
+};
 use crate::{inp_fail, inv_fail, zei_fail};
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
@@ -55,12 +63,10 @@ pub struct TxnEffect {
     // Memo updates
     pub memo_updates: Vec<(AssetTypeCode, XfrPublicKey, Memo)>,
 
-    pub delegations: HashMap<XfrPublicKey, staking::ops::delegation::DelegationOps>,
-    pub update_validators: HashMap<
-        staking::BlockHeight,
-        staking::ops::update_validator::UpdateValidatorOps,
-    >,
-    pub governances: Vec<staking::ops::governance::GovernanceOps>,
+    pub delegations: HashMap<XfrPublicKey, DelegationOps>,
+    pub update_validators: HashMap<staking::BlockHeight, UpdateValidatorOps>,
+    pub governances: Vec<GovernanceOps>,
+    pub fra_distributions: Vec<FraDistributionOps>,
 }
 
 // Internally validates the transaction as well.
@@ -89,6 +95,7 @@ impl TxnEffect {
         let mut delegations = map! {};
         let mut update_validators = map! {};
         let mut governances = vec![];
+        let mut fra_distributions = vec![];
 
         let custom_policy_asset_types = txn
             .body
@@ -124,21 +131,24 @@ impl TxnEffect {
             debug_assert!(txo_count == txos.len());
 
             match op {
-                Operation::Delegation(d) => {
+                Operation::Delegation(i) => {
                     // A same address is not allowed to be
                     // delegated multiple times at the same time.
-                    if delegations.insert(d.pubkey, d.clone()).is_some() {
+                    if delegations.insert(i.pubkey, i.clone()).is_some() {
                         return Err(eg!("dup entries"));
                     }
                 }
-                Operation::UpdateValidator(u) => {
+                Operation::UpdateValidator(i) => {
                     // Only one update is allowed at the same height.
-                    if update_validators.insert(u.data.height, u.clone()).is_some() {
+                    if update_validators.insert(i.data.height, i.clone()).is_some() {
                         return Err(eg!("dup entries"));
                     }
                 }
-                Operation::Governance(g) => {
-                    governances.push(g.clone());
+                Operation::Governance(i) => {
+                    governances.push(i.clone());
+                }
+                Operation::FraDistribution(i) => {
+                    fra_distributions.push(i.clone());
                 }
 
                 // An asset creation is valid iff:
@@ -583,6 +593,7 @@ impl TxnEffect {
             delegations,
             update_validators,
             governances,
+            fra_distributions,
         };
 
         Ok(txn_effect)
@@ -695,24 +706,7 @@ impl BlockEffect {
     //   Otherwise, Err(...)
     #[allow(clippy::cognitive_complexity)]
     pub fn add_txn_effect(&mut self, txn_effect: TxnEffect) -> Result<TxnTempSID> {
-        for d in txn_effect.delegations.values() {
-            d.check_run(&mut self.staking_simulator, &txn_effect.txn)
-                .c(d!())?;
-        }
-
-        // transfer assets from delegated address is not allowed,
-        // except the unique `TransferAsset` operation in the delegation transaction.
-        if found_delegated_addresses(&self.staking_simulator, &txn_effect.txn) {
-            return Err(eg!("transaction denied"));
-        }
-
-        for u in txn_effect.update_validators.values() {
-            u.check_run(&mut self.staking_simulator).c(d!())?;
-        }
-
-        for g in txn_effect.governances.iter() {
-            g.check_run(&mut self.staking_simulator).c(d!())?;
-        }
+        self.check_staking(&txn_effect).c(d!())?;
 
         // Check that no inputs are consumed twice
         for (input_sid, _) in txn_effect.input_txos.iter() {
@@ -794,6 +788,34 @@ impl BlockEffect {
         }
 
         Ok(temp_sid)
+    }
+
+    fn check_staking(&mut self, txn_effect: &TxnEffect) -> Result<()> {
+        for i in txn_effect.delegations.values() {
+            i.check_run(&mut self.staking_simulator, &txn_effect.txn)
+                .c(d!())?;
+        }
+
+        // transfer assets from delegated address is not allowed,
+        // except the unique `TransferAsset` operation in the delegation transaction.
+        if found_delegated_addresses(&self.staking_simulator, &txn_effect.txn) {
+            return Err(eg!("transaction denied"));
+        }
+
+        for i in txn_effect.update_validators.values() {
+            i.check_run(&mut self.staking_simulator).c(d!())?;
+        }
+
+        for i in txn_effect.governances.iter() {
+            i.check_run(&mut self.staking_simulator).c(d!())?;
+        }
+
+        for i in txn_effect.fra_distributions.iter() {
+            i.check_run(&mut self.staking_simulator, &txn_effect.txn)
+                .c(d!())?;
+        }
+
+        Ok(())
     }
 
     pub fn get_pulse_count(&self) -> u64 {

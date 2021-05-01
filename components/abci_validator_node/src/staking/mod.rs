@@ -14,7 +14,7 @@ const VALIDATOR_LIMIT: usize = 50;
 
 /// Get the effective validators at current block height.
 pub fn get_validators(staking: &Staking) -> Vec<ValidatorUpdate> {
-    let mut vs = pnk!(staking.get_current_validators())
+    let mut vs = pnk!(staking.validator_get_current())
         .data
         .values()
         .map(|v| (v.td_power, &v.td_pubkey))

@@ -5,6 +5,7 @@
 //! - manage delegation information
 //! - manage the distribution of investment income
 //! - manage on-chain governance
+//! - manage the official re-distribution of FRA
 //!
 
 #![deny(warnings)]
@@ -14,23 +15,35 @@ pub mod cosig;
 mod init;
 pub mod ops;
 
-use super::data_model::FRA_DECIMALS;
+use crate::{
+    data_model::{
+        Operation, Transaction, TransferAsset, TxoSID, ASSET_TYPE_FRA, FRA_DECIMALS,
+    },
+    store::LedgerStatus,
+};
 use cosig::CoSigRule;
 use cryptohash::sha256::{self, Digest};
+use ops::fra_distribution::FraDistributionOps;
 use ruc::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
-use zei::xfr::sig::XfrPublicKey;
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    mem,
+};
+use zei::xfr::{
+    sig::{XfrKeyPair, XfrPublicKey},
+    structs::{XfrAmount, XfrAssetType},
+};
 
 /// Staking entry
 ///
 /// Init:
-/// 1. set_custom_height
-/// 2. set_validators_at_height
+/// 1. set_custom_block_height
+/// 2. validator_set_at_height
 ///
 /// Usage:
-/// - change_power ...
-/// - apply_validators_at_height
+/// - validator_change_power ...
+/// - validator_apply_at_height
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Staking {
     // the main logic when updating:
@@ -46,6 +59,8 @@ pub struct Staking {
     di: DelegationInfo,
     // current block height in the context of tendermint.
     cur_height: BlockHeight,
+    // FRA Coin Base.
+    coinbase: CoinBase,
 }
 
 impl Staking {
@@ -58,32 +73,33 @@ impl Staking {
             vi: map! {B cur_height => vd },
             di: DelegationInfo::default(),
             cur_height,
+            coinbase: CoinBase::gen(),
         }
     }
 
     /// Get the validators that exactly be setted at a specified height.
     #[inline(always)]
-    pub fn get_validators_at_height(&self, h: BlockHeight) -> Option<Vec<&Validator>> {
+    pub fn validator_get_at_height(&self, h: BlockHeight) -> Option<Vec<&Validator>> {
         self.vi.get(&h).map(|v| v.data.values().collect())
     }
 
-    /// Check if there is some settings on a specified height.
+    // Check if there is some settings on a specified height.
     #[inline(always)]
-    pub fn has_validator_settings_at_height(&self, h: BlockHeight) -> bool {
+    fn validator_has_settings_at_height(&self, h: BlockHeight) -> bool {
         self.vi.contains_key(&h)
     }
 
     /// Set the validators that will be used for the specified height.
     #[inline(always)]
-    pub fn set_validators_at_height(
+    pub fn validator_set_at_height(
         &mut self,
         h: BlockHeight,
         v: ValidatorData,
     ) -> Result<()> {
-        if self.vi.get(&h).is_some() {
+        if self.validator_has_settings_at_height(h) {
             Err(eg!("already exists"))
         } else {
-            self.set_validators_at_height_force(h, v);
+            self.validator_set_at_height_force(h, v);
             Ok(())
         }
     }
@@ -91,29 +107,29 @@ impl Staking {
     /// Set the validators that will be used for the specified height,
     /// no matter if there is an existing set of validators at that height.
     #[inline(always)]
-    pub fn set_validators_at_height_force(&mut self, h: BlockHeight, v: ValidatorData) {
+    pub fn validator_set_at_height_force(&mut self, h: BlockHeight, v: ValidatorData) {
         self.vi.insert(h, v);
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn validator_get_current(&self) -> Option<&ValidatorData> {
+        let h = self.cur_height;
+        self.vi.range(0..=h).last().map(|(_, v)| v)
     }
 
     /// Get the validators that will be used for the specified height.
     #[inline(always)]
-    pub fn get_validators_effective_at_height(
+    pub fn validator_get_effective_at_height(
         &self,
         h: BlockHeight,
     ) -> Option<&ValidatorData> {
         self.vi.range(0..=h).last().map(|(_, v)| v)
     }
 
-    #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn get_current_validators(&self) -> Option<&ValidatorData> {
-        let h = self.cur_height;
-        self.vi.range(0..=h).last().map(|(_, v)| v)
-    }
-
     /// Remove the validators that will be used for the specified height.
     #[inline(always)]
-    pub fn remove_validators_at_height(
+    pub fn validator_remove_at_height(
         &mut self,
         h: BlockHeight,
     ) -> Result<Vec<Validator>> {
@@ -123,51 +139,71 @@ impl Staking {
             .ok_or(eg!("not exists"))
     }
 
-    /// Get the validators that will be used for the specified height.
+    /// Get the validators that will be used for a specified height.
     #[inline(always)]
-    pub fn get_validators_effective_at_height_mut(
+    pub fn validator_get_effective_at_height_mut(
         &mut self,
         h: BlockHeight,
     ) -> Option<&mut ValidatorData> {
         self.vi.range_mut(0..=h).last().map(|(_, v)| v)
     }
 
-    /// Make the validators at the specified height to be effective.
-    pub fn apply_validators_at_height(&mut self, h: BlockHeight) -> Result<()> {
-        let prev = self.vi.range(0..h).last().map(|(_, v)| (*v).clone());
+    /// Get the validators exactly on a specified height.
+    #[inline(always)]
+    pub fn validator_get_at_height_mut(
+        &mut self,
+        h: BlockHeight,
+    ) -> Option<&mut ValidatorData> {
+        self.vi.get_mut(&h)
+    }
 
-        // copy the power of the previous term
+    /// Make the validators at current height to be effective.
+    #[inline(always)]
+    pub fn validator_apply_current(&mut self) {
+        let h = self.cur_height;
+        self.validator_apply_at_height(h);
+
+        // clean old data before current height
+        self.validator_clean_before_height(h);
+    }
+
+    /// Make the validators at a specified height to be effective.
+    pub fn validator_apply_at_height(&mut self, h: BlockHeight) {
+        let prev = self.validator_get_effective_at_height(h - 1).cloned();
+
         if let Some(prev) = prev {
-            self.vi.get_mut(&h).ok_or(eg!("not exists")).map(|vs| {
+            if let Some(vs) = self.validator_get_at_height_mut(h) {
+                // inherit the powers of previous settings
+                // if new settings were found
                 vs.data.iter_mut().for_each(|(k, v)| {
                     if let Some(pv) = prev.data.get(k) {
                         v.td_power = pv.td_power;
                     }
                 });
-            })?;
+            } else {
+                // copy previous settings
+                // if new settings were not found.
+                self.validator_set_at_height_force(h, prev);
+            }
         }
-
-        // set new height after all is well
-        self.cur_height = h;
-
-        // clean old data
-        self.clean_validators_before_height(h);
-
-        Ok(())
     }
 
     // Clean validator-info older than the specified height.
     #[inline(always)]
-    fn clean_validators_before_height(&mut self, h: BlockHeight) {
+    fn validator_clean_before_height(&mut self, h: BlockHeight) {
         self.vi = self.vi.split_off(&h);
     }
 
     /// increase/decrease vote power of a specified validator.
-    fn change_power(&mut self, validator: &XfrPublicKey, power: i64) -> Result<()> {
-        self.check_power(power)
+    fn validator_change_power(
+        &mut self,
+        validator: &XfrPublicKey,
+        power: i64,
+    ) -> Result<()> {
+        self.validator_check_power(power)
             .c(d!())
             .and_then(|_| {
-                self.get_validators_effective_at_height_mut(self.cur_height)
+                self.validator_get_effective_at_height_mut(self.cur_height)
                     .ok_or(eg!())
             })
             .and_then(|cur| {
@@ -181,8 +217,8 @@ impl Staking {
     }
 
     #[inline(always)]
-    fn check_power(&self, new_power: i64) -> Result<()> {
-        if self.total_power() + new_power > MAX_TOTAL_POWER {
+    fn validator_check_power(&self, new_power: i64) -> Result<()> {
+        if self.validator_total_power() + new_power > MAX_TOTAL_POWER {
             Err(eg!("total power overflow"))
         } else {
             Ok(())
@@ -191,16 +227,15 @@ impl Staking {
 
     // calculate current total vote-power
     #[inline(always)]
-    fn total_power(&self) -> i64 {
-        self.get_validators_effective_at_height(self.cur_height)
+    fn validator_total_power(&self) -> i64 {
+        self.validator_get_effective_at_height(self.cur_height)
             .map(|vs| vs.data.values().map(|v| v.td_power).sum())
             .unwrap_or(0)
     }
 
-    /// Set a custom block height,
-    /// used in some initial opertions.
     #[inline(always)]
-    pub fn set_custom_height(&mut self, h: BlockHeight) {
+    #[allow(missing_docs)]
+    pub fn set_custom_block_height(&mut self, h: BlockHeight) {
         self.cur_height = h;
     }
 
@@ -224,15 +259,15 @@ impl Staking {
             return Err(eg!("invalid delegation amount"));
         }
 
-        if let Some(d) = self.get_delegation(&validator) {
+        if let Some(d) = self.delegation_get(&validator) {
             // check delegation deadline
-            if i64::MAX != d.end_height {
+            if u64::MAX != d.end_height {
                 // should NOT happen
                 return Err(eg!("invalid self-delegation of validator"));
             }
         } else if owner == validator {
             // do self-delegation
-            end_height = i64::MAX;
+            end_height = u64::MAX;
         } else {
             return Err(eg!("self-delegation has not been finished"));
         }
@@ -242,7 +277,7 @@ impl Staking {
             return Err(eg!("already exists"));
         }
 
-        self.change_power(&validator, am as i64).c(d!())?;
+        self.validator_change_power(&validator, am as i64).c(d!())?;
 
         let v = Delegation {
             amount: am,
@@ -258,7 +293,7 @@ impl Staking {
         self.di
             .end_height_map
             .entry(end_height)
-            .or_insert_with(HashSet::new)
+            .or_insert_with(BTreeSet::new)
             .insert(k);
 
         Ok(())
@@ -273,7 +308,7 @@ impl Staking {
         let h = self.cur_height;
         let mut orig_h = None;
 
-        if let Some(vs) = self.get_validators_effective_at_height(h) {
+        if let Some(vs) = self.validator_get_effective_at_height(h) {
             if vs.data.get(addr).is_some() {
                 return Err(eg!("validator self-undelegation is not permitted"));
             }
@@ -302,15 +337,15 @@ impl Staking {
             self.di
                 .end_height_map
                 .entry(h)
-                .or_insert_with(HashSet::new)
+                .or_insert_with(BTreeSet::new)
                 .insert(addr.to_owned());
         }
 
-        self.change_power(&validator, power).c(d!())
+        self.validator_change_power(&validator, power).c(d!())
     }
 
     #[inline(always)]
-    fn unfrozen_delegation(&mut self, addr: &XfrPublicKey) -> Result<Delegation> {
+    fn delegation_unfrozen(&mut self, addr: &XfrPublicKey) -> Result<Delegation> {
         let d = self.di.addr_map.remove(addr).ok_or(eg!("not exists"))?;
         if d.state == DelegationState::Paid {
             Ok(d)
@@ -325,7 +360,7 @@ impl Staking {
     ///
     /// **NOTE:** It is the caller's duty to ensure that
     /// there is enough FRAs existing in the target address(owner).
-    pub fn extend_delegation(
+    pub fn delegation_extend(
         &mut self,
         owner: &XfrPublicKey,
         am: Option<Amount>,
@@ -358,7 +393,7 @@ impl Staking {
                 self.di
                     .end_height_map
                     .entry(h)
-                    .or_insert_with(HashSet::new)
+                    .or_insert_with(BTreeSet::new)
                     .insert(addr.to_owned());
             } else {
                 return Err(eg!("new end_height must be bigger than the old one"));
@@ -370,45 +405,92 @@ impl Staking {
 
     /// Get the delegation instance of `addr`.
     #[inline(always)]
-    pub fn get_delegation(&self, addr: &XfrPublicKey) -> Option<&Delegation> {
+    pub fn delegation_get(&self, addr: &XfrPublicKey) -> Option<&Delegation> {
         self.di.addr_map.get(&addr)
+    }
+
+    /// Get the delegation instance of `addr`.
+    #[inline(always)]
+    pub fn delegation_get_mut(
+        &mut self,
+        addr: &XfrPublicKey,
+    ) -> Option<&mut Delegation> {
+        self.di.addr_map.get_mut(&addr)
     }
 
     /// Check if the `addr` is in a state of delegation
     #[inline(always)]
-    pub fn in_delegation(&self, addr: &XfrPublicKey) -> bool {
-        self.di.addr_map.get(&addr).is_some()
+    pub fn delegation_has_addr(&self, addr: &XfrPublicKey) -> bool {
+        self.di.addr_map.contains_key(&addr)
     }
 
     /// Query delegation rewards before a specified height(included).
     #[inline(always)]
-    pub fn get_delegation_rewards_before_height(
+    pub fn delegation_get_rewards_before_height(
         &self,
         h: BlockHeight,
-    ) -> Option<Vec<DelegationReward>> {
-        self.di.end_height_map.get(&h).map(|addrs| {
-            addrs
-                .iter()
-                .flat_map(|addr| self.di.addr_map.get(addr).map(|d| d.into()))
-                .collect()
-        })
+    ) -> Vec<DelegationReward> {
+        self.delegation_get_frozens_before_height(h)
+            .into_iter()
+            .map(|d| d.into())
+            .collect()
     }
 
-    /// call this when:
-    /// - the frozen period expired
-    /// - rewards have been paid successfully.
-    pub fn clean_finished_delegation(&mut self) -> Result<()> {
+    /// Query all frozen delegations.
+    #[inline(always)]
+    pub fn delegation_get_frozens(&self) -> Vec<&Delegation> {
+        self.delegation_get_frozens_before_height(self.cur_height)
+    }
+
+    /// Query frozen delegations before a specified height(included).
+    #[inline(always)]
+    pub fn delegation_get_frozens_before_height(
+        &self,
+        h: BlockHeight,
+    ) -> Vec<&Delegation> {
+        self.di
+            .end_height_map
+            .range(..=h)
+            .flat_map(|(_, addrs)| {
+                addrs
+                    .iter()
+                    .flat_map(|addr| self.di.addr_map.get(addr))
+                    .filter(|d| matches!(d.state, DelegationState::Frozen))
+            })
+            .collect()
+    }
+
+    /// Clean delegation states along with each new block.
+    pub fn deletation_process(&mut self) {
         let h = self.cur_height - FROZEN_BLOCK_CNT;
+
         if 0 < h {
-            self.clean_finished_delegation_before_height(h);
-            Ok(())
-        } else {
-            Err(eg!("block height is too small"))
+            self.di
+                .end_height_map
+                .range(..=h)
+                .map(|(_, addr)| addr)
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .for_each(|addr| {
+                    if let Some(d) = self.di.addr_map.get_mut(&addr) {
+                        if DelegationState::Locked == d.state {
+                            d.state = DelegationState::Frozen;
+                        }
+                    }
+                });
+
+            self.deletation_process_finished_before_height(h);
         }
     }
 
-    /// @param h: included
-    pub fn clean_finished_delegation_before_height(&mut self, h: BlockHeight) {
+    // call this when:
+    // - the frozen period expired
+    // - rewards have been paid successfully.
+    //
+    // @param h: included
+    fn deletation_process_finished_before_height(&mut self, h: BlockHeight) {
         self.di
             .end_height_map
             .range(0..=h)
@@ -417,7 +499,7 @@ impl Staking {
             .iter()
             .for_each(|(h, addrs)| {
                 addrs.iter().for_each(|addr| {
-                    if self.unfrozen_delegation(addr).is_ok() {
+                    if self.delegation_unfrozen(addr).is_ok() {
                         self.di
                             .end_height_map
                             .get_mut(&h)
@@ -437,11 +519,11 @@ impl Staking {
         if am <= 0 {
             return Err(eg!("the amount must be a positive integer"));
         }
-        self.import_extern_amount(addr, -am).c(d!())
+        self.delegation_import_extern_amount(addr, -am).c(d!())
     }
 
     /// Import extern amount changes, eg.. 'Block Rewards'/'Governance Penalty'
-    pub fn import_extern_amount(
+    pub fn delegation_import_extern_amount(
         &mut self,
         addr: &XfrPublicKey,
         am: Amount,
@@ -458,6 +540,10 @@ impl Staking {
             d.rwd_amount = d.rwd_amount.saturating_add(am);
         }
 
+        if self.addr_is_validator(addr) {
+            self.validator_change_power(addr, am).c(d!())?;
+        }
+
         Ok(())
     }
 
@@ -468,11 +554,245 @@ impl Staking {
             .c(d!())
             .map(|bytes| sha256::hash(&bytes))
     }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn coinbase_pubkey(&self) -> XfrPublicKey {
+        self.coinbase.pubkey
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn coinbase_keypair(&self) -> &XfrKeyPair {
+        &self.coinbase.keypair
+    }
+
+    /// Add new FRA utxo to CoinBase.
+    #[inline(always)]
+    pub fn coinbase_recharge(&mut self, txo_sid: TxoSID) {
+        self.coinbase.bank.insert(txo_sid);
+    }
+
+    /// Get all avaliable utos owned by CoinBase.
+    #[inline(always)]
+    pub fn coinbase_txos(&mut self) -> BTreeSet<TxoSID> {
+        self.coinbase.bank.clone()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn coinbase_clean_spent_txos(&mut self, ls: &LedgerStatus) {
+        self.coinbase.bank.clone().into_iter().for_each(|sid| {
+            if !ls.is_unspent_txo(sid) {
+                self.coinbase.bank.remove(&sid);
+            }
+        });
+    }
+
+    /// Add new fra distribution plan.
+    pub fn coinbase_config_fra_distribution(
+        &mut self,
+        ops: FraDistributionOps,
+    ) -> Result<()> {
+        let h = ops.hash().c(d!())?;
+
+        if self.coinbase.distribution_hist.contains(&h) {
+            return Err(eg!("already exists"));
+        }
+
+        // Update fra distribution history first.
+        self.coinbase.distribution_hist.insert(h);
+
+        let mut v;
+        for (k, am) in ops.data.allocation_table.into_iter() {
+            v = self.coinbase.distribution_plan.entry(k).or_insert(0);
+            *v = v.checked_add(am).ok_or(eg!("overflow"))?;
+        }
+
+        Ok(())
+    }
+
+    /// Do the final payment on staking structures.
+    pub fn coinbase_pay(&mut self, tx: &Transaction) -> Result<()> {
+        if !self.is_coinbase_ops(tx) {
+            return Ok(());
+        }
+
+        if !self.is_valid_coinbase_ops(tx) {
+            return Err(eg!());
+        }
+
+        self.coinbase_collect_payments(tx)
+            .c(d!())
+            .map(|(distribution, delegation)| {
+                self.coinbase_pay_fra_distribution(&distribution);
+                self.coinbase_pay_delegation(&delegation);
+            })
+    }
+
+    // Check if a tx contains any inputs from coinbase,
+    // if it does, then it must pass all checkers about coinbase.
+    #[inline(always)]
+    fn is_coinbase_ops(&self, tx: &Transaction) -> bool {
+        tx.body.operations.iter().any(|o| {
+            if let Operation::TransferAsset(ref ops) = o {
+                if ops
+                    .body
+                    .transfer
+                    .inputs
+                    .iter()
+                    .any(|i| i.public_key == self.coinbase.pubkey)
+                {
+                    return true;
+                }
+            }
+            false
+        })
+    }
+
+    // Check if this is a valid coinbase operation.
+    //
+    // - only `TransferAsset` operations are allowed
+    // - all inputs must be owned by `CoinBase`
+    // - all inputs and outputs must be `NonConfidential`
+    // - only FRA are involved in this transaction
+    // - all outputs must be owned by addresses in 'fra distribution' or 'delegation'
+    fn is_valid_coinbase_ops(&self, tx: &Transaction) -> bool {
+        let inputs_is_valid = |o: &TransferAsset| {
+            o.body
+                .transfer
+                .inputs
+                .iter()
+                .all(|i| i.public_key == self.coinbase.pubkey)
+        };
+
+        let outputs_is_valid = |o: &TransferAsset| {
+            o.body.transfer.inputs.iter().all(|i| {
+                self.addr_is_in_distribution_plan(&i.public_key)
+                    || self.addr_is_in_frozen_delegation(&i.public_key)
+            })
+        };
+
+        let only_nonconfidential_fra = |o: &TransferAsset| {
+            o.body
+                .transfer
+                .inputs
+                .iter()
+                .chain(o.body.transfer.outputs.iter())
+                .all(|i| {
+                    if let XfrAssetType::NonConfidential(t) = i.asset_type {
+                        if t == ASSET_TYPE_FRA {
+                            return matches!(i.amount, XfrAmount::NonConfidential(_));
+                        }
+                    }
+                    false
+                })
+        };
+
+        let ops_is_valid = |ops: &Operation| {
+            if let Operation::TransferAsset(o) = ops {
+                inputs_is_valid(o) && outputs_is_valid(o) && only_nonconfidential_fra(o)
+            } else {
+                false
+            }
+        };
+
+        if tx.body.operations.iter().all(|o| ops_is_valid(o)) {
+            return true;
+        }
+
+        false
+    }
+
+    fn coinbase_collect_payments(
+        &self,
+        tx: &Transaction,
+    ) -> Result<(HashMap<XfrPublicKey, u64>, HashMap<XfrPublicKey, u64>)> {
+        let mut v: &mut u64;
+        let mut distribution = map! {};
+        let mut delegation = map! {};
+
+        for o in tx.body.operations.iter() {
+            if let Operation::TransferAsset(ref ops) = o {
+                for u in ops.body.transfer.outputs.iter() {
+                    if let XfrAssetType::NonConfidential(t) = u.asset_type {
+                        if t == ASSET_TYPE_FRA {
+                            if let XfrAmount::NonConfidential(am) = u.amount {
+                                if self.addr_is_in_distribution_plan(&u.public_key) {
+                                    v = distribution.entry(u.public_key).or_insert(0);
+                                    *v = v.checked_add(am).ok_or(eg!("overflow"))?;
+                                }
+                                if self.addr_is_in_frozen_delegation(&u.public_key) {
+                                    v = delegation.entry(u.public_key).or_insert(0);
+                                    *v = v.checked_add(am).ok_or(eg!("overflow"))?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((distribution, delegation))
+    }
+
+    fn coinbase_pay_fra_distribution(&mut self, payments: &HashMap<XfrPublicKey, u64>) {
+        self.coinbase
+            .distribution_plan
+            .iter_mut()
+            .for_each(|(k, am)| {
+                // this unwrap is safe
+                *am = am.saturating_sub(*payments.get(k).unwrap());
+            });
+
+        // clean 'completely paid' item
+        self.coinbase.distribution_plan =
+            mem::take(&mut self.coinbase.distribution_plan)
+                .into_iter()
+                .filter(|(_, am)| 0 < *am)
+                .collect();
+    }
+
+    fn coinbase_pay_delegation(&mut self, payments: &HashMap<XfrPublicKey, u64>) {
+        payments.iter().for_each(|(k, am)| {
+            if let Some(v) = self.delegation_get_mut(k) {
+                if (v.rwd_amount <= 0 || *am == v.rwd_amount as u64)
+                    && matches!(v.state, DelegationState::Frozen)
+                {
+                    v.state = DelegationState::Paid;
+                }
+            }
+        });
+    }
+
+    #[inline(always)]
+    fn addr_is_in_distribution_plan(&self, pk: &XfrPublicKey) -> bool {
+        self.coinbase.distribution_plan.contains_key(pk)
+    }
+
+    #[inline(always)]
+    fn addr_is_in_frozen_delegation(&self, pk: &XfrPublicKey) -> bool {
+        if let Some(dlg) = self.di.addr_map.get(pk) {
+            matches!(dlg.state, DelegationState::Frozen)
+        } else {
+            false
+        }
+    }
+
+    #[inline(always)]
+    fn addr_is_validator(&self, pk: &XfrPublicKey) -> bool {
+        self.validator_get_current()
+            .map(|v| v.data.contains_key(pk))
+            .unwrap_or(false)
+    }
 }
 
 const FRA: u64 = 10_u64.pow(FRA_DECIMALS as u32);
 const MIN_DELEGATION_AMOUNT: u64 = 32 * FRA;
 const MAX_DELEGATION_AMOUNT: u64 = 32_0000 * FRA;
+
+// The 24-words mnemonic of 'FRA Coin Base Address'.
+const COIN_BASE_MNEMONIC: &str = "load second west source excuse skin thought inside wool kick power tail universe brush kid butter bomb other mistake oven raw armed tree walk";
 
 // A limitation from
 // [tendermint](https://docs.tendermint.com/v0.33/spec/abci/apps.html#validator-updates)
@@ -485,16 +805,16 @@ const MAX_DELEGATION_AMOUNT: u64 = 32_0000 * FRA;
 const MAX_TOTAL_POWER: i64 = i64::MAX / 8;
 
 // Block time interval, in seconds.
-const BLOCK_INTERVAL: i64 = 15;
+const BLOCK_INTERVAL: u64 = 15;
 
 /// The lock time after the delegation expires, about 30 days.
-pub const FROZEN_BLOCK_CNT: i64 = 3600 * 24 * 30 / BLOCK_INTERVAL;
+pub const FROZEN_BLOCK_CNT: u64 = 3600 * 24 * 30 / BLOCK_INTERVAL;
 
 // used to express some descriptive information
 type Memo = String;
 
 // block height of tendermint
-pub(crate) type BlockHeight = i64;
+pub(crate) type BlockHeight = u64;
 
 // use i64 to keep compatible with the logic of asset penalty
 type Amount = i64;
@@ -507,7 +827,7 @@ pub struct ValidatorData {
     pub(crate) height: BlockHeight,
     pub(crate) cosig_rule: CoSigRule,
     /// Major data of validators.
-    pub data: HashMap<XfrPublicKey, Validator>,
+    pub data: BTreeMap<XfrPublicKey, Validator>,
 }
 
 impl ValidatorData {
@@ -517,7 +837,7 @@ impl ValidatorData {
             return Err(eg!("invalid start height"));
         }
 
-        let mut vs = map! {};
+        let mut vs = BTreeMap::new();
         for v in v_set.into_iter() {
             if vs.insert(v.id, v).is_some() {
                 return Err(eg!("duplicate entries"));
@@ -556,7 +876,7 @@ impl ValidatorData {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn get_validators(&self) -> &HashMap<XfrPublicKey, Validator> {
+    pub fn get_validators(&self) -> &BTreeMap<XfrPublicKey, Validator> {
         &self.data
     }
 }
@@ -565,8 +885,8 @@ impl ValidatorData {
 // so it is feasible to use `XfrPublicKey` as the map key.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
 struct DelegationInfo {
-    addr_map: HashMap<XfrPublicKey, Delegation>,
-    end_height_map: BTreeMap<BlockHeight, HashSet<XfrPublicKey>>,
+    addr_map: BTreeMap<XfrPublicKey, Delegation>,
+    end_height_map: BTreeMap<BlockHeight, BTreeSet<XfrPublicKey>>,
 }
 
 /// Validator info
@@ -676,6 +996,45 @@ impl DelegationReward {
 impl From<&Delegation> for DelegationReward {
     fn from(d: &Delegation) -> Self {
         DelegationReward::new(d.rwd_pk, d.rwd_amount)
+    }
+}
+
+// All transactions sent from CoinBase must support idempotence.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct CoinBase {
+    pubkey: XfrPublicKey,
+    keypair: XfrKeyPair,
+    bank: BTreeSet<TxoSID>,
+    distribution_hist: BTreeSet<Digest>,
+    distribution_plan: BTreeMap<XfrPublicKey, u64>,
+}
+
+impl Eq for CoinBase {}
+
+impl PartialEq for CoinBase {
+    fn eq(&self, other: &Self) -> bool {
+        self.pubkey == other.pubkey
+    }
+}
+
+impl Default for CoinBase {
+    fn default() -> Self {
+        Self::gen()
+    }
+}
+
+impl CoinBase {
+    fn gen() -> Self {
+        let keypair = pnk!(wallet::restore_keypair_from_mnemonic_default(
+            COIN_BASE_MNEMONIC
+        ));
+        CoinBase {
+            pubkey: keypair.get_pk(),
+            keypair,
+            bank: BTreeSet::new(),
+            distribution_hist: BTreeSet::new(),
+            distribution_plan: BTreeMap::new(),
+        }
     }
 }
 

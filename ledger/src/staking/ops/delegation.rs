@@ -47,7 +47,7 @@ impl DelegationOps {
                         self.body.validator,
                         am,
                         staking.cur_height,
-                        staking.cur_height + self.body.block_span,
+                        staking.cur_height.saturating_add(self.body.block_span),
                     )
                     .c(d!())
             })
@@ -73,7 +73,7 @@ impl DelegationOps {
     }
 }
 
-type BlockAmount = i64;
+type BlockAmount = u64;
 
 /// The body of a delegation operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -123,7 +123,7 @@ fn check_delegation_context(tx: &Transaction) -> Result<Amount> {
         .c(d!("delegation amount is not paid correctly"))
 }
 
-fn check_delegation_context_fee(tx: &Transaction) -> Result<()> {
+pub(crate) fn check_delegation_context_fee(tx: &Transaction) -> Result<()> {
     if let Operation::TransferAsset(ref x) = tx.body.operations.get(0).ok_or(eg!())? {
         if 1 != x.body.outputs.len() {
             return Err(eg!("multi outputs is not allowed"));
@@ -182,6 +182,9 @@ fn check_delegation_context_self_transfer(
     Err(eg!())
 }
 
+/// Transfer assets from delegated address is not allowed,
+/// except the unique `TransferAsset` operation in the delegation transaction.
+///
 /// Detect whether there are some delegated addresses in `tx`;
 /// If detected, return true, otherwise return false.
 ///

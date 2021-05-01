@@ -16,18 +16,18 @@ impl UpdateValidatorOps {
     /// Check the validity of an operation by running it in a staking simulator.
     #[inline(always)]
     pub fn check_run(&self, staking_simulator: &mut Staking) -> Result<()> {
-        self.clone().apply(staking_simulator).c(d!())
+        self.apply(staking_simulator).c(d!())
     }
 
     /// Apply new settings to the target `Staking` instance,
     /// will fail if existing info is found at the same height.
-    pub fn apply(self, staking: &mut Staking) -> Result<()> {
+    pub fn apply(&self, staking: &mut Staking) -> Result<()> {
         self.verify(staking)
             .c(d!())
             .and_then(|_| self.check_context(staking).c(d!()))
             .and_then(|_| {
                 staking
-                    .set_validators_at_height(self.data.height, self.data)
+                    .validator_set_at_height(self.data.height, self.data.clone())
                     .c(d!())
             })
     }
@@ -39,12 +39,12 @@ impl UpdateValidatorOps {
         self.verify(staking)
             .c(d!())
             .and_then(|_| self.check_context(staking).c(d!()))
-            .map(|_| staking.set_validators_at_height_force(self.data.height, self.data))
+            .map(|_| staking.validator_set_at_height_force(self.data.height, self.data))
     }
 
     #[inline(always)]
     fn check_context(&self, staking: &Staking) -> Result<()> {
-        if let Some(v) = staking.get_current_validators() {
+        if let Some(v) = staking.validator_get_current() {
             if self.data.height < v.height {
                 return Err(eg!("invalid height"));
             }
