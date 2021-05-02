@@ -115,8 +115,7 @@ impl Staking {
     #[inline(always)]
     #[allow(missing_docs)]
     pub fn validator_get_current(&self) -> Option<&ValidatorData> {
-        let h = self.cur_height;
-        self.vi.range(0..=h).last().map(|(_, v)| v)
+        self.validator_get_effective_at_height(self.cur_height)
     }
 
     /// Get the validators that will be used for the specified height.
@@ -201,7 +200,7 @@ impl Staking {
         validator: &XfrPublicKey,
         power: i64,
     ) -> Result<()> {
-        self.validator_check_power(power)
+        self.validator_check_power(power, validator)
             .c(d!())
             .and_then(|_| {
                 self.validator_get_effective_at_height_mut(self.cur_height)
@@ -218,12 +217,32 @@ impl Staking {
     }
 
     #[inline(always)]
-    fn validator_check_power(&self, new_power: i64) -> Result<()> {
-        if self.validator_total_power() + new_power > MAX_TOTAL_POWER {
-            Err(eg!("total power overflow"))
-        } else {
-            Ok(())
+    fn validator_check_power(
+        &self,
+        new_power: i64,
+        vldtor: &XfrPublicKey,
+    ) -> Result<()> {
+        let total_power = self.validator_total_power() + new_power;
+        if MAX_TOTAL_POWER < total_power {
+            return Err(eg!("total power overflow"));
         }
+
+        if let Some(v) = self
+            .validator_get_current()
+            .and_then(|vd| vd.data.get(vldtor))
+        {
+            if ((v.td_power + new_power) as u128)
+                .checked_mul(MAX_POWER_PERCENT_PER_VALIDATOR[1])
+                .ok_or(eg!())?
+                > MAX_POWER_PERCENT_PER_VALIDATOR[0]
+                    .checked_mul(total_power as u128)
+                    .ok_or(eg!())?
+            {
+                return Err(eg!("validator power overflow"));
+            }
+        }
+
+        Ok(())
     }
 
     // calculate current total vote-power
@@ -242,6 +261,7 @@ impl Staking {
 
     /// Start a new delegation.
     /// - increase the vote power of the co-responding validator
+    /// - self-delegation will generate 10x power than user-delegation
     ///
     /// Validator must do self-delegatation first,
     /// and its delegation end_height must be `i64::MAX`.
@@ -256,9 +276,12 @@ impl Staking {
         start_height: BlockHeight,
         mut end_height: BlockHeight,
     ) -> Result<()> {
+        const POWER_MUL: i64 = 10;
         if !(MIN_DELEGATION_AMOUNT..=MAX_DELEGATION_AMOUNT).contains(&(am as u64)) {
             return Err(eg!("invalid delegation amount"));
         }
+
+        let mut power = am as i64 / POWER_MUL;
 
         if let Some(d) = self.delegation_get(&validator) {
             // check delegation deadline
@@ -269,6 +292,7 @@ impl Staking {
         } else if owner == validator {
             // do self-delegation
             end_height = u64::MAX;
+            power *= POWER_MUL;
         } else {
             return Err(eg!("self-delegation has not been finished"));
         }
@@ -278,7 +302,7 @@ impl Staking {
             return Err(eg!("already exists"));
         }
 
-        self.validator_change_power(&validator, am as i64).c(d!())?;
+        self.validator_change_power(&validator, power).c(d!())?;
 
         let v = Delegation {
             amount: am,
@@ -853,11 +877,15 @@ pub const COIN_BASE_MNEMONIC: &str = "load second west source excuse skin though
 // > that cause it to exceed this limit.
 const MAX_TOTAL_POWER: i64 = i64::MAX / 8;
 
+// The max vote power of any validator
+// can not exceed 20% of total power.
+const MAX_POWER_PERCENT_PER_VALIDATOR: [u128; 2] = [1, 5];
+
 // Block time interval, in seconds.
 const BLOCK_INTERVAL: u64 = 15;
 
-/// The lock time after the delegation expires, about 30 days.
-pub const FROZEN_BLOCK_CNT: u64 = 3600 * 24 * 30 / BLOCK_INTERVAL;
+/// The lock time after the delegation expires, about 21 days.
+pub const FROZEN_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
 
 // used to express some descriptive information
 type Memo = String;
@@ -1096,8 +1124,9 @@ impl CoinBase {
     }
 }
 
+// sha256(pubkey)[:20]
 fn td_pubkey_to_td_addr(pubkey: &[u8]) -> String {
-    hex::encode(sha2::Sha256::digest(pubkey))
+    hex::encode(&sha2::Sha256::digest(pubkey)[..20])
 }
 
 #[cfg(test)]

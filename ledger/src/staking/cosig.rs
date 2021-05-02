@@ -112,7 +112,9 @@ where
             .flat_map(|s| rule.weights.get(&s.pk).map(|w| w.weight as u128))
             .sum::<u128>();
 
-        if actual_weights * rule.threshold[1] < rule.threshold[0] * rule_weights {
+        if actual_weights.checked_mul(rule.threshold[1]).ok_or(eg!())?
+            < rule.threshold[0].checked_mul(rule_weights).ok_or(eg!())?
+        {
             return Err(eg!(CoSigErr::WeightInsufficient));
         }
 
