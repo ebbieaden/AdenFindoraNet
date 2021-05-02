@@ -7,9 +7,13 @@ use crate::{
     des_fail,
     policy_script::{Policy, PolicyGlobals, TxnPolicyData},
     ser_fail,
-    staking::ops::{
-        delegation::DelegationOps, fra_distribution::FraDistributionOps,
-        governance::GovernanceOps, update_validator::UpdateValidatorOps,
+    staking::{
+        ops::{
+            delegation::DelegationOps, fra_distribution::FraDistributionOps,
+            governance::GovernanceOps, undelegation::UnDelegationOps,
+            update_validator::UpdateValidatorOps,
+        },
+        COIN_BASE_MNEMONIC,
     },
 };
 
@@ -33,7 +37,6 @@ use std::{env, mem};
 use time::OffsetDateTime;
 use unicode_normalization::UnicodeNormalization;
 use utils::{HashOf, ProofOf, Serialized, SignatureOf};
-use zei::serialization::ZeiFromToBytes;
 use zei::xfr::lib::{gen_xfr_body, XfrNotePolicies};
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 use zei::xfr::structs::{
@@ -1003,6 +1006,7 @@ pub enum Operation {
     DefineAsset(DefineAsset),
     UpdateMemo(UpdateMemo),
     Delegation(DelegationOps),
+    UnDelegation(UnDelegationOps),
     UpdateValidator(UpdateValidatorOps),
     Governance(GovernanceOps),
     FraDistribution(FraDistributionOps),
@@ -1319,8 +1323,7 @@ pub const FRA_DECIMALS: u8 = 6;
 lazy_static! {
     /// The destination of Fee is an black hole,
     /// all token transfered to it will be burned.
-    pub static ref BLACK_HOLE_PUBKEY: XfrPublicKey =
-        pnk!(XfrPublicKey::zei_from_bytes(&[0; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
+    pub static ref BLACK_HOLE_PUBKEY: XfrPublicKey = pnk!(wallet::restore_keypair_from_mnemonic_default(COIN_BASE_MNEMONIC)).get_pk();
 }
 
 /// see [**mainnet-v1.0 defination**](https://www.notion.so/findora/Transaction-Fees-Analysis-d657247b70f44a699d50e1b01b8a2287)
@@ -1390,56 +1393,6 @@ impl Transaction {
             false
         })
     }
-
-    // pub fn basicly_safe(&self) -> bool {
-    //     lazy_static! {
-    //         static ref MAX_OPS_PER_TX: usize = env::var("MAX_OPS_PER_TX")
-    //             .map(|n| pnk!(n.parse::<usize>()))
-    //             .unwrap_or(10);
-    //         static ref MAX_INPUTS_PER_OP: usize = env::var("MAX_INPUTS_PER_OP")
-    //             .map(|n| pnk!(n.parse::<usize>()))
-    //             .unwrap_or(25);
-    //         static ref MAX_OUTPUTS_PER_OP: usize = env::var("MAX_OUTPUTS_PER_OP")
-    //             .map(|n| pnk!(n.parse::<usize>()))
-    //             .unwrap_or(25);
-    //         static ref MAX_MEMO_LEN: usize = env::var("MAX_MEMO_LEN")
-    //             .map(|n| pnk!(n.parse::<usize>()))
-    //             .unwrap_or(64);
-    //     }
-
-    //     if self.body.operations.len() > *MAX_OPS_PER_TX {
-    //         return false;
-    //     }
-    //     // Currently allow only four types of operations  TransferAsset,DefineAsset,UpdateMemo,IssueAsset
-    //     // Reject any other operations . This is a a quick fix for main-net 1.0
-    //     // In case the transaction contains an invalid operation the whole tx is rejected and not just the specific operations
-    //     for o in self.body.operations.iter() {
-    //         if let Operation::TransferAsset(ref x) = o {
-    //             if x.body.outputs.len() > *MAX_OUTPUTS_PER_OP {
-    //                 return false;
-    //             }
-    //             if x.body.inputs.len() > *MAX_INPUTS_PER_OP {
-    //                 return false;
-    //             }
-    //             continue;
-    //         } else if let Operation::DefineAsset(ref x) = o {
-    //             if x.body.asset.memo.0.len() > *MAX_MEMO_LEN {
-    //                 return false;
-    //             }
-    //             continue;
-    //         } else if let Operation::UpdateMemo(ref x) = o {
-    //             if x.body.new_memo.0.len() > *MAX_MEMO_LEN {
-    //                 return false;
-    //             }
-    //             continue;
-    //         } else if let Operation::IssueAsset(ref _x) = o {
-    //             continue;
-    //         } else {
-    //             return false; // If the transaction contains any other operation just reject the transaction for now
-    //         }
-    //     }
-    //     true
-    // }
 
     /// Issuing FRA is denied except in the genesis block.
     pub fn fra_no_illegal_issuance(&self, tendermint_block_height: i64) -> bool {
@@ -1685,6 +1638,7 @@ mod tests {
     use rand_core::SeedableRng;
     use std::cmp::min;
     use zei::ristretto;
+    use zei::serialization::ZeiFromToBytes;
     use zei::xfr::structs::{AssetTypeAndAmountProof, XfrBody, XfrProofs};
     use zeiutils::err_eq;
 

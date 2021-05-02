@@ -26,6 +26,7 @@ use cryptohash::sha256::{self, Digest};
 use ops::fra_distribution::FraDistributionOps;
 use ruc::*;
 use serde::{Deserialize, Serialize};
+use sha2::Digest as _;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     mem,
@@ -59,7 +60,7 @@ pub struct Staking {
     di: DelegationInfo,
     // current block height in the context of tendermint.
     cur_height: BlockHeight,
-    // FRA Coin Base.
+    // FRA CoinBase.
     coinbase: CoinBase,
 }
 
@@ -424,6 +425,15 @@ impl Staking {
         self.di.addr_map.contains_key(&addr)
     }
 
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn delegation_get_rewards(&self) -> Vec<DelegationReward> {
+        self.delegation_get_frozens()
+            .into_iter()
+            .map(|d| d.into())
+            .collect()
+    }
+
     /// Query delegation rewards before a specified height(included).
     #[inline(always)]
     pub fn delegation_get_rewards_before_height(
@@ -522,7 +532,26 @@ impl Staking {
         self.delegation_import_extern_amount(addr, -am).c(d!())
     }
 
-    /// Import extern amount changes, eg.. 'Block Rewards'/'Governance Penalty'
+    /// A helper for setting block rewards in ABCI.
+    pub fn set_block_rewards(
+        &mut self,
+        addr: TendermintAddrRef,
+        am: Amount,
+    ) -> Result<()> {
+        let pk = self
+            .validator_get_current()
+            .and_then(|vd| vd.addr_td_to_app.get(addr).copied())
+            .ok_or(eg!())?;
+
+        if self.addr_is_validator(&pk) {
+            return Err(eg!("not validator"));
+        }
+
+        self.delegation_import_extern_amount(&pk, am).c(d!())
+    }
+
+    /// Import extern amount changes,
+    /// eg.. 'Block Rewards'/'Governance Penalty'
     pub fn delegation_import_extern_amount(
         &mut self,
         addr: &XfrPublicKey,
@@ -540,7 +569,8 @@ impl Staking {
             d.rwd_amount = d.rwd_amount.saturating_add(am);
         }
 
-        if self.addr_is_validator(addr) {
+        // extern changes can NOT increase vote power
+        if 0 > am && self.addr_is_validator(addr) {
             self.validator_change_power(addr, am).c(d!())?;
         }
 
@@ -618,7 +648,7 @@ impl Staking {
             return Ok(());
         }
 
-        if !self.is_valid_coinbase_ops(tx) {
+        if !self.seems_valid_coinbase_ops(tx) {
             return Err(eg!());
         }
 
@@ -657,7 +687,9 @@ impl Staking {
     // - all inputs and outputs must be `NonConfidential`
     // - only FRA are involved in this transaction
     // - all outputs must be owned by addresses in 'fra distribution' or 'delegation'
-    fn is_valid_coinbase_ops(&self, tx: &Transaction) -> bool {
+    //
+    // **NOTE:** amount is not checked in this function !
+    fn seems_valid_coinbase_ops(&self, tx: &Transaction) -> bool {
         let inputs_is_valid = |o: &TransferAsset| {
             o.body
                 .transfer
@@ -667,7 +699,7 @@ impl Staking {
         };
 
         let outputs_is_valid = |o: &TransferAsset| {
-            o.body.transfer.inputs.iter().all(|i| {
+            o.body.transfer.outputs.iter().all(|i| {
                 self.addr_is_in_distribution_plan(&i.public_key)
                     || self.addr_is_in_frozen_delegation(&i.public_key)
             })
@@ -681,7 +713,7 @@ impl Staking {
                 .chain(o.body.transfer.outputs.iter())
                 .all(|i| {
                     if let XfrAssetType::NonConfidential(t) = i.asset_type {
-                        if t == ASSET_TYPE_FRA {
+                        if ASSET_TYPE_FRA == t {
                             return matches!(i.amount, XfrAmount::NonConfidential(_));
                         }
                     }
@@ -697,11 +729,7 @@ impl Staking {
             }
         };
 
-        if tx.body.operations.iter().all(|o| ops_is_valid(o)) {
-            return true;
-        }
-
-        false
+        tx.body.operations.iter().all(|o| ops_is_valid(o))
     }
 
     fn coinbase_collect_payments(
@@ -733,16 +761,30 @@ impl Staking {
             }
         }
 
+        let xa = distribution
+            .iter()
+            .any(|(addr, am)| self.coinbase.distribution_plan.get(addr).unwrap() != am);
+        let xb = delegation.iter().any(|(addr, am)| {
+            self.delegation_get(addr).unwrap().rwd_amount != *am as i64
+        });
+
+        if xa || xb {
+            return Err(eg!("amount not match"));
+        }
+
         Ok((distribution, delegation))
     }
 
+    // amounts have been checked in `coinbase_collect_payments`,
     fn coinbase_pay_fra_distribution(&mut self, payments: &HashMap<XfrPublicKey, u64>) {
         self.coinbase
             .distribution_plan
             .iter_mut()
             .for_each(|(k, am)| {
-                // this unwrap is safe
-                *am = am.saturating_sub(*payments.get(k).unwrap());
+                // once paid, it was all paid
+                if payments.contains_key(k) {
+                    *am = 0;
+                }
             });
 
         // clean 'completely paid' item
@@ -753,21 +795,22 @@ impl Staking {
                 .collect();
     }
 
+    // - amounts have been checked in `coinbase_collect_payments`
+    // - pubkey existances have been checked in `seems_valid_coinbase_ops`
+    // - delegation states has been checked in `addr_is_in_frozen_delegation`
+    #[inline(always)]
     fn coinbase_pay_delegation(&mut self, payments: &HashMap<XfrPublicKey, u64>) {
-        payments.iter().for_each(|(k, am)| {
-            if let Some(v) = self.delegation_get_mut(k) {
-                if (v.rwd_amount <= 0 || *am == v.rwd_amount as u64)
-                    && matches!(v.state, DelegationState::Frozen)
-                {
-                    v.state = DelegationState::Paid;
-                }
-            }
+        payments.keys().for_each(|k| {
+            self.delegation_get_mut(k).unwrap().state = DelegationState::Paid;
         });
     }
 
+    // For addresses in delegation state,
+    // postpone the distribution until the delegation ends.
     #[inline(always)]
     fn addr_is_in_distribution_plan(&self, pk: &XfrPublicKey) -> bool {
         self.coinbase.distribution_plan.contains_key(pk)
+            && !self.di.addr_map.contains_key(pk)
     }
 
     #[inline(always)]
@@ -785,14 +828,20 @@ impl Staking {
             .map(|v| v.data.contains_key(pk))
             .unwrap_or(false)
     }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn fra_distribution_get_plan(&self) -> &BTreeMap<XfrPublicKey, u64> {
+        &self.coinbase.distribution_plan
+    }
 }
 
 const FRA: u64 = 10_u64.pow(FRA_DECIMALS as u32);
 const MIN_DELEGATION_AMOUNT: u64 = 32 * FRA;
 const MAX_DELEGATION_AMOUNT: u64 = 32_0000 * FRA;
 
-// The 24-words mnemonic of 'FRA Coin Base Address'.
-const COIN_BASE_MNEMONIC: &str = "load second west source excuse skin thought inside wool kick power tail universe brush kid butter bomb other mistake oven raw armed tree walk";
+/// The 24-words mnemonic of 'FRA CoinBase Address'.
+pub const COIN_BASE_MNEMONIC: &str = "load second west source excuse skin thought inside wool kick power tail universe brush kid butter bomb other mistake oven raw armed tree walk";
 
 // A limitation from
 // [tendermint](https://docs.tendermint.com/v0.33/spec/abci/apps.html#validator-updates)
@@ -819,6 +868,10 @@ pub(crate) type BlockHeight = u64;
 // use i64 to keep compatible with the logic of asset penalty
 type Amount = i64;
 
+// sha256(pubkey)[:20]
+type TendermintAddr = String;
+type TendermintAddrRef<'a> = &'a str;
+
 type ValidatorInfo = BTreeMap<BlockHeight, ValidatorData>;
 
 /// Data of the effective validators on a specified height.
@@ -828,6 +881,8 @@ pub struct ValidatorData {
     pub(crate) cosig_rule: CoSigRule,
     /// Major data of validators.
     pub data: BTreeMap<XfrPublicKey, Validator>,
+    // <tendermint validator address> => XfrPublicKey
+    addr_td_to_app: BTreeMap<TendermintAddr, XfrPublicKey>,
 }
 
 impl ValidatorData {
@@ -837,19 +892,22 @@ impl ValidatorData {
             return Err(eg!("invalid start height"));
         }
 
-        let mut vs = BTreeMap::new();
+        let mut data = BTreeMap::new();
+        let mut addr_td_to_app = BTreeMap::new();
         for v in v_set.into_iter() {
-            if vs.insert(v.id, v).is_some() {
+            addr_td_to_app.insert(td_pubkey_to_td_addr(&v.td_pubkey), v.id);
+            if data.insert(v.id, v).is_some() {
                 return Err(eg!("duplicate entries"));
             }
         }
 
-        let cosig_rule = Self::gen_cosig_rule(vs.keys().copied().collect()).c(d!())?;
+        let cosig_rule = Self::gen_cosig_rule(data.keys().copied().collect()).c(d!())?;
 
         Ok(ValidatorData {
             height: h,
             cosig_rule,
-            data: vs,
+            data,
+            addr_td_to_app,
         })
     }
 
@@ -1036,6 +1094,10 @@ impl CoinBase {
             distribution_plan: BTreeMap::new(),
         }
     }
+}
+
+fn td_pubkey_to_td_addr(pubkey: &[u8]) -> String {
+    hex::encode(sha2::Sha256::digest(pubkey))
 }
 
 #[cfg(test)]

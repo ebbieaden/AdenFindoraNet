@@ -10,4 +10,5 @@
 pub mod delegation;
 pub mod fra_distribution;
 pub mod governance;
+pub mod undelegation;
 pub mod update_validator;

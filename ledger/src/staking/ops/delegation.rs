@@ -21,7 +21,7 @@ use zei::xfr::{
 pub struct DelegationOps {
     pub(crate) body: Data,
     pub(crate) pubkey: XfrPublicKey,
-    pub(crate) signature: XfrSignature,
+    signature: XfrSignature,
 }
 
 impl DelegationOps {
@@ -97,7 +97,7 @@ impl Data {
 // Check tx and return the amount of delegation.
 // - total amount of operations is 3
 // - the first one is a `TransferAsset` to pay fee
-// - the second one is a `Deletation`
+// - the second one is a `Delegation`
 // - the third one is a `TransferAsset` to pay to self
 //     - all inputs must be owned by a same address
 //     - number of its outputs must be 1,

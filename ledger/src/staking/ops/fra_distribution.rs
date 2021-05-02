@@ -6,7 +6,7 @@
 
 use crate::{
     data_model::{Operation, Transaction},
-    staking::{cosig::CoSigOp, BlockHeight, Staking},
+    staking::{cosig::CoSigOp, Staking},
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -59,8 +59,7 @@ impl FraDistributionOps {
 /// The body of a `FraDistribution Operation`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Data {
-    /// The minimal height that can triggle this distribution.
-    pub effective_height: BlockHeight,
+    uuid: u64,
     /// How many FRAs to pay for each address.
     pub allocation_table: BTreeMap<XfrPublicKey, u64>,
 }
