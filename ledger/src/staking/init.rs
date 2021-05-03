@@ -17,7 +17,7 @@ struct ValidatorStr {
     td_power: i64,
     // `XfrPublicKey` in base64 format
     id: String,
-    memo: String,
+    memo: Option<String>,
 }
 
 impl TryFrom<ValidatorStr> for Validator {

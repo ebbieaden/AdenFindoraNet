@@ -5,7 +5,7 @@
 //!
 
 use crate::{
-    data_model::{Operation, Transaction},
+    data_model::{NoReplayToken, Operation, Transaction},
     staking::{cosig::CoSigOp, Staking},
 };
 use ruc::*;
@@ -50,18 +50,30 @@ impl FraDistributionOps {
     pub fn get_related_pubkeys(&self) -> Vec<XfrPublicKey> {
         self.cosigs
             .keys()
-            .chain(self.data.allocation_table.keys())
+            .chain(self.data.alloc_table.keys())
             .copied()
             .collect()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn new(alloc_table: BTreeMap<XfrPublicKey, u64>, nonce: NoReplayToken) -> Self {
+        CoSigOp::create(Data::new(alloc_table), nonce)
     }
 }
 
 /// The body of a `FraDistribution Operation`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Data {
-    uuid: u64,
     /// How many FRAs to pay for each address.
-    pub allocation_table: BTreeMap<XfrPublicKey, u64>,
+    pub alloc_table: BTreeMap<XfrPublicKey, u64>,
+}
+
+impl Data {
+    #[inline(always)]
+    fn new(alloc_table: BTreeMap<XfrPublicKey, u64>) -> Self {
+        Data { alloc_table }
+    }
 }
 
 // Check tx and return the amount of delegation.

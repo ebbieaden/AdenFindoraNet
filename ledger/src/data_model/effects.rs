@@ -133,8 +133,17 @@ impl TxnEffect {
         for op in txn.body.operations.iter() {
             debug_assert!(txo_count == txos.len());
 
+            macro_rules! check_nonce {
+                ($i: expr) => {
+                    if $i.get_nonce() != txn.body.no_replay_token {
+                        return Err(eg!(inp_fail!("nonce does not match")));
+                    }
+                };
+            }
+
             match op {
                 Operation::Delegation(i) => {
+                    check_nonce!(i);
                     // A same address is not allowed to be
                     // delegated multiple times at the same time.
                     if delegations.insert(i.pubkey, i.clone()).is_some() {
@@ -142,20 +151,24 @@ impl TxnEffect {
                     }
                 }
                 Operation::UnDelegation(i) => {
+                    check_nonce!(i);
                     if undelegations.insert(i.pubkey, i.clone()).is_some() {
                         return Err(eg!("dup entries"));
                     }
                 }
                 Operation::UpdateValidator(i) => {
+                    check_nonce!(i);
                     // Only one update is allowed at the same height.
                     if update_validators.insert(i.data.height, i.clone()).is_some() {
                         return Err(eg!("dup entries"));
                     }
                 }
                 Operation::Governance(i) => {
+                    check_nonce!(i);
                     governances.push(i.clone());
                 }
                 Operation::FraDistribution(i) => {
+                    check_nonce!(i);
                     fra_distributions.push(i.clone());
                 }
 

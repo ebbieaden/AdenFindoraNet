@@ -5,7 +5,10 @@
 //! by using a multi-signature transaction.
 //!
 
-use crate::staking::{cosig::CoSigOp, Staking, ValidatorData};
+use crate::{
+    data_model::NoReplayToken,
+    staking::{cosig::CoSigOp, BlockHeight, Staking, Validator, ValidatorData},
+};
 use ruc::*;
 use zei::xfr::sig::XfrPublicKey;
 
@@ -60,6 +63,18 @@ impl UpdateValidatorOps {
             .chain(self.data.data.keys())
             .copied()
             .collect()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn new(
+        h: BlockHeight,
+        v_set: Vec<Validator>,
+        nonce: NoReplayToken,
+    ) -> Result<Self> {
+        Data::new(h, v_set)
+            .c(d!())
+            .map(|d| CoSigOp::create(d, nonce))
     }
 }
 

@@ -5,12 +5,12 @@
 //!
 
 use crate::{
-    data_model::{Operation, Transaction},
+    data_model::{NoReplayToken, Operation, Transaction},
     staking::Staking,
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
-use zei::xfr::sig::{XfrPublicKey, XfrSignature};
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSignature};
 
 /// Used as the inner object of a `UnDelegation Operation`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -40,11 +40,11 @@ impl UnDelegationOps {
     }
 
     /// Verify signature.
+    #[inline(always)]
     pub fn verify(&self) -> Result<()> {
-        self.body
-            .to_bytes()
+        self.pubkey
+            .verify(&self.body.to_bytes(), &self.signature)
             .c(d!())
-            .and_then(|d| self.pubkey.verify(&d, &self.signature).c(d!()))
     }
 
     #[inline(always)]
@@ -57,18 +57,57 @@ impl UnDelegationOps {
     pub fn get_related_pubkeys(&self) -> Vec<XfrPublicKey> {
         vec![self.pubkey]
     }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn new(keypair: &XfrKeyPair, nonce: NoReplayToken) -> Self {
+        let body = Data::new(nonce);
+        let signature = keypair.sign(&body.to_bytes());
+        UnDelegationOps {
+            body,
+            pubkey: keypair.get_pk(),
+            signature,
+        }
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn set_nonce(&mut self, nonce: NoReplayToken) {
+        self.body.set_nonce(nonce);
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_nonce(&self) -> NoReplayToken {
+        self.body.get_nonce()
+    }
 }
 
 // The body of a delegation operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct Data {
-    uuid: u64,
+    nonce: NoReplayToken,
 }
 
 impl Data {
     #[inline(always)]
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).c(d!())
+    fn new(nonce: NoReplayToken) -> Self {
+        Data { nonce }
+    }
+
+    #[inline(always)]
+    fn to_bytes(&self) -> Vec<u8> {
+        pnk!(bincode::serialize(self))
+    }
+
+    #[inline(always)]
+    fn set_nonce(&mut self, nonce: NoReplayToken) {
+        self.nonce = nonce;
+    }
+
+    #[inline(always)]
+    fn get_nonce(&self) -> NoReplayToken {
+        self.nonce
     }
 }
 

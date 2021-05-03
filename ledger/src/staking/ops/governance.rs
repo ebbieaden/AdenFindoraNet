@@ -7,7 +7,10 @@
 //! **NOTE**: always use the same multi-signature rules as `UpdateValidator`.
 //!
 
-use crate::staking::{cosig::CoSigOp, Amount, Staking};
+use crate::{
+    data_model::NoReplayToken,
+    staking::{cosig::CoSigOp, Amount, Staking},
+};
 use lazy_static::lazy_static;
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -59,6 +62,16 @@ impl GovernanceOps {
             .copied()
             .collect()
     }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn new(
+        kind: ByzantineKind,
+        byzantine_id: XfrPublicKey,
+        nonce: NoReplayToken,
+    ) -> Self {
+        CoSigOp::create(Data::new(kind, byzantine_id), nonce)
+    }
 }
 
 /// Informances about a `Governance Operation`.
@@ -66,6 +79,13 @@ impl GovernanceOps {
 pub struct Data {
     kind: ByzantineKind,
     byzantine_id: XfrPublicKey,
+}
+
+impl Data {
+    #[inline(always)]
+    fn new(kind: ByzantineKind, byzantine_id: XfrPublicKey) -> Self {
+        Data { kind, byzantine_id }
+    }
 }
 
 /// Kinds of byzantine behavior and corresponding punishment mechanism.

@@ -1486,10 +1486,9 @@ impl Transaction {
         tx
     }
 
-    pub fn add_operation(&mut self, op: Operation) {
-        let mut mutable_op = op;
-        set_no_replay_token(&mut mutable_op, self.body.no_replay_token);
-        self.body.operations.push(mutable_op);
+    pub fn add_operation(&mut self, mut op: Operation) {
+        set_no_replay_token(&mut op, self.body.no_replay_token);
+        self.body.operations.push(op);
     }
 
     pub fn testonly_add_operation(&mut self, op: Operation) {

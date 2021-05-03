@@ -658,7 +658,7 @@ impl Staking {
         self.coinbase.distribution_hist.insert(h);
 
         let mut v;
-        for (k, am) in ops.data.allocation_table.into_iter() {
+        for (k, am) in ops.data.alloc_table.into_iter() {
             v = self.coinbase.distribution_plan.entry(k).or_insert(0);
             *v = v.checked_add(am).ok_or(eg!("overflow"))?;
         }
@@ -989,12 +989,17 @@ pub struct Validator {
     /// - eg.. block rewards
     pub id: XfrPublicKey,
     /// optional descriptive information
-    pub memo: Memo,
+    pub memo: Option<Memo>,
 }
 
 impl Validator {
     #[allow(missing_docs)]
-    pub fn new(td_pubkey: Vec<u8>, td_power: i64, id: XfrPublicKey, memo: Memo) -> Self {
+    pub fn new(
+        td_pubkey: Vec<u8>,
+        td_power: i64,
+        id: XfrPublicKey,
+        memo: Option<Memo>,
+    ) -> Self {
         Validator {
             td_pubkey,
             td_power,

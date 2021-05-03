@@ -5,14 +5,16 @@
 //!
 
 use crate::{
-    data_model::{Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY},
+    data_model::{
+        NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY,
+    },
     staking::{Amount, Staking},
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, convert::TryFrom};
 use zei::xfr::{
-    sig::{XfrPublicKey, XfrSignature},
+    sig::{XfrKeyPair, XfrPublicKey, XfrSignature},
     structs::{XfrAmount, XfrAssetType},
 };
 
@@ -54,11 +56,11 @@ impl DelegationOps {
     }
 
     /// Verify signature.
+    #[inline(always)]
     pub fn verify(&self) -> Result<()> {
-        self.body
-            .to_bytes()
+        self.pubkey
+            .verify(&self.body.to_bytes(), &self.signature)
             .c(d!())
-            .and_then(|d| self.pubkey.verify(&d, &self.signature).c(d!()))
     }
 
     #[inline(always)]
@@ -70,6 +72,35 @@ impl DelegationOps {
     #[allow(missing_docs)]
     pub fn get_related_pubkeys(&self) -> Vec<XfrPublicKey> {
         vec![self.pubkey, self.body.validator]
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn new(
+        keypair: &XfrKeyPair,
+        validator: XfrPublicKey,
+        block_span: BlockAmount,
+        nonce: NoReplayToken,
+    ) -> Self {
+        let body = Data::new(validator, block_span, nonce);
+        let signature = keypair.sign(&body.to_bytes());
+        DelegationOps {
+            body,
+            pubkey: keypair.get_pk(),
+            signature,
+        }
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn set_nonce(&mut self, nonce: NoReplayToken) {
+        self.body.set_nonce(nonce);
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_nonce(&self) -> NoReplayToken {
+        self.body.get_nonce()
     }
 }
 
@@ -85,12 +116,32 @@ pub struct Data {
     /// **NOTE:** before users can actually get the rewards,
     /// they need to wait for an extra `FROZEN_BLOCK_CNT` period
     pub block_span: BlockAmount,
+    nonce: NoReplayToken,
 }
 
 impl Data {
     #[inline(always)]
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).c(d!())
+    fn new(v: XfrPublicKey, bs: BlockAmount, nonce: NoReplayToken) -> Self {
+        Data {
+            validator: v,
+            block_span: bs,
+            nonce,
+        }
+    }
+
+    #[inline(always)]
+    fn to_bytes(&self) -> Vec<u8> {
+        pnk!(bincode::serialize(self))
+    }
+
+    #[inline(always)]
+    fn set_nonce(&mut self, nonce: NoReplayToken) {
+        self.nonce = nonce;
+    }
+
+    #[inline(always)]
+    fn get_nonce(&self) -> NoReplayToken {
+        self.nonce
     }
 }
 

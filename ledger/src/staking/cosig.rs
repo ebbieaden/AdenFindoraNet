@@ -5,7 +5,7 @@
 //!
 
 use super::MAX_TOTAL_POWER;
-use crate::staking::Staking;
+use crate::{data_model::NoReplayToken, staking::Staking};
 use cryptohash::sha256::{self, Digest};
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -16,12 +16,6 @@ use std::{
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSignature};
 
 /// A common structure for data with co-signatures.
-///
-/// **NOTE:**
-/// - the nonce need not to be a primary type, eg. u128,
-///     - actually we can take the first 16 bytes of SHA256("some no-replay bytes")
-///     - eg. the first operation in a tx, usually the operation of paying fee
-/// - the nonce will be checked in the ledger logic, not in this module.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(bound = "")]
 pub struct CoSigOp<T>
@@ -29,8 +23,8 @@ where
     T: Debug + Serialize + for<'a> Deserialize<'a>,
 {
     pub(crate) data: T,
-    nonce: [u8; 16],
     pub(crate) cosigs: BTreeMap<XfrPublicKey, CoSig>,
+    nonce: NoReplayToken,
 }
 
 impl<T> CoSigOp<T>
@@ -39,7 +33,7 @@ where
 {
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn new(msg: T, nonce: [u8; 16]) -> Self {
+    pub fn create(msg: T, nonce: NoReplayToken) -> Self {
         CoSigOp {
             data: msg,
             nonce,
@@ -135,6 +129,12 @@ where
         bincode::serialize(self)
             .c(d!())
             .map(|bytes| sha256::hash(&bytes))
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_nonce(&self) -> NoReplayToken {
+        self.nonce
     }
 }
 
@@ -246,6 +246,12 @@ mod test {
         (0..n).map(|_| XfrKeyPair::generate(&mut prng)).collect()
     }
 
+    fn no_replay_token() -> NoReplayToken {
+        let rand_n = rand::random::<u64>();
+        let seq_id = rand::random::<u64>();
+        NoReplayToken::testonly_new(rand_n, seq_id)
+    }
+
     #[test]
     fn staking_cosig() {
         let kps = gen_keypairs(100);
@@ -257,7 +263,7 @@ mod test {
         // threshold: 75%
         let rule = pnk!(CoSigRule::new([75, 100], ws));
 
-        let mut data = CoSigOp::new(Data::default(), 7_u128.to_le_bytes());
+        let mut data = CoSigOp::create(Data::default(), no_replay_token());
         pnk!(data.batch_sign(&kps.iter().skip(10).collect::<Vec<_>>()));
         assert!(data.check_cosigs(&rule).is_ok());
 
@@ -271,7 +277,7 @@ mod test {
         data.data.a = [0; 12];
         assert!(data.check_cosigs(&rule).is_ok());
 
-        let mut data = CoSigOp::new(Data::default(), 8_u128.to_le_bytes());
+        let mut data = CoSigOp::create(Data::default(), no_replay_token());
         pnk!(data.batch_sign(&kps.iter().skip(25).collect::<Vec<_>>()));
         assert!(data.check_cosigs(&rule).is_ok());
 
@@ -280,7 +286,7 @@ mod test {
         });
         assert!(data.check_cosigs(&rule).is_ok());
 
-        let mut data = CoSigOp::new(Data::default(), 9_u128.to_le_bytes());
+        let mut data = CoSigOp::create(Data::default(), no_replay_token());
         pnk!(data.batch_sign(&kps.iter().skip(45).collect::<Vec<_>>()));
         assert!(data.check_cosigs(&rule).is_err());
 
