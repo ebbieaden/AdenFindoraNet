@@ -1247,14 +1247,14 @@ impl TransferOperationBuilder {
         let mut sig_keys = HashSet::new();
         for sig in &trn.body_signatures {
             if !sig.verify(&trn.body) {
-                return Err(eg!(inv_fail!("Invalid signature".to_string())));
+                return Err(eg!(inv_fail!("Invalid signature")));
             }
             sig_keys.insert(sig.address.key.zei_to_bytes());
         }
 
         for record in &trn.body.transfer.inputs {
             if !sig_keys.contains(&record.public_key.zei_to_bytes()) {
-                return Err(eg!(inv_fail!("Not all signatures present".to_string())));
+                return Err(eg!(inv_fail!("Not all signatures present")));
             }
         }
         Ok(self)

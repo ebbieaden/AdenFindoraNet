@@ -1344,31 +1344,17 @@ impl Transaction {
     /// The check logic is as follows:
     /// - Only `NonConfidential Operation` can be used as fee
     /// - FRA code == [0; ASSET_TYPE_LENGTH]
-    /// - Fee destination == [0; ed25519_dalek::PUBLIC_KEY_LENGTH]
+    /// - Fee destination == BLACK_HOLE_PUBKEY
     /// - A transaction with an `Operation` of defining/issuing FRA need NOT fee
-    ///
-    /// > Is this function compatible with the process of
-    /// > defining and issuing FRA in the genesis block ?
-    /// >
-    /// > Yes, I think so. But please note:
-    /// >
-    /// > - Your should put all Operations related to
-    /// > the defination and issuing of FRA into a same transaction.
-    /// > Because the basic unit of `check_fee` is a whole transaction, and
-    /// > there can be many Operations inside this transaction, such as:
-    /// > defining assets, issuing assets, etc.
-    /// > as long as the order of these operations is correct.
-    /// > - `TransferAsset` operations of FRA can NOT be placed
-    /// > in the same transaction with its defination and issuing,
-    /// > or the transaction can NOT pass the check of `apply_transaction(...)`
+    /// - A transaction with all addresses of inputs equal to BLACK_HOLE_PUBKEY need NOT fee
     pub fn check_fee(&self) -> bool {
         // This method can not completely solve the DOS risk,
         // we should further limit the number of txo[s] in every operation.
         //
         // But it seems enough for v1.0 when we combined it with limiting
         // the payload size of submission-server's http-requests.
-        self.body.operations.iter().any(|o| {
-            if let Operation::TransferAsset(ref x) = o {
+        self.body.operations.iter().any(|ops| {
+            if let Operation::TransferAsset(ref x) = ops {
                 return x.body.outputs.iter().any(|o| {
                     if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
                         if ty == ASSET_TYPE_FRA
@@ -1383,12 +1369,17 @@ impl Transaction {
                         }
                     }
                     false
-                });
-            } else if let Operation::DefineAsset(ref x) = o {
+                }) || (!x.body.transfer.inputs.is_empty()
+                    && x.body
+                        .transfer
+                        .inputs
+                        .iter()
+                        .all(|i| *BLACK_HOLE_PUBKEY == i.public_key));
+            } else if let Operation::DefineAsset(ref x) = ops {
                 if x.body.asset.code.val == ASSET_TYPE_FRA {
                     return true;
                 }
-            } else if let Operation::IssueAsset(ref x) = o {
+            } else if let Operation::IssueAsset(ref x) = ops {
                 if x.body.code.val == ASSET_TYPE_FRA {
                     return true;
                 }

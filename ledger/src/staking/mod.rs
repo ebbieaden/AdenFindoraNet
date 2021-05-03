@@ -496,7 +496,7 @@ impl Staking {
 
     /// Clean delegation states along with each new block.
     pub fn deletation_process(&mut self) {
-        let h = self.cur_height - FROZEN_BLOCK_CNT;
+        let h = self.cur_height.saturating_sub(FROZEN_BLOCK_CNT);
 
         if 0 < h {
             self.di

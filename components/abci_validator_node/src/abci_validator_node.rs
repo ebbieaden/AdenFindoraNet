@@ -48,34 +48,54 @@ pub struct TendermintForward {
 
 impl TxnForward for TendermintForward {
     fn forward_txn(&self, txn: Transaction) -> Result<()> {
-        let txn_json = serde_json::to_string(&txn).c(d!())?;
-        info!("raw txn: {}", &txn_json);
-        let txn_b64 = base64::encode_config(&txn_json.as_str(), base64::URL_SAFE);
-        let json_rpc = format!(
-            "{{\"jsonrpc\":\"2.0\",\"id\":\"anything\",\"method\":\"broadcast_tx_sync\",\"params\": {{\"tx\": \"{}\"}}}}",
-            &txn_b64
-        );
-
-        info!("forward_txn: \'{}\'", &json_rpc);
-        let tendermint_reply = format!("http://{}", self.tendermint_reply);
-        if 6 > TX_PENDING_CNT.fetch_add(1, Ordering::Relaxed) {
-            POOL.spawn_ok(async move {
-                ruc::info_omit!(
-                    attohttpc::post(&tendermint_reply)
-                        .header(attohttpc::header::CONTENT_TYPE, "application/json")
-                        .text(json_rpc)
-                        .send()
-                        .c(d!(sub_fail!()))
-                );
-                TX_PENDING_CNT.fetch_sub(1, Ordering::Relaxed);
-            });
-        } else {
-            TX_PENDING_CNT.fetch_sub(1, Ordering::Relaxed);
-            return Err(eg!("Too many pending tasks"));
-        }
-        info!("forward_txn call complete");
-        Ok(())
+        forward_txn_with_mode(self, txn, false)
     }
+}
+
+fn forward_txn_with_mode(
+    fwder: &TendermintForward,
+    txn: Transaction,
+    async_mode: bool,
+) -> Result<()> {
+    const SYNC_API: &str = "broadcast_tx_sync";
+    const ASYNC_API: &str = "broadcast_tx_async";
+
+    let txn_json = serde_json::to_string(&txn).c(d!())?;
+    info!("raw txn: {}", &txn_json);
+    let txn_b64 = base64::encode_config(&txn_json.as_str(), base64::URL_SAFE);
+
+    let json_rpc = if async_mode {
+        format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":\"anything\",\"method\":\"{}\",\"params\": {{\"tx\": \"{}\"}}}}",
+            ASYNC_API, &txn_b64
+        )
+    } else {
+        format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":\"anything\",\"method\":\"{}\",\"params\": {{\"tx\": \"{}\"}}}}",
+            SYNC_API, &txn_b64
+        )
+    };
+
+    info!("forward_txn: \'{}\'", &json_rpc);
+    let tendermint_reply = format!("http://{}", fwder.tendermint_reply);
+    if 6 > TX_PENDING_CNT.fetch_add(1, Ordering::Relaxed) {
+        POOL.spawn_ok(async move {
+            ruc::info_omit!(
+                attohttpc::post(&tendermint_reply)
+                    .header(attohttpc::header::CONTENT_TYPE, "application/json")
+                    .text(json_rpc)
+                    .send()
+                    .c(d!(sub_fail!()))
+            );
+            TX_PENDING_CNT.fetch_sub(1, Ordering::Relaxed);
+        });
+    } else {
+        TX_PENDING_CNT.fetch_sub(1, Ordering::Relaxed);
+        return Err(eg!("Too many pending tasks"));
+    }
+    info!("forward_txn call complete");
+
+    Ok(())
 }
 
 struct ABCISubmissionServer {
