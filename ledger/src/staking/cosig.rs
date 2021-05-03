@@ -67,6 +67,10 @@ where
 
     /// Check if a cosig is valid.
     pub fn check_cosigs(&self, rule: &CoSigRule) -> Result<()> {
+        if rule.weights.is_empty() {
+            return Ok(());
+        }
+
         self.check_existence(rule)
             .c(d!())
             .and_then(|_| self.check_weight(rule).c(d!()))
@@ -106,8 +110,10 @@ where
             .flat_map(|s| rule.weights.get(&s.pk).map(|w| w.weight as u128))
             .sum::<u128>();
 
-        if actual_weights.checked_mul(rule.threshold[1]).ok_or(eg!())?
-            < rule.threshold[0].checked_mul(rule_weights).ok_or(eg!())?
+        let rule = [rule.threshold[0] as u128, rule.threshold[1] as u128];
+
+        if actual_weights.checked_mul(rule[1]).ok_or(eg!())?
+            < rule[0].checked_mul(rule_weights).ok_or(eg!())?
         {
             return Err(eg!(CoSigErr::WeightInsufficient));
         }
@@ -147,16 +153,16 @@ where
 /// The rule for a kind of data.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct CoSigRule {
-    // weight of each `XfrPublicKey`,
-    weights: HashMap<XfrPublicKey, KeyWeight>,
-    // check rule:
-    // - `[actual weight].sum() / [rule weight].sum() >= threshold%`
-    // - threshold% = `numerator / denominator` = `threshold[0] / threshold[1]`
-    //
-    // which equal to:
-    // - `[actual weight].sum() * threshold[1] >= threshold[0] * [rule weight].sum()`
-    // - convert to `i128` to avoid integer overflow
-    threshold: [u128; 2],
+    /// weight of each `XfrPublicKey`,
+    pub weights: HashMap<XfrPublicKey, KeyWeight>,
+    /// check rule:
+    /// - `[actual weight].sum() / [rule weight].sum() >= threshold%`
+    /// - threshold% = `numerator / denominator` = `threshold[0] / threshold[1]`
+    ///
+    /// which equal to:
+    /// - `[actual weight].sum() * threshold[1] >= threshold[0] * [rule weight].sum()`
+    /// - convert to `i128` to avoid integer overflow
+    pub threshold: [u64; 2],
 }
 
 impl CoSigRule {
@@ -181,7 +187,7 @@ impl CoSigRule {
                 .into_iter()
                 .map(|(pk, w)| (pk, KeyWeight::new(pk, w)))
                 .collect(),
-            threshold: [threshold[0] as u128, threshold[1] as u128],
+            threshold: [threshold[0], threshold[1]],
         })
     }
 }

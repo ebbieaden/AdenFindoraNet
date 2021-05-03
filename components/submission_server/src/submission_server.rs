@@ -52,12 +52,18 @@ pub enum CommitMode {
     Manual,           // Somebody else calls commit. Not this code.
 }
 
-pub trait TxnForward {
+pub trait TxnForward: AsRef<str> {
     fn forward_txn(&self, txn: Transaction) -> Result<()>;
 }
 
 /// Don't forward transactions; handle them in the default way.
 pub struct NoTF;
+
+impl AsRef<str> for NoTF {
+    fn as_ref(&self) -> &str {
+        ""
+    }
+}
 
 impl TxnForward for NoTF {
     fn forward_txn(&self, _: Transaction) -> Result<()> {
@@ -69,7 +75,7 @@ impl TxnForward for NoTF {
 pub struct SubmissionServer<RNG, LU, TF>
 where
     RNG: RngCore + CryptoRng,
-    LU: LedgerUpdate<RNG>,
+    LU: LedgerUpdate<RNG> + LedgerAccess,
     TF: TxnForward,
 {
     committed_state: Arc<RwLock<LU>>,
@@ -85,7 +91,7 @@ where
 impl<RNG, LU, TF> SubmissionServer<RNG, LU, TF>
 where
     RNG: RngCore + CryptoRng,
-    LU: LedgerUpdate<RNG>,
+    LU: LedgerUpdate<RNG> + LedgerAccess,
     TF: TxnForward,
 {
     pub fn new(
@@ -277,6 +283,11 @@ where
                 Ok(txn_handle)
             }
         }
+    }
+
+    #[allow(missing_docs)]
+    pub fn get_fwder(&self) -> Option<&TF> {
+        self.txn_forwarder.as_ref()
     }
 }
 

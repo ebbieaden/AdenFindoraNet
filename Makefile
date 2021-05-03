@@ -13,7 +13,7 @@ all: build_release
 
 export CARGO_NET_GIT_FETCH_WITH_CLI = true
 export PROTOC = $(shell which protoc)
-export STAKING_INITIAL_VALIDATOR_INFO_CONFIG = $(shell pwd)/tools/staking_initial_config.json
+# export STAKING_INITIAL_VALIDATOR_INFO_CONFIG = $(shell pwd)/tools/staking_initial_config.json
 
 ifdef DBG
 target_dir = debug
@@ -80,16 +80,18 @@ ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --target=x86_64-unknown-linux-musl --features=debugenv --frozen --release --bins -p abci_validator_node -p query_api -p cli2
+	cargo build --target=x86_64-unknown-linux-musl --frozen --release --bins -p abci_validator_node -p query_api -p cli2
 	$(call pack_musl_debug,$(target_dir))
 endif
 
 test:
 	cargo test --release --workspace -- --test-threads=1
+	# cargo test --release --workspace --features="abci_mock" -- --test-threads=1
 	cargo test --release --workspace -- --ignored
 
 staking_test:
-	cargo test --release staking_cosig -- --test-threads=1
+	cargo test --release staking -- --test-threads=1
+	cargo test --release staking --features="abci_mock" -- --test-threads=1
 
 bench:
 	cargo bench --workspace

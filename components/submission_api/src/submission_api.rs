@@ -6,7 +6,7 @@ use actix_web::{error, middleware, test, web, App, HttpServer};
 use ledger::data_model::Transaction;
 use ledger::{des_fail, inp_fail};
 
-use ledger::store::{LedgerState, LedgerUpdate};
+use ledger::store::{LedgerAccess, LedgerState, LedgerUpdate};
 use log::info;
 use parking_lot::RwLock;
 use rand_chacha::ChaChaRng;
@@ -43,7 +43,7 @@ pub async fn submit_transaction<RNG, LU, TF>(
 ) -> StdResult<web::Json<TxnHandle>, actix_web::error::Error>
 where
     RNG: RngCore + CryptoRng,
-    LU: LedgerUpdate<RNG> + Sync + Send,
+    LU: LedgerUpdate<RNG> + LedgerAccess + Sync + Send,
     TF: TxnForward + Sync + Send,
 {
     let tx = body.into_inner();
@@ -71,7 +71,7 @@ pub async fn force_end_block<RNG, LU, TF>(
 ) -> StdResult<String, actix_web::error::Error>
 where
     RNG: RngCore + CryptoRng,
-    LU: LedgerUpdate<RNG> + Sync + Send,
+    LU: LedgerUpdate<RNG> + LedgerAccess + Sync + Send,
     TF: TxnForward + Sync + Send,
 {
     let mut submission_server = data.write();
@@ -90,7 +90,7 @@ pub async fn txn_status<RNG, LU, TF>(
 ) -> StdResult<String, actix_web::error::Error>
 where
     RNG: RngCore + CryptoRng,
-    LU: LedgerUpdate<RNG> + Sync + Send,
+    LU: LedgerUpdate<RNG> + LedgerAccess + Sync + Send,
     TF: TxnForward + Sync + Send,
 {
     let submission_server = data.write();
@@ -136,12 +136,12 @@ impl NetworkRoute for SubmissionRoutes {
 impl SubmissionApi {
     pub fn create<
         RNG: 'static + RngCore + CryptoRng + Sync + Send,
-        LU: 'static + LedgerUpdate<RNG> + Sync + Send,
+        LU: 'static + LedgerUpdate<RNG> + LedgerAccess + Sync + Send,
         TF: 'static + TxnForward + Sync + Send,
     >(
         submission_server: Arc<RwLock<SubmissionServer<RNG, LU, TF>>>,
         host: &str,
-        port: &str,
+        port: u16,
     ) -> Result<SubmissionApi> {
         let web_runtime = actix_rt::System::new("findora API");
 

@@ -24,7 +24,11 @@ lazy_static! {
     // and it will be upgraded to a mechanism
     // that can update rules by sending a specific transaction.
     static ref RULES: HashMap<ByzantineKind, Rule> = {
-        map! { ByzantineKind::SignMultiBlocks => Rule::new() }
+        map! {
+            ByzantineKind::DuplicateVote => Rule::new(),
+            ByzantineKind::LightClientAttack => Rule::new(),
+            ByzantineKind::Unknown => Rule::new(),
+        }
     };
 }
 
@@ -45,7 +49,7 @@ impl GovernanceOps {
             .and_then(|_| RULES.get(&self.data.kind).ok_or(eg!()))
             .and_then(|rule| {
                 staking
-                    .governance_penalty(
+                    .governance_penalty_by_pubkey(
                         &self.data.byzantine_id,
                         rule.gen_penalty_amount(&self.data.byzantine_id),
                     )
@@ -93,20 +97,19 @@ impl Data {
 /// Kinds of byzantine behavior and corresponding punishment mechanism.
 pub type RuleSet = HashMap<ByzantineKind, Rule>;
 
-/// **TODO**
-///
-/// Kinds of byzantine behaviors.
+/// Kinds of byzantine behaviors:
+/// - `DuplicateVote` and `LightClientAttack` can be auto-detected by tendermint
+/// - other attack kinds need to be defined and applied on the application side
 #[non_exhaustive]
 #[allow(missing_docs)]
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum ByzantineKind {
-    SignMultiBlocks,
-    // TODO
+    DuplicateVote,
+    LightClientAttack,
+    Unknown,
 }
 
-/// **TODO**
-///
-/// Punishment mechanism for a kind of byzantine behavior.
+/// Punishment mechanism for each kind of byzantine behavior.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Rule {
     // TODO
@@ -117,12 +120,14 @@ impl Rule {
         Rule {}
     }
 
-    /// **TODO**
+    /// Calculate punishment amount according to the corresponding rule.
     ///
-    /// Calculate the amount of FRA punishment
-    /// according to the corresponding rule.
-    pub fn gen_penalty_amount(&self, byzantine_id: &XfrPublicKey) -> Amount {
-        let _ = byzantine_id;
-        1
+    /// Currently We just set the amount to `i64::MAX` which means
+    /// all investment income of the byzantine node will be punished,
+    /// and its vote power will be decreased to zero which means
+    /// it can not become a formal on-line validator anymore.
+    pub fn gen_penalty_amount(&self, _byzantine_id: &XfrPublicKey) -> Amount {
+        // TODO
+        i64::MAX
     }
 }

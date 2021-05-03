@@ -3,6 +3,8 @@
 //!
 //! Used to support the distribution of the official token FRA.
 //!
+//! **NOTE**: always use the same multi-signature rules as `UpdateValidator`.
+//!
 
 use crate::{
     data_model::{NoReplayToken, Operation, Transaction},
@@ -83,18 +85,18 @@ impl Data {
 
 // Check tx and return the amount of delegation.
 // - total amount of operations is 2
-// - the first one is a `TransferAsset` to pay fee
-// - the second one is a `FraDistribution`
+// - one of them is a `TransferAsset` to pay fee
+// - one of them is a `FraDistribution`
 fn check_fra_distribution_context(tx: &Transaction) -> Result<()> {
     if 2 != tx.body.operations.len() {
         return Err(eg!("incorrect number of operations"));
     }
 
-    // 1. the first operation must be a FEE operation
+    // 1. check FEE operation
     check_fra_distribution_context_fee(tx).c(d!("invalid fee operation"))?;
 
-    // 2. the second operation must be a `FraDistribution` operation
-    if let Operation::FraDistribution(_) = tx.body.operations[1] {
+    // 2. check `FraDistribution` operation
+    if (0..2).any(|i| matches!(tx.body.operations[i], Operation::FraDistribution(_))) {
         Ok(())
     } else {
         Err(eg!())
@@ -103,5 +105,5 @@ fn check_fra_distribution_context(tx: &Transaction) -> Result<()> {
 
 #[inline(always)]
 fn check_fra_distribution_context_fee(tx: &Transaction) -> Result<()> {
-    super::delegation::check_delegation_context_fee(tx).c(d!())
+    super::delegation::check_delegation_context_fee(tx, 2).c(d!())
 }

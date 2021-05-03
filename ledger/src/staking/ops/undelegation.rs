@@ -113,18 +113,18 @@ impl Data {
 
 // Check tx and return the amount of delegation.
 // - total amount of operations is 2
-// - the first one is a `TransferAsset` to pay fee
-// - the second one is a `UnDelegation`
+// - one of them is a `TransferAsset` to pay fee
+// - one of them is a `UnDelegation`
 fn check_delegation_context(tx: &Transaction) -> Result<()> {
     if 2 != tx.body.operations.len() {
         return Err(eg!("incorrect number of operations"));
     }
 
-    // 1. the first operation must be a FEE operation
+    // 1. check FEE operation
     check_delegation_context_fee(tx).c(d!("invalid fee operation"))?;
 
-    // 2. the second operation must be a `UnDelegation` operation
-    if matches!(tx.body.operations[1], Operation::UnDelegation(_)) {
+    // 2. check `UnDelegation` operation
+    if (0..2).any(|i| matches!(tx.body.operations[i], Operation::UnDelegation(_))) {
         Ok(())
     } else {
         Err(eg!())
@@ -133,5 +133,5 @@ fn check_delegation_context(tx: &Transaction) -> Result<()> {
 
 #[inline(always)]
 fn check_delegation_context_fee(tx: &Transaction) -> Result<()> {
-    super::delegation::check_delegation_context_fee(tx).c(d!())
+    super::delegation::check_delegation_context_fee(tx, 2).c(d!())
 }

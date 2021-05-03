@@ -1,23 +1,16 @@
 {
-    "height": 1000000,
     "valiators": [
         {
             "td_pubkey": "aMgjzY9as4LVSsUIzyA31GMToBDuIzIRlHuW7WG3DaA=",
-            "td_power": 1,
-            "id": "agFF5Rt-UpBjArisFdZ5uWfyKci8wELc1ma_suqnRTA=",
-            "memo": ""
+            "id": "agFF5Rt-UpBjArisFdZ5uWfyKci8wELc1ma_suqnRTA="
         },
         {
             "td_pubkey": "bMgjzY9as4LVSsUIzyA31GMToBDuIzIRlHuW7WG3DaA=",
-            "td_power": 1,
-            "id": "bgFF5Rt-UpBjArisFdZ5uWfyKci8wELc1ma_suqnRTA=",
-            "memo": ""
+            "id": "bgFF5Rt-UpBjArisFdZ5uWfyKci8wELc1ma_suqnRTA="
         },
         {
             "td_pubkey": "cMgjzY9as4LVSsUIzyA31GMToBDuIzIRlHuW7WG3DaA=",
-            "td_power": 1,
-            "id": "cgFF5Rt-UpBjArisFdZ5uWfyKci8wELc1ma_suqnRTA=",
-            "memo": ""
+            "id": "cgFF5Rt-UpBjArisFdZ5uWfyKci8wELc1ma_suqnRTA="
         }
     ]
 }

@@ -2,7 +2,6 @@
 members = [
     "components/cli2",
     "components/abci_validator_node",
-    "components/ledger_standalone",
     "components/ledger_api_service",
     "components/query_api",
     "components/query_server",

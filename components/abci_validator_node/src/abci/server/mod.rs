@@ -1,14 +1,8 @@
-#![allow(clippy::field_reassign_with_default)]
-#![deny(warnings)]
-
+use super::staking;
 use abci::*;
-use futures::executor::{ThreadPool, ThreadPoolBuilder};
 use lazy_static::lazy_static;
 use ledger::data_model::{Operation, Transaction, TxnEffect, TxnSID};
 use ledger::store::*;
-use ledger::sub_fail;
-use ledger_api_service::RestfulApiService;
-use log::info;
 use parking_lot::RwLock;
 use protobuf::RepeatedField;
 use rand_chacha::ChaChaRng;
@@ -16,98 +10,51 @@ use rand_core::SeedableRng;
 use ruc::*;
 use serde::Serialize;
 use std::env;
-use std::fs;
-use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{
-    atomic::{AtomicI64, AtomicU16, Ordering},
+    atomic::{AtomicI64, Ordering},
     Arc,
 };
-use std::thread;
-use submission_api::SubmissionApi;
-use submission_server::{convert_tx, SubmissionServer, TxnForward};
+use submission_server::{convert_tx, SubmissionServer};
 use zei::xfr::structs::{XfrAmount, XfrAssetType};
 
-mod config;
-mod staking;
+#[cfg(feature = "abci_mock")]
+use abci_mock_tx_sender::TendermintForward;
+#[cfg(not(feature = "abci_mock"))]
+use tx_sender::TendermintForward;
 
-use config::ABCIConfig;
+#[cfg(feature = "abci_mock")]
+mod abci_mock_tx_sender;
+mod pulse_cache;
+#[cfg(not(feature = "abci_mock"))]
+mod tx_sender;
 
-static TX_PENDING_CNT: AtomicU16 = AtomicU16::new(0);
+#[cfg(feature = "abci_mock")]
+pub use abci_mock_tx_sender::forward_txn_with_mode;
+#[cfg(not(feature = "abci_mock"))]
+pub use tx_sender::forward_txn_with_mode;
+
 static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
 
 lazy_static! {
-    static ref POOL: ThreadPool = pnk!(ThreadPoolBuilder::new().pool_size(2).create());
-    static ref LEDGER_DIR: Option<String> = env::var("LEDGER_DIR").ok();
-}
-
-#[derive(Default)]
-pub struct TendermintForward {
-    tendermint_reply: String,
-}
-
-impl TxnForward for TendermintForward {
-    fn forward_txn(&self, txn: Transaction) -> Result<()> {
-        forward_txn_with_mode(self, txn, false)
-    }
-}
-
-fn forward_txn_with_mode(
-    fwder: &TendermintForward,
-    txn: Transaction,
-    async_mode: bool,
-) -> Result<()> {
-    const SYNC_API: &str = "broadcast_tx_sync";
-    const ASYNC_API: &str = "broadcast_tx_async";
-
-    let txn_json = serde_json::to_string(&txn).c(d!())?;
-    info!("raw txn: {}", &txn_json);
-    let txn_b64 = base64::encode_config(&txn_json.as_str(), base64::URL_SAFE);
-
-    let json_rpc = if async_mode {
-        format!(
-            "{{\"jsonrpc\":\"2.0\",\"id\":\"anything\",\"method\":\"{}\",\"params\": {{\"tx\": \"{}\"}}}}",
-            ASYNC_API, &txn_b64
-        )
-    } else {
-        format!(
-            "{{\"jsonrpc\":\"2.0\",\"id\":\"anything\",\"method\":\"{}\",\"params\": {{\"tx\": \"{}\"}}}}",
-            SYNC_API, &txn_b64
-        )
+    /// Tendermint node address, sha256(pubkey)[:20]
+    pub static ref TD_NODE_SELF_ADDR: Vec<u8> = {
+        let hex_addr = pnk!(env::var("TD_NODE_SELF_ADDR"));
+        let bytes_addr = pnk!(hex::decode(hex_addr));
+        assert_eq!(20, bytes_addr.len());
+        bytes_addr
     };
-
-    info!("forward_txn: \'{}\'", &json_rpc);
-    let tendermint_reply = format!("http://{}", fwder.tendermint_reply);
-    if 6 > TX_PENDING_CNT.fetch_add(1, Ordering::Relaxed) {
-        POOL.spawn_ok(async move {
-            ruc::info_omit!(
-                attohttpc::post(&tendermint_reply)
-                    .header(attohttpc::header::CONTENT_TYPE, "application/json")
-                    .text(json_rpc)
-                    .send()
-                    .c(d!(sub_fail!()))
-            );
-            TX_PENDING_CNT.fetch_sub(1, Ordering::Relaxed);
-        });
-    } else {
-        TX_PENDING_CNT.fetch_sub(1, Ordering::Relaxed);
-        return Err(eg!("Too many pending tasks"));
-    }
-    info!("forward_txn call complete");
-
-    Ok(())
 }
 
-struct ABCISubmissionServer {
-    la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
+pub struct ABCISubmissionServer {
+    pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
 }
 
 impl ABCISubmissionServer {
-    fn new(
+    pub fn new(
         base_dir: Option<&Path>,
         tendermint_reply: String,
     ) -> Result<ABCISubmissionServer> {
-        info!("tendermint reply url: {}", &tendermint_reply);
         let ledger_state = match base_dir {
             None => LedgerState::test_ledger(),
             Some(base_dir) => pnk!(LedgerState::load_or_init(base_dir)),
@@ -130,7 +77,6 @@ impl ABCISubmissionServer {
 impl abci::Application for ABCISubmissionServer {
     fn info(&mut self, _req: &RequestInfo) -> ResponseInfo {
         let mut resp = ResponseInfo::new();
-        info!("locking state for read");
         {
             let la = self.la.read();
             let state = la.get_committed_state().read();
@@ -140,14 +86,11 @@ impl abci::Application for ABCISubmissionServer {
                 resp.set_last_block_height(tendermint_height as i64);
                 resp.set_last_block_app_hash(commitment.0.as_ref().to_vec());
             }
-            info!("app hash: {:?}", resp.get_last_block_app_hash());
-            info!("unlocking state for read");
 
-            if let Ok(h) = ruc::info!(height_cache::read_height()) {
+            if let Ok(h) = ruc::info!(pulse_cache::read_height()) {
                 resp.set_last_block_height(h);
             }
         }
-        info!("unlocking for read");
 
         resp
     }
@@ -155,20 +98,14 @@ impl abci::Application for ABCISubmissionServer {
     fn check_tx(&mut self, req: &RequestCheckTx) -> ResponseCheckTx {
         // Get the Tx [u8] and convert to u64
         let mut resp = ResponseCheckTx::new();
-        info!(
-            "Transaction to check: \"{}\"",
-            &std::str::from_utf8(req.get_tx()).unwrap_or("invalid format")
-        );
 
         if let Some(tx) = convert_tx(req.get_tx()) {
-            info!("converted: {:?}", tx);
             if !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
                 || ruc::info!(TxnEffect::compute_effect(tx)).is_err()
             {
                 resp.set_code(1);
                 resp.set_log(String::from("Check failed"));
             }
-            info!("done check_tx");
         } else {
             resp.set_code(1);
             resp.set_log(String::from("Could not unpack transaction"));
@@ -178,16 +115,8 @@ impl abci::Application for ABCISubmissionServer {
     }
 
     fn deliver_tx(&mut self, req: &RequestDeliverTx) -> ResponseDeliverTx {
-        // Get the Tx [u8]
-        info!(
-            "Transaction to cache: \"{}\"",
-            &std::str::from_utf8(req.get_tx()).unwrap_or("invalid format")
-        );
-
         let mut resp = ResponseDeliverTx::new();
         if let Some(tx) = convert_tx(req.get_tx()) {
-            info!("converted: {:?}", tx);
-
             if tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)) {
                 // set attr(tags) if any
                 let attr = gen_tendermint_attr(&tx);
@@ -195,7 +124,6 @@ impl abci::Application for ABCISubmissionServer {
                     resp.set_events(attr);
                 }
 
-                info!("locking for write");
                 if self.la.write().cache_transaction(tx).is_ok() {
                     return resp;
                 }
@@ -208,24 +136,23 @@ impl abci::Application for ABCISubmissionServer {
     }
 
     fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
-        TENDERMINT_BLOCK_HEIGHT
-            .swap(req.header.as_ref().unwrap().height, Ordering::Relaxed);
+        let header = pnk!(req.header.as_ref());
+        TENDERMINT_BLOCK_HEIGHT.swap(header.height, Ordering::Relaxed);
 
-        info!("locking for write");
         {
             let mut la = self.la.write();
-            if !la.all_commited() {
-                debug_assert!(la.block_pulse_count() > 0);
-                info!(
-                    "begin_block: continuation, block pulse count is {}",
-                    la.block_pulse_count()
-                );
-            } else {
-                info!("begin_block: new block");
+
+            staking::system_ops(
+                &mut *la.get_committed_state().write(),
+                &header,
+                &req.byzantine_validators.as_slice(),
+                la.get_fwder().unwrap().as_ref(),
+            );
+
+            if la.all_commited() {
                 la.begin_block();
             }
         }
-        info!("unlocking for write");
 
         ResponseBeginBlock::new()
     }
@@ -233,107 +160,38 @@ impl abci::Application for ABCISubmissionServer {
     fn end_block(&mut self, _req: &RequestEndBlock) -> ResponseEndBlock {
         let mut la = self.la.write();
         if la.block_txn_count() == 0 {
-            info!("end_block: pulsing block");
             la.pulse_block();
         } else if !la.all_commited() {
-            info!("end_block: ending block");
             if let Err(e) = la.end_block().c(d!()) {
-                info!("end_block failure: {:?}", e.generate_log());
+                e.print();
             }
         }
 
         let mut resp = ResponseEndBlock::new();
-        let vs = staking::get_validators(la.get_committed_state().read().get_staking());
-        resp.set_validator_updates(RepeatedField::from_vec(vs));
+        if let Ok(vs) = ruc::info!(staking::get_validators(
+            la.get_committed_state().read().get_staking()
+        )) {
+            resp.set_validator_updates(RepeatedField::from_vec(vs));
+        }
         resp
     }
 
     fn commit(&mut self, _req: &RequestCommit) -> ResponseCommit {
         let mut r = ResponseCommit::new();
-        info!("locking for read");
         {
             let la = self.la.read();
             // la.begin_commit();
-            info!("locking state for read");
             let commitment = la.get_committed_state().read().get_state_commitment();
             // la.end_commit();
-            info!("commit: hash is {:?}", commitment.0.as_ref());
             r.set_data(commitment.0.as_ref().to_vec());
-            info!("unlocking for read");
         }
 
-        pnk!(height_cache::write_height(
+        pnk!(pulse_cache::write_height(
             TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)
         ));
 
         r
     }
-}
-
-fn main() {
-    // Tendermint ABCI port
-    env_logger::init();
-    info!(concat!(
-        "Build: ",
-        env!("VERGEN_SHA_SHORT"),
-        " ",
-        env!("VERGEN_BUILD_DATE")
-    ));
-
-    let mut base_dir = LEDGER_DIR.as_deref().map(|d| {
-        pnk!(fs::create_dir_all(d));
-        Path::new(d)
-    });
-
-    // use config file if specified
-    let mut config = Default::default();
-    let mut args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        let (config_abci, got) = ABCIConfig::from_file(&mut args);
-        if got {
-            config = config_abci;
-        }
-        base_dir = Some(Path::new(&args[1]));
-    }
-
-    let app = pnk!(ABCISubmissionServer::new(
-        base_dir,
-        format!("{}:{}", config.tendermint_host, config.tendermint_port),
-    ));
-    let submission_server = Arc::clone(&app.la);
-    let cloned_lock = { submission_server.read().borrowable_ledger_state() };
-
-    let submission_host = config.submission_host.clone();
-    let submission_port = config.submission_port.clone();
-    thread::spawn(move || {
-        pnk!(SubmissionApi::create(
-            submission_server,
-            &submission_host,
-            &submission_port
-        ));
-    });
-
-    let ledger_host = config.ledger_host.clone();
-    let ledger_port = config.ledger_port.clone();
-    thread::spawn(move || {
-        pnk!(RestfulApiService::create(
-            cloned_lock,
-            &ledger_host,
-            &ledger_port
-        ));
-    });
-
-    // TODO: pass the address and port in on the command line
-    let addr_str = format!("{}:{}", config.abci_host, config.abci_port);
-    let addr: SocketAddr = addr_str.parse().expect("Unable to parse socket address");
-
-    // handle SIGINT signal
-    ctrlc::set_handler(move || {
-        std::process::exit(0);
-    })
-    .expect("Error setting Ctrl-C handler");
-
-    abci::run(addr, app);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -468,53 +326,4 @@ struct TagAttr {
     // hex.encode(asset_type)
     asset_type: Option<String>,
     asset_amount: Option<u64>,
-}
-
-mod height_cache {
-    //!
-    //! ## issue
-    //!
-    //! - abci process need a very long time to finish a restarting
-    //!
-    //! ## reason
-    //!
-    //! #### 1. incorrect pulse count
-    //!
-    //! - pulse count will not be stored to disk
-    //! until there are some real transactions
-    //! - this will cause to send a block-height smaller
-    //! than the real one to tendermint in `ABCI::info` callback
-    //! - and this will cause to replay many unnecessary blocks
-    //! - and this will take a long time ...
-    //!
-    //! #### 2. replay all real transactions at starting
-    //!
-    //! - TODO: implement a state snapshot to avoid replay
-    //!
-    //! ## fix
-    //!
-    //! - cache block-height to disk along with the `ABCI::commit` callback
-    //! - send this cached block height to tendermint when restarting
-    //!
-
-    use lazy_static::lazy_static;
-    use ruc::*;
-    use std::{convert::TryInto, fs};
-
-    lazy_static! {
-        static ref PATH: String = format!(
-            "{}/.__tendermint_height__",
-            super::LEDGER_DIR.as_deref().unwrap_or("/tmp")
-        );
-    }
-
-    pub(super) fn write_height(h: i64) -> Result<()> {
-        fs::write(&*PATH, i64::to_ne_bytes(h)).c(d!())
-    }
-
-    pub(super) fn read_height() -> Result<i64> {
-        fs::read(&*PATH)
-            .c(d!())
-            .map(|b| i64::from_ne_bytes(b.try_into().unwrap()))
-    }
 }

@@ -12,7 +12,6 @@ ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 parking_lot = "0.11.1"
 
 ledger = { path = "../../ledger" }
-ledger_standalone = {path = "../ledger_standalone"}
 log = "0.4.8"
 ledger_api_service  = { path = "../../components/ledger_api_service" }
 rand_chacha = "0.2.0"

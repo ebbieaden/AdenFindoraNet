@@ -7,7 +7,10 @@
 
 use crate::{
     data_model::NoReplayToken,
-    staking::{cosig::CoSigOp, BlockHeight, Staking, Validator, ValidatorData},
+    staking::{
+        cosig::CoSigOp, BlockHeight, Staking, Validator, ValidatorData,
+        COSIG_THRESHOLD_DEFAULT, VALIDATORS_MIN,
+    },
 };
 use ruc::*;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
@@ -52,6 +55,19 @@ impl UpdateValidatorOps {
                 return Err(eg!("invalid height"));
             }
         }
+
+        if VALIDATORS_MIN > self.data.body.len() {
+            return Err(eg!("too few validators"));
+        }
+
+        let t1 = self.data.cosig_rule.threshold;
+        let t2 = COSIG_THRESHOLD_DEFAULT;
+
+        // threshold must be bigger than COSIG_THRESHOLD_DEFAULT
+        if t1[0] * t2[1] < t1[1] * t2[0] {
+            return Err(eg!("invalid cosig threshold"));
+        }
+
         Ok(())
     }
 
@@ -60,7 +76,7 @@ impl UpdateValidatorOps {
     pub fn get_related_pubkeys(&self) -> Vec<XfrPublicKey> {
         self.cosigs
             .keys()
-            .chain(self.data.data.keys())
+            .chain(self.data.body.keys())
             .copied()
             .collect()
     }

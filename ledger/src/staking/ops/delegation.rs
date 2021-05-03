@@ -147,9 +147,9 @@ impl Data {
 
 // Check tx and return the amount of delegation.
 // - total amount of operations is 3
-// - the first one is a `TransferAsset` to pay fee
-// - the second one is a `Delegation`
-// - the third one is a `TransferAsset` to pay to self
+// - one of them is a `TransferAsset` to pay fee
+// - one of them  is a `Delegation`
+// - one of them  is a `TransferAsset` to pay to self
 //     - all inputs must be owned by a same address
 //     - number of its outputs must be 1,
 //     - and this output must be `NonConfidential`
@@ -159,78 +159,97 @@ fn check_delegation_context(tx: &Transaction) -> Result<Amount> {
         return Err(eg!("incorrect number of operations"));
     }
 
-    // 1. the first operation must be a FEE operation
-    check_delegation_context_fee(tx).c(d!("invalid fee operation"))?;
+    // 1. check FEE operation
+    check_delegation_context_fee(tx, 3).c(d!("invalid fee operation"))?;
 
-    // 2. the second operation must be a `Delegation` operation
-    let owner = if let Operation::Delegation(ref x) = tx.body.operations[1] {
-        x.pubkey
-    } else {
-        return Err(eg!("delegation not found"));
-    };
+    // 2. check `Delegation` operation
+    let owner = (0..3)
+        .filter_map(|i| {
+            if let Operation::Delegation(ref x) = tx.body.operations[i] {
+                Some(x.pubkey)
+            } else {
+                None
+            }
+        })
+        .next()
+        .ok_or(eg!("delegation ops not found"))?;
 
-    // 3. the third operation must be a non-confidential `TransferAsset` to self
-    check_delegation_context_self_transfer(tx, owner)
+    // 3. check non-confidential self-`TransferAsset`
+    check_delegation_context_self_transfer(tx, owner, 3)
         .c(d!("delegation amount is not paid correctly"))
 }
 
-pub(crate) fn check_delegation_context_fee(tx: &Transaction) -> Result<()> {
-    if let Operation::TransferAsset(ref x) = tx.body.operations.get(0).ok_or(eg!())? {
-        if 1 != x.body.outputs.len() {
-            return Err(eg!("multi outputs is not allowed"));
-        }
+pub(crate) fn check_delegation_context_fee(
+    tx: &Transaction,
+    total: usize,
+) -> Result<()> {
+    let valid = (0..total).any(|i| {
+        if let Some(Operation::TransferAsset(ref x)) = tx.body.operations.get(i) {
+            // multi outputs is not allowed
+            if 1 != x.body.outputs.len() {
+                return false;
+            }
 
-        let o = &x.body.outputs[0];
-        if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-            if ty == ASSET_TYPE_FRA && *BLACK_HOLE_PUBKEY == o.record.public_key {
-                if let XfrAmount::NonConfidential(_) = o.record.amount {
-                    return Ok(());
+            let o = &x.body.outputs[0];
+            if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
+                if ty == ASSET_TYPE_FRA && *BLACK_HOLE_PUBKEY == o.record.public_key {
+                    if let XfrAmount::NonConfidential(_) = o.record.amount {
+                        return true;
+                    }
                 }
             }
         }
-    }
+        false
+    });
 
-    Err(eg!())
+    alt!(valid, Ok(()), Err(eg!()))
 }
 
 fn check_delegation_context_self_transfer(
     tx: &Transaction,
     owner: XfrPublicKey,
+    total: usize,
 ) -> Result<Amount> {
-    if let Operation::TransferAsset(ref x) = tx.body.operations.get(2).ok_or(eg!())? {
-        // ensure all inputs are owned by a same address.
-        if 1 != x
-            .body
-            .transfer
-            .inputs
-            .iter()
-            .map(|i| i.public_key)
-            .collect::<HashSet<_>>()
-            .len()
-        {
-            return Err(eg!("multi owners is not allowed"));
-        }
+    let mut am = None;
 
-        // ensure the owner of all inputs is same as the delegater.
-        if owner != x.body.transfer.inputs[0].public_key {
-            return Err(eg!("pubkey not match"));
-        }
+    for i in 0..total {
+        if let Some(Operation::TransferAsset(ref x)) = tx.body.operations.get(i) {
+            // ensure all inputs are owned by a same address.
+            if 1 != x
+                .body
+                .transfer
+                .inputs
+                .iter()
+                .map(|i| i.public_key)
+                .collect::<HashSet<_>>()
+                .len()
+            {
+                continue;
+            }
 
-        if 1 != x.body.outputs.len() {
-            return Err(eg!("multi outputs is not allowed"));
-        }
+            // ensure the owner of all inputs is same as the delegater.
+            if owner != x.body.transfer.inputs[0].public_key {
+                continue;
+            }
 
-        let o = &x.body.outputs[0];
-        if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-            if ty == ASSET_TYPE_FRA && owner == o.record.public_key {
-                if let XfrAmount::NonConfidential(am) = o.record.amount {
-                    return Amount::try_from(am).c(d!()); // all is well
+            // multi outputs is not allowed
+            if 1 != x.body.outputs.len() {
+                continue;
+            }
+
+            let o = &x.body.outputs[0];
+            if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
+                if ty == ASSET_TYPE_FRA && owner == o.record.public_key {
+                    if let XfrAmount::NonConfidential(i_am) = o.record.amount {
+                        am = Amount::try_from(i_am).ok();
+                        break;
+                    }
                 }
             }
         }
     }
 
-    Err(eg!())
+    am.ok_or(eg!())
 }
 
 /// Transfer assets from delegated address is not allowed,

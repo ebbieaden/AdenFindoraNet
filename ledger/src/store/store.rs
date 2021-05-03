@@ -43,8 +43,8 @@ pub struct SnapshotId {
 
 pub trait LedgerAccess {
     // Look up a currently unspent TXO
-    fn get_utxo(&mut self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
-    fn get_utxos(&mut self, address_list: TxoSIDList) -> Vec<Option<AuthenticatedUtxo>>;
+    fn get_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
+    fn get_utxos(&self, address_list: TxoSIDList) -> Vec<Option<AuthenticatedUtxo>>;
 
     // The most recently-issued sequence number for the `code`-labelled asset
     // type
@@ -60,7 +60,7 @@ pub trait LedgerAccess {
     fn get_state_commitment(&self) -> (HashOf<Option<StateCommitmentData>>, u64);
 
     // Get the authenticated status of a UTXO (Spent, Unspent, NonExistent).
-    fn get_utxo_status(&mut self, addr: TxoSID) -> AuthenticatedUtxoStatus;
+    fn get_utxo_status(&self, addr: TxoSID) -> AuthenticatedUtxoStatus;
 
     // The public signing key this ledger provides
     fn public_key(&self) -> &XfrPublicKey;
@@ -76,6 +76,8 @@ pub trait LedgerAccess {
     // fn get_asset_policy(&self, key: &AssetPolicyKey) -> Option<CustomAssetPolicy>;
     //  // Asset issuers can query ids of UTXOs of assets they are tracing
     // fn get_tracked_sids(&self, key: &EGPubKey)       -> Option<Vec<TxoSID>>;
+
+    fn get_staking(&self) -> &Staking;
 }
 
 pub trait LedgerUpdate<RNG: RngCore + CryptoRng> {
@@ -180,8 +182,6 @@ pub trait ArchiveAccess {
         &self,
         height: u64,
     ) -> Option<HashOf<Option<StateCommitmentData>>>;
-
-    fn get_staking(&self) -> &Staking;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1984,7 +1984,7 @@ impl LedgerStatus {
 }
 
 impl LedgerAccess for LedgerState {
-    fn get_utxo(&mut self, addr: TxoSID) -> Option<AuthenticatedUtxo> {
+    fn get_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo> {
         let utxo = self.status.get_utxo(addr);
         if let Some(utxo) = utxo.cloned() {
             let txn_location = *self.status.txo_to_txn_location.get(&addr).unwrap();
@@ -2004,7 +2004,7 @@ impl LedgerAccess for LedgerState {
             None
         }
     }
-    fn get_utxos(&mut self, sid_list: TxoSIDList) -> Vec<Option<AuthenticatedUtxo>> {
+    fn get_utxos(&self, sid_list: TxoSIDList) -> Vec<Option<AuthenticatedUtxo>> {
         let mut utxos: Vec<Option<AuthenticatedUtxo>> = Vec::new();
         if sid_list.0.len() > 10 || sid_list.0.is_empty() {
             return utxos;
@@ -2067,7 +2067,7 @@ impl LedgerAccess for LedgerState {
         SignatureOf::new(&self.signing_key, msg)
     }
 
-    fn get_utxo_status(&mut self, addr: TxoSID) -> AuthenticatedUtxoStatus {
+    fn get_utxo_status(&self, addr: TxoSID) -> AuthenticatedUtxoStatus {
         let state_commitment_data = self.status.state_commitment_data.as_ref().unwrap();
         let utxo_map_bytes: Option<SparseMapBytes>;
         let status;
@@ -2092,6 +2092,10 @@ impl LedgerAccess for LedgerState {
             utxo_sid: addr,
             utxo_map_bytes,
         }
+    }
+
+    fn get_staking(&self) -> &Staking {
+        &self.status.staking
     }
 }
 
@@ -2185,10 +2189,6 @@ impl ArchiveAccess for LedgerState {
             .state_commitment_versions
             .get((block_height - 1) as usize)
             .cloned()
-    }
-
-    fn get_staking(&self) -> &Staking {
-        &self.status.staking
     }
 }
 

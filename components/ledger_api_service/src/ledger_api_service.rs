@@ -58,11 +58,9 @@ pub async fn query_utxo<LA>(
 where
     LA: LedgerAccess,
 {
-    // TODO noah figure out how to make bitmap serialization not require a mutable ref
-    // https://bugtracker.findora.org/issues/165
-    let mut writer = data.write();
+    let reader = data.read();
     if let Ok(txo_sid) = info.parse::<u64>() {
-        if let Some(txo) = writer.get_utxo(TxoSID(txo_sid)) {
+        if let Some(txo) = reader.get_utxo(TxoSID(txo_sid)) {
             Ok(web::Json(txo))
         } else {
             Err(actix_web::error::ErrorNotFound(
@@ -106,12 +104,12 @@ pub async fn query_utxos<LA>(
 where
     LA: LedgerAccess,
 {
-    let mut writer = data.write();
+    let reader = data.read();
     if let Ok(txo_sid_list) = info.parse::<TxoSIDList>() {
         if txo_sid_list.0.len() > 10 || txo_sid_list.0.is_empty() {
             return Err(actix_web::error::ErrorBadRequest("Invalid Query List"));
         }
-        Ok(web::Json(writer.get_utxos(txo_sid_list)))
+        Ok(web::Json(reader.get_utxos(txo_sid_list)))
     } else {
         Err(actix_web::error::ErrorBadRequest(
             "Invalid txo sid encoding for list of sid",
@@ -523,7 +521,7 @@ impl RestfulApiService {
     pub fn create<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
         ledger_access: Arc<RwLock<LA>>,
         host: &str,
-        port: &str,
+        port: u16,
     ) -> Result<RestfulApiService> {
         let web_runtime = actix_rt::System::new("findora API");
 
