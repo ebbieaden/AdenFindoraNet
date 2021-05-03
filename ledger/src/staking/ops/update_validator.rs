@@ -10,7 +10,7 @@ use crate::{
     staking::{cosig::CoSigOp, BlockHeight, Staking, Validator, ValidatorData},
 };
 use ruc::*;
-use zei::xfr::sig::XfrPublicKey;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 /// Used as the inner object of a `UpdateValidator Operation`.
 pub type UpdateValidatorOps = CoSigOp<Data>;
@@ -68,6 +68,7 @@ impl UpdateValidatorOps {
     #[inline(always)]
     #[allow(missing_docs)]
     pub fn new(
+        kps: &[&XfrKeyPair],
         h: BlockHeight,
         v_set: Vec<Validator>,
         nonce: NoReplayToken,
@@ -75,6 +76,7 @@ impl UpdateValidatorOps {
         Data::new(h, v_set)
             .c(d!())
             .map(|d| CoSigOp::create(d, nonce))
+            .and_then(|mut op| op.batch_sign(kps).c(d!()).map(|_| op))
     }
 }
 

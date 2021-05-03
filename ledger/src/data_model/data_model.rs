@@ -1014,8 +1014,24 @@ pub enum Operation {
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
-    if let Operation::UpdateMemo(um) = op {
-        um.body.no_replay_token = no_replay_token
+    match op {
+        Operation::Delegation(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::UnDelegation(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::FraDistribution(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::UpdateValidator(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::Governance(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::UpdateMemo(i) => i.body.no_replay_token = no_replay_token,
+        _ => {}
     }
 }
 

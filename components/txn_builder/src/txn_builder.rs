@@ -13,11 +13,21 @@ use ledger::data_model::*;
 use ledger::inv_fail;
 use ledger::policies::Fraction;
 use ledger::policy_script::{Policy, PolicyGlobals, TxnCheckInputs, TxnPolicyData};
+use ledger::staking::{
+    ops::{
+        delegation::DelegationOps,
+        fra_distribution::FraDistributionOps,
+        governance::{ByzantineKind, GovernanceOps},
+        undelegation::UnDelegationOps,
+        update_validator::UpdateValidatorOps,
+    },
+    BlockHeight, Validator,
+};
 use rand_chacha::ChaChaRng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
 use ruc::*;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use utils::SignatureOf;
 use zei::api::anon_creds::{
     ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
@@ -298,6 +308,30 @@ pub trait BuildsTransactions {
         asset_code: AssetTypeCode,
         new_memo: &str,
     ) -> &mut Self;
+    fn add_operation_delegation(
+        &mut self,
+        keypair: &XfrKeyPair,
+        validator: XfrPublicKey,
+        block_span: u64,
+    ) -> &mut Self;
+    fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self;
+    fn add_operation_fra_distribution(
+        &mut self,
+        kps: &[&XfrKeyPair],
+        alloc_table: BTreeMap<XfrPublicKey, u64>,
+    ) -> Result<&mut Self>;
+    fn add_operation_governance(
+        &mut self,
+        kps: &[&XfrKeyPair],
+        byzantine_id: XfrPublicKey,
+        kind: ByzantineKind,
+    ) -> Result<&mut Self>;
+    fn add_operation_update_validator(
+        &mut self,
+        kps: &[&XfrKeyPair],
+        h: BlockHeight,
+        v_set: Vec<Validator>,
+    ) -> Result<&mut Self>;
 
     fn serialize(&self) -> Vec<u8>;
     fn serialize_str(&self) -> String;
@@ -796,6 +830,54 @@ impl BuildsTransactions for TransactionBuilder {
         let op = Operation::UpdateMemo(memo_update);
         self.txn.add_operation(op);
         self
+    }
+
+    fn add_operation_delegation(
+        &mut self,
+        keypair: &XfrKeyPair,
+        validator: XfrPublicKey,
+        block_span: u64,
+    ) -> &mut Self {
+        let op =
+            DelegationOps::new(keypair, validator, block_span, self.no_replay_token);
+        self.add_operation(Operation::Delegation(op))
+    }
+
+    fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self {
+        let op = UnDelegationOps::new(keypair, self.no_replay_token);
+        self.add_operation(Operation::UnDelegation(op))
+    }
+
+    fn add_operation_fra_distribution(
+        &mut self,
+        kps: &[&XfrKeyPair],
+        alloc_table: BTreeMap<XfrPublicKey, u64>,
+    ) -> Result<&mut Self> {
+        FraDistributionOps::new(kps, alloc_table, self.no_replay_token)
+            .c(d!())
+            .map(move |op| self.add_operation(Operation::FraDistribution(op)))
+    }
+
+    fn add_operation_governance(
+        &mut self,
+        kps: &[&XfrKeyPair],
+        byzantine_id: XfrPublicKey,
+        kind: ByzantineKind,
+    ) -> Result<&mut Self> {
+        GovernanceOps::new(kps, byzantine_id, kind, self.no_replay_token)
+            .c(d!())
+            .map(move |op| self.add_operation(Operation::Governance(op)))
+    }
+
+    fn add_operation_update_validator(
+        &mut self,
+        kps: &[&XfrKeyPair],
+        h: BlockHeight,
+        v_set: Vec<Validator>,
+    ) -> Result<&mut Self> {
+        UpdateValidatorOps::new(kps, h, v_set, self.no_replay_token)
+            .c(d!())
+            .map(move |op| self.add_operation(Operation::UpdateValidator(op)))
     }
 
     fn add_operation(&mut self, op: Operation) -> &mut Self {

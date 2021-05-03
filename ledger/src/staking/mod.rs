@@ -890,8 +890,8 @@ pub const FROZEN_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
 // used to express some descriptive information
 type Memo = String;
 
-// block height of tendermint
-pub(crate) type BlockHeight = u64;
+/// block height of tendermint
+pub type BlockHeight = u64;
 
 // use i64 to keep compatible with the logic of asset penalty
 type Amount = i64;

@@ -11,7 +11,7 @@ use crate::{
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use zei::xfr::sig::XfrPublicKey;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 /// Used as the inner object of a `FraDistribution Operation`.
 pub type FraDistributionOps = CoSigOp<Data>;
@@ -57,8 +57,13 @@ impl FraDistributionOps {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn new(alloc_table: BTreeMap<XfrPublicKey, u64>, nonce: NoReplayToken) -> Self {
-        CoSigOp::create(Data::new(alloc_table), nonce)
+    pub fn new(
+        kps: &[&XfrKeyPair],
+        alloc_table: BTreeMap<XfrPublicKey, u64>,
+        nonce: NoReplayToken,
+    ) -> Result<Self> {
+        let mut op = CoSigOp::create(Data::new(alloc_table), nonce);
+        op.batch_sign(kps).c(d!()).map(|_| op)
     }
 }
 

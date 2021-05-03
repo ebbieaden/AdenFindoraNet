@@ -15,7 +15,7 @@ use lazy_static::lazy_static;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use zei::xfr::sig::XfrPublicKey;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 lazy_static! {
     // TODO
@@ -66,11 +66,13 @@ impl GovernanceOps {
     #[inline(always)]
     #[allow(missing_docs)]
     pub fn new(
-        kind: ByzantineKind,
+        kps: &[&XfrKeyPair],
         byzantine_id: XfrPublicKey,
+        kind: ByzantineKind,
         nonce: NoReplayToken,
-    ) -> Self {
-        CoSigOp::create(Data::new(kind, byzantine_id), nonce)
+    ) -> Result<Self> {
+        let mut op = CoSigOp::create(Data::new(kind, byzantine_id), nonce);
+        op.batch_sign(kps).c(d!()).map(|_| op)
     }
 }
 

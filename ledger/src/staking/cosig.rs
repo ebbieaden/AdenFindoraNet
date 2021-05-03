@@ -133,6 +133,12 @@ where
 
     #[inline(always)]
     #[allow(missing_docs)]
+    pub fn set_nonce(&mut self, nonce: NoReplayToken) {
+        self.nonce = nonce;
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
     pub fn get_nonce(&self) -> NoReplayToken {
         self.nonce
     }
