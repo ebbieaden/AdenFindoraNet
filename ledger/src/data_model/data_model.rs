@@ -37,6 +37,7 @@ use std::{env, mem};
 use time::OffsetDateTime;
 use unicode_normalization::UnicodeNormalization;
 use utils::{HashOf, ProofOf, Serialized, SignatureOf};
+use zei::serialization::ZeiFromToBytes;
 use zei::xfr::lib::{gen_xfr_body, XfrNotePolicies};
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 use zei::xfr::structs::{
@@ -1324,6 +1325,7 @@ lazy_static! {
     /// The destination of Fee is an black hole,
     /// all token transfered to it will be burned.
     pub static ref BLACK_HOLE_PUBKEY: XfrPublicKey = pnk!(wallet::restore_keypair_from_mnemonic_default(COIN_BASE_MNEMONIC)).get_pk();
+    static ref BLACK_HOLE_PUBKEY_V1: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[0; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
 }
 
 /// see [**mainnet-v1.0 defination**](https://www.notion.so/findora/Transaction-Fees-Analysis-d657247b70f44a699d50e1b01b8a2287)
@@ -1370,7 +1372,8 @@ impl Transaction {
                 return x.body.outputs.iter().any(|o| {
                     if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
                         if ty == ASSET_TYPE_FRA
-                            && *BLACK_HOLE_PUBKEY == o.record.public_key
+                            && (*BLACK_HOLE_PUBKEY == o.record.public_key
+                                || *BLACK_HOLE_PUBKEY_V1 == o.record.public_key)
                         {
                             if let XfrAmount::NonConfidential(am) = o.record.amount {
                                 if am > (TX_FEE_MIN - 1) {
@@ -1638,7 +1641,6 @@ mod tests {
     use rand_core::SeedableRng;
     use std::cmp::min;
     use zei::ristretto;
-    use zei::serialization::ZeiFromToBytes;
     use zei::xfr::structs::{AssetTypeAndAmountProof, XfrBody, XfrProofs};
     use zeiutils::err_eq;
 
