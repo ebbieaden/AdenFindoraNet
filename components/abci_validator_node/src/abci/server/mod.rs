@@ -145,6 +145,7 @@ impl abci::Application for ABCISubmissionServer {
             staking::system_ops(
                 &mut *la.get_committed_state().write(),
                 &header,
+                req.last_commit_info.as_ref(),
                 &req.byzantine_validators.as_slice(),
                 la.get_fwder().unwrap().as_ref(),
             );

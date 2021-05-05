@@ -72,7 +72,7 @@ impl Staking {
         let cur_height = vd.height;
         Staking {
             vi: map! {B cur_height => vd },
-            di: DelegationInfo::default(),
+            di: DelegationInfo::new(),
             cur_height,
             coinbase: CoinBase::gen(),
         }
@@ -198,7 +198,7 @@ impl Staking {
     fn validator_change_power(
         &mut self,
         validator: &XfrPublicKey,
-        power: i64,
+        power: Amount,
     ) -> Result<()> {
         self.validator_check_power(power, validator)
             .c(d!())
@@ -219,7 +219,7 @@ impl Staking {
     #[inline(always)]
     fn validator_check_power(
         &self,
-        new_power: i64,
+        new_power: Amount,
         vldtor: &XfrPublicKey,
     ) -> Result<()> {
         let total_power = self.validator_total_power() + new_power;
@@ -261,7 +261,6 @@ impl Staking {
 
     /// Start a new delegation.
     /// - increase the vote power of the co-responding validator
-    /// - self-delegation will generate 1_000x power than user-delegation
     ///
     /// Validator must do self-delegatation first,
     /// and its delegation end_height must be `i64::MAX`.
@@ -276,8 +275,6 @@ impl Staking {
         start_height: BlockHeight,
         mut end_height: BlockHeight,
     ) -> Result<()> {
-        const POWER_MUL: i64 = 1_000;
-
         if end_height > BLOCK_HEIGHT_MAX || start_height > end_height {
             return Err(eg!("invalid delegation heights"));
         }
@@ -285,8 +282,6 @@ impl Staking {
         if !(MIN_DELEGATION_AMOUNT..=MAX_DELEGATION_AMOUNT).contains(&(am as u64)) {
             return Err(eg!("invalid delegation amount"));
         }
-
-        let mut power = am as i64 / POWER_MUL;
 
         if let Some(d) = self.delegation_get(&validator) {
             // check delegation deadline
@@ -297,7 +292,6 @@ impl Staking {
         } else if owner == validator {
             // do self-delegation
             end_height = BLOCK_HEIGHT_MAX;
-            power *= POWER_MUL;
         } else {
             return Err(eg!("self-delegation has not been finished"));
         }
@@ -307,7 +301,8 @@ impl Staking {
             return Err(eg!("already exists"));
         }
 
-        self.validator_change_power(&validator, power).c(d!())?;
+        self.validator_change_power(&validator, am as Amount)
+            .c(d!())?;
 
         let v = Delegation {
             amount: am,
@@ -325,6 +320,9 @@ impl Staking {
             .entry(end_height)
             .or_insert_with(BTreeSet::new)
             .insert(k);
+
+        // total amount of all delegations
+        self.di.total_amount += am;
 
         Ok(())
     }
@@ -344,8 +342,7 @@ impl Staking {
             }
         }
 
-        let (validator, power) = self
-            .di
+        self.di
             .addr_map
             .get_mut(addr)
             .ok_or(eg!("not exists"))
@@ -354,8 +351,6 @@ impl Staking {
                     orig_h = Some(d.end_height);
                     d.end_height = h;
                 }
-                d.compute_rewards();
-                (d.validator, -(d.amount as i64))
             })?;
 
         // scene: forced un-delegation
@@ -371,7 +366,7 @@ impl Staking {
                 .insert(addr.to_owned());
         }
 
-        self.validator_change_power(&validator, power).c(d!())
+        Ok(())
     }
 
     #[inline(always)]
@@ -387,14 +382,10 @@ impl Staking {
     }
 
     /// Expand delegation scale
-    ///
-    /// **NOTE:** It is the caller's duty to ensure that
-    /// there is enough FRAs existing in the target address(owner).
     pub fn delegation_extend(
         &mut self,
         owner: &XfrPublicKey,
-        am: Option<Amount>,
-        end_height: Option<BlockHeight>,
+        end_height: BlockHeight,
     ) -> Result<()> {
         let addr = owner;
         let d = if let Some(d) = self.di.addr_map.get_mut(addr) {
@@ -403,34 +394,23 @@ impl Staking {
             return Err(eg!("not exists"));
         };
 
-        if let Some(am) = am {
-            if am > d.amount {
-                d.amount = am;
-            } else {
-                return Err(eg!("new amount must be bigger than the old one"));
-            }
+        if end_height > d.end_height {
+            let orig_h = d.end_height;
+            d.end_height = end_height;
+            self.di
+                .end_height_map
+                .get_mut(&orig_h)
+                .ok_or(eg!())?
+                .remove(addr);
+            self.di
+                .end_height_map
+                .entry(end_height)
+                .or_insert_with(BTreeSet::new)
+                .insert(addr.to_owned());
+            Ok(())
+        } else {
+            Err(eg!("new end_height must be bigger than the old one"))
         }
-
-        if let Some(h) = end_height {
-            if h > d.end_height {
-                let orig_h = d.end_height;
-                d.end_height = h;
-                self.di
-                    .end_height_map
-                    .get_mut(&orig_h)
-                    .ok_or(eg!())?
-                    .remove(addr);
-                self.di
-                    .end_height_map
-                    .entry(h)
-                    .or_insert_with(BTreeSet::new)
-                    .insert(addr.to_owned());
-            } else {
-                return Err(eg!("new end_height must be bigger than the old one"));
-            }
-        }
-
-        Ok(())
     }
 
     /// Get the delegation instance of `addr`.
@@ -501,7 +481,6 @@ impl Staking {
     /// Clean delegation states along with each new block.
     pub fn deletation_process(&mut self) {
         let h = self.cur_height.saturating_sub(FROZEN_BLOCK_CNT);
-
         if 0 < h {
             self.di
                 .end_height_map
@@ -512,11 +491,19 @@ impl Staking {
                 .collect::<Vec<_>>()
                 .into_iter()
                 .for_each(|addr| {
-                    if let Some(d) = self.di.addr_map.get_mut(&addr) {
+                    let (v, am) = if let Some(d) = self.di.addr_map.get_mut(&addr) {
                         if DelegationState::Locked == d.state {
                             d.state = DelegationState::Frozen;
                         }
-                    }
+                        (d.validator, d.amount)
+                    } else {
+                        return;
+                    };
+
+                    // total amount of all delegations
+                    self.di.total_amount -= am;
+
+                    ruc::info_omit!(self.validator_change_power(&v, -am));
                 });
 
             self.deletation_process_finished_before_height(h);
@@ -574,19 +561,6 @@ impl Staking {
             return Err(eg!("the amount must be a positive integer"));
         }
         self.delegation_import_extern_amount(addr, -am).c(d!())
-    }
-
-    /// A helper for setting block rewards in ABCI.
-    pub fn set_block_rewards(
-        &mut self,
-        addr: TendermintAddrRef,
-        am: Amount,
-    ) -> Result<()> {
-        let pk = self.td_addr_to_app_pk(addr).c(d!())?;
-        if !self.addr_is_validator(&pk) {
-            return Err(eg!("not validator"));
-        }
-        self.delegation_import_extern_amount(&pk, am).c(d!())
     }
 
     // Look up the `XfrPublicKey`
@@ -814,7 +788,7 @@ impl Staking {
             .iter()
             .any(|(addr, am)| self.coinbase.distribution_plan.get(addr).unwrap() != am);
         let xb = delegation.iter().any(|(addr, am)| {
-            self.delegation_get(addr).unwrap().rwd_amount != *am as i64
+            self.delegation_get(addr).unwrap().rwd_amount != *am as Amount
         });
 
         if xa || xb {
@@ -887,10 +861,108 @@ impl Staking {
             .map(|(k, v)| (*k, *v))
             .collect()
     }
+
+    /// A helper for setting block rewards in ABCI.
+    pub fn set_last_block_rewards(
+        &mut self,
+        addr: TendermintAddrRef,
+        block_vote_power: Option<i64>,
+    ) -> Result<()> {
+        let pk = self.td_addr_to_app_pk(addr).c(d!())?;
+        if !self.addr_is_validator(&pk) {
+            return Err(eg!("not validator"));
+        }
+
+        let h = self.cur_height;
+        let return_rate = Self::get_block_rewards_rate([
+            self.di.total_amount as u64,
+            FRA_TOTAL_AMOUNT,
+        ]);
+
+        self.di
+            .addr_map
+            .values_mut()
+            .filter(|d| d.validator == pk)
+            .for_each(|d| {
+                ruc::info_omit!(d.set_delegation_rewards(h, return_rate));
+            });
+
+        if let Some(power) = block_vote_power {
+            let total_power = self.validator_total_power();
+            if 0 < total_power {
+                self.set_proposer_rewards(&pk, [power, total_power])
+                    .c(d!())?;
+            }
+        }
+
+        Ok(())
+    }
+
+    // SEE:
+    // https://www.notion.so/findora/PoS-Stage-1-Consensus-Rewards-Penalties-72f5c9a697ff461c89c3728e34348834#3d2f1b8ff8244632b715abdd42b6a67b
+    fn get_block_rewards_rate(global_delegation_percent: [u64; 2]) -> [u64; 2] {
+        const RATE_RULE: [([u64; 2], u64); 8] = [
+            ([0, 10], 20),
+            ([10, 20], 17),
+            ([20, 30], 14),
+            ([30, 40], 11),
+            ([40, 50], 8),
+            ([50, 50], 5),
+            ([60, 67], 2),
+            ([67, 101], 1),
+        ];
+
+        let p = global_delegation_percent;
+        for ([low, high], rate) in RATE_RULE.iter() {
+            if p[0] * 100 < p[1] * high && p[0] * 100 >= p[1] * low {
+                return [*rate, 100];
+            }
+        }
+
+        unreachable!();
+    }
+
+    // SEE:
+    // https://www.notion.so/findora/PoS-Stage-1-Consensus-Rewards-Penalties-72f5c9a697ff461c89c3728e34348834#3d2f1b8ff8244632b715abdd42b6a67b
+    fn set_proposer_rewards(
+        &mut self,
+        proposer: &XfrPublicKey,
+        vote_percent: [i64; 2],
+    ) -> Result<()> {
+        const RATE_RULE: [([u64; 2], u64); 6] = [
+            ([0, 66_6667], 0),
+            ([66_6667, 75_0000], 1),
+            ([75_0000, 83_3333], 2),
+            ([83_3333, 91_6667], 3),
+            ([91_6667, 100_0000], 4),
+            ([100_0000, 100_0001], 5),
+        ];
+
+        let p = [vote_percent[0] as u64, vote_percent[1] as u64];
+
+        if p[0] > p[1] {
+            return Err(eg!());
+        }
+
+        for ([low, high], rate) in RATE_RULE.iter() {
+            if p[0] * 100 < p[1] * high && p[0] * 100 >= p[1] * low {
+                let h = self.cur_height;
+                return self
+                    .delegation_get_mut(proposer)
+                    .ok_or(eg!())
+                    .and_then(|d| d.set_delegation_rewards(h, [*rate, 100]).c(d!()));
+            }
+        }
+
+        unreachable!();
+    }
 }
 
 /// How many FRA units per FRA
 pub const FRA: u64 = 10_u64.pow(FRA_DECIMALS as u32);
+
+// total amount of FRA-units issuance
+const FRA_TOTAL_AMOUNT: u64 = 210_0000_0000 * FRA;
 
 const MIN_DELEGATION_AMOUNT: u64 = 32 * FRA;
 const MAX_DELEGATION_AMOUNT: u64 = 32_0000 * FRA;
@@ -908,14 +980,14 @@ pub const COIN_BASE_MNEMONIC: &str = "load second west source excuse skin though
 // > Applications are responsible for ensuring
 // > they do not make changes to the validator set
 // > that cause it to exceed this limit.
-const MAX_TOTAL_POWER: i64 = i64::MAX / 8;
+const MAX_TOTAL_POWER: Amount = Amount::MAX / 8;
 
 // The max vote power of any validator
 // can not exceed 20% of total power.
 const MAX_POWER_PERCENT_PER_VALIDATOR: [u128; 2] = [1, 5];
 
 // Block time interval, in seconds.
-const BLOCK_INTERVAL: u64 = 15;
+const BLOCK_INTERVAL: u64 = 15 + 1;
 
 /// The lock time after the delegation expires, about 21 days.
 pub const FROZEN_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
@@ -927,7 +999,6 @@ pub(crate) const VALIDATORS_MIN: usize = 6;
 /// when updating validator information, 2/3.
 pub const COSIG_THRESHOLD_DEFAULT: [u64; 2] = [2, 3];
 
-// used to express some descriptive information
 type Memo = String;
 
 /// block height of tendermint
@@ -1028,8 +1099,19 @@ impl ValidatorData {
 // so it is feasible to use `XfrPublicKey` as the map key.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
 struct DelegationInfo {
+    total_amount: Amount,
     addr_map: BTreeMap<XfrPublicKey, Delegation>,
     end_height_map: BTreeMap<BlockHeight, BTreeSet<XfrPublicKey>>,
+}
+
+impl DelegationInfo {
+    fn new() -> Self {
+        DelegationInfo {
+            total_amount: 0,
+            addr_map: BTreeMap::new(),
+            end_height_map: BTreeMap::new(),
+        }
+    }
 }
 
 /// Validator info
@@ -1038,7 +1120,7 @@ pub struct Validator {
     /// pubkey in the context of tendermint
     pub td_pubkey: Vec<u8>,
     /// vote power in the context of Staking
-    pub td_power: i64,
+    pub td_power: Amount,
     /// public key of validator, aka 'Validator ID'.
     ///
     /// staking rewards will be paid to this addr
@@ -1053,7 +1135,7 @@ impl Validator {
     #[allow(missing_docs)]
     pub fn new(
         td_pubkey: Vec<u8>,
-        td_power: i64,
+        td_power: Amount,
         id: XfrPublicKey,
         memo: Option<Memo>,
     ) -> Self {
@@ -1117,21 +1199,31 @@ impl Delegation {
     /// > **NOTE:**
     /// > use 'AssignAdd' instead of 'Assign'
     /// > to keep compatible with the logic of governance penalty.
-    ///
-    /// > **TODO:** implement the real logic.
-    fn compute_rewards(&mut self) {
-        // delegation_return_per_block
-        //     = 7% / <number of total blocks>
-        //     = (7 / 100) / ((365 * 24 * 3600) / BLOCK_INTERVAL)
-        //     = (7 * BLOCK_INTERVAL) / (100 * (365 * 24 * 3600))
-        const DR_PER_BLOCK: [i64; 2] =
-            [7 * BLOCK_INTERVAL as i64, 100 * (365 * 24 * 3600)];
+    pub fn set_delegation_rewards(
+        &mut self,
+        cur_height: BlockHeight,
+        return_rate: [u64; 2],
+    ) -> Result<()> {
+        if self.end_height < cur_height {
+            return Ok(());
+        }
 
-        // this cast is safe because we have limited the height settings.
-        let block_span = (self.end_height - self.start_height) as i64;
+        let am = self.amount as u128;
+        let block_itv = BLOCK_INTERVAL as u128;
+        let return_rate = [return_rate[0] as u128, return_rate[1] as u128];
 
-        let n = (self.amount * block_span * DR_PER_BLOCK[0]) / DR_PER_BLOCK[1];
-        self.rwd_amount += n;
+        am.checked_mul(return_rate[0])
+            .and_then(|i| i.checked_mul(block_itv))
+            .and_then(|i| {
+                return_rate[1]
+                    .checked_mul(365 * 24 * 3600)
+                    .and_then(|j| i.checked_div(j))
+            })
+            .and_then(|n| self.rwd_amount.checked_add(n as Amount))
+            .map(|n| {
+                self.rwd_amount = n;
+            })
+            .ok_or(eg!("overflow"))
     }
 }
 

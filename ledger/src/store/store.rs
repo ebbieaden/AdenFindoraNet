@@ -922,6 +922,7 @@ impl LedgerStatus {
 
         // for staking logic
         {
+            // set height first!
             block.staking_simulator.set_custom_block_height(
                 1 + block.pulse_count + self.block_commit_count + self.pulse_count,
             );

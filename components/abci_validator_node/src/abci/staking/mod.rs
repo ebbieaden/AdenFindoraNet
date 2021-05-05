@@ -5,10 +5,10 @@
 //!
 
 use crate::abci::server::{forward_txn_with_mode, TD_NODE_SELF_ADDR};
-use abci::{Evidence, Header, PubKey, ValidatorUpdate};
+use abci::{Evidence, Header, LastCommitInfo, PubKey, ValidatorUpdate};
 use ledger::{
     data_model::{Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA},
-    staking::{Staking, FRA},
+    staking::Staking,
     store::{LedgerAccess, LedgerUpdate},
 };
 use rand_core::{CryptoRng, RngCore};
@@ -23,6 +23,8 @@ use zei::xfr::{
 #[cfg(test)]
 #[cfg(feature = "abci_mock")]
 mod abci_mock_test;
+
+type SignedPower = i64;
 
 // The top 50 candidate validators
 // will become official validators.
@@ -60,16 +62,25 @@ pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
         .collect())
 }
 
+// Call this function in `BeginBlock`,
+// - pay delegation rewards
+// - pay proposer rewards(traditional block rewards)
+// - do governance operations
 pub fn system_ops<RNG: RngCore + CryptoRng>(
     la: &mut (impl LedgerAccess + LedgerUpdate<RNG>),
     header: &Header,
+    last_commit_info: Option<&LastCommitInfo>,
     evs: &[Evidence],
     fwder: &str,
 ) {
     ruc::info_omit!(system_pay(la, &header.proposer_address, fwder));
 
     let staking = la.get_staking_mut();
-    ruc::info_omit!(set_block_rewards(staking, &header.proposer_address));
+    ruc::info_omit!(set_rewards(
+        staking,
+        &header.proposer_address,
+        last_commit_info.map(|lci| get_last_vote_power(lci))
+    ));
 
     evs.iter()
         .filter(|ev| ev.validator.is_some())
@@ -88,10 +99,25 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
         });
 }
 
-// static block rewards, 100 FRA per block
-fn set_block_rewards(staking: &mut Staking, proposer: &[u8]) -> Result<()> {
-    const BLOCK_RW: i64 = 100 * FRA as i64;
-    staking.set_block_rewards(proposer, BLOCK_RW).c(d!())
+// Get the actual total power of last block.
+fn get_last_vote_power(last_commit_info: &LastCommitInfo) -> SignedPower {
+    last_commit_info
+        .votes
+        .iter()
+        .filter(|v| v.signed_last_block)
+        .flat_map(|info| info.validator.as_ref().map(|v| v.power))
+        .sum()
+}
+
+// Set delegation rewards and proposer rewards
+fn set_rewards(
+    staking: &mut Staking,
+    proposer: &[u8],
+    last_vote_power: Option<i64>,
+) -> Result<()> {
+    staking
+        .set_last_block_rewards(proposer, last_vote_power)
+        .c(d!())
 }
 
 #[allow(dead_code)]
@@ -107,7 +133,7 @@ struct ByzantineInfo<'a> {
     total_power: i64,
 }
 
-// auto governance
+// Auto governance.
 fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
     staking.governance_penalty(bz.addr, i64::MAX).c(d!())
 }
@@ -141,6 +167,7 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
     Ok(())
 }
 
+// Generate all tx in batch mode.
 fn gen_transaction_list(
     la: &impl LedgerAccess,
     utxo_sids: Vec<TxoSID>,
