@@ -823,8 +823,8 @@ impl BlockEffect {
                 .c(d!())?;
         }
 
-        // transfer assets from delegated address is not allowed,
-        // except the unique `TransferAsset` operation in the delegation transaction.
+        // transfer from any delegated address is not allowed except
+        // the unique `TransferAsset` operation in the delegation/undelegation transaction.
         if found_delegated_addresses(&self.staking_simulator, &txn_effect.txn) {
             return Err(eg!("transaction denied"));
         }

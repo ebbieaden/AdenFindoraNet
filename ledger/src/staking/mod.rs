@@ -1204,7 +1204,7 @@ impl Delegation {
         cur_height: BlockHeight,
         return_rate: [u64; 2],
     ) -> Result<()> {
-        if self.end_height < cur_height {
+        if self.end_height < cur_height || DelegationState::Locked != self.state {
             return Ok(());
         }
 

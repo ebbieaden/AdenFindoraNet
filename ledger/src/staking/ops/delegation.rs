@@ -4,6 +4,7 @@
 //! Data representation required when users propose a delegation.
 //!
 
+use super::undelegation::check_undelegation_context;
 use crate::{
     data_model::{
         NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY,
@@ -263,6 +264,7 @@ fn check_delegation_context_self_transfer(
 ///     2. this transaction contains delegated addresses in its `inputs`
 pub fn found_delegated_addresses(staking: &Staking, tx: &Transaction) -> bool {
     check_delegation_context(tx).is_err()
+        && check_undelegation_context(tx).is_err()
         && tx.body.operations.iter().any(|o| {
             if let Operation::TransferAsset(ref x) = o {
                 return x

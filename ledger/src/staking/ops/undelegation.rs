@@ -49,7 +49,7 @@ impl UnDelegationOps {
 
     #[inline(always)]
     fn check_context(tx: &Transaction) -> Result<()> {
-        check_delegation_context(tx).c(d!())
+        check_undelegation_context(tx).c(d!())
     }
 
     #[inline(always)]
@@ -115,13 +115,13 @@ impl Data {
 // - total amount of operations is 2
 // - one of them is a `TransferAsset` to pay fee
 // - one of them is a `UnDelegation`
-fn check_delegation_context(tx: &Transaction) -> Result<()> {
+pub(crate) fn check_undelegation_context(tx: &Transaction) -> Result<()> {
     if 2 != tx.body.operations.len() {
         return Err(eg!("incorrect number of operations"));
     }
 
     // 1. check FEE operation
-    check_delegation_context_fee(tx).c(d!("invalid fee operation"))?;
+    check_undelegation_context_fee(tx).c(d!("invalid fee operation"))?;
 
     // 2. check `UnDelegation` operation
     if (0..2).any(|i| matches!(tx.body.operations[i], Operation::UnDelegation(_))) {
@@ -132,6 +132,6 @@ fn check_delegation_context(tx: &Transaction) -> Result<()> {
 }
 
 #[inline(always)]
-fn check_delegation_context_fee(tx: &Transaction) -> Result<()> {
+fn check_undelegation_context_fee(tx: &Transaction) -> Result<()> {
     super::delegation::check_delegation_context_fee(tx, 2).c(d!())
 }
