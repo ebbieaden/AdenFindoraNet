@@ -13,7 +13,8 @@ use crate::{
             governance::GovernanceOps, undelegation::UnDelegationOps,
             update_validator::UpdateValidatorOps,
         },
-        TendermintAddr, COINBASE_PK, MAX_POWER_PERCENT_PER_VALIDATOR,
+        TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
+        MAX_POWER_PERCENT_PER_VALIDATOR,
     },
 };
 
@@ -1101,7 +1102,6 @@ pub struct StakerAccountInfo {
     total_staking: i64,
     apy: [u64; 2],
     reward: i64,
-    can_staking: bool,
     total_delegation: i64,
     current_delegation: i64,
 }
@@ -1111,7 +1111,6 @@ impl Default for StakerAccountInfo {
             total_staking: 0i64,
             apy: [0u64, 100u64],
             reward: 0i64,
-            can_staking: false,
             total_delegation: 0i64,
             current_delegation: 0i64,
         }
@@ -1122,7 +1121,6 @@ impl StakerAccountInfo {
         apy: [u64; 2],
         total_staking: i64,
         reward: i64,
-        can_staking: bool,
         total_delegation: i64,
         current_delegation: i64,
     ) -> Self {
@@ -1130,7 +1128,6 @@ impl StakerAccountInfo {
             total_staking,
             apy,
             reward,
-            can_staking,
             total_delegation,
             current_delegation,
         }
@@ -1440,11 +1437,10 @@ impl Transaction {
                     }
                     false
                 }) || (!x.body.transfer.inputs.is_empty()
-                    && x.body
-                        .transfer
-                        .inputs
-                        .iter()
-                        .all(|i| *COINBASE_PK == i.public_key));
+                    && x.body.transfer.inputs.iter().all(|i| {
+                        *COINBASE_PK == i.public_key
+                            || *COINBASE_PRINCIPAL_PK == i.public_key
+                    }));
             } else if let Operation::DefineAsset(ref x) = ops {
                 if x.body.asset.code.val == ASSET_TYPE_FRA {
                     return true;

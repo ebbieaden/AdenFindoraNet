@@ -4,12 +4,11 @@
 //! Data representation required when users propose a delegation.
 //!
 
-use super::undelegation::check_undelegation_context;
 use crate::{
     data_model::{
         NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY,
     },
-    staking::{Amount, Staking, TendermintAddr},
+    staking::{Amount, Staking, TendermintAddr, COINBASE_PRINCIPAL_PK},
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -45,13 +44,7 @@ impl DelegationOps {
             .and_then(|_| Self::check_context(tx).c(d!()))
             .and_then(|am| {
                 staking
-                    .delegate(
-                        self.pubkey,
-                        &self.body.validator,
-                        am,
-                        staking.cur_height,
-                        staking.cur_height.saturating_add(self.body.block_span),
-                    )
+                    .delegate(self.pubkey, &self.body.validator, am, staking.cur_height)
                     .c(d!())
             })
     }
@@ -80,10 +73,9 @@ impl DelegationOps {
     pub fn new(
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
-        block_span: BlockAmount,
         nonce: NoReplayToken,
     ) -> Self {
-        let body = Data::new(validator, block_span, nonce);
+        let body = Data::new(validator, nonce);
         let signature = keypair.sign(&body.to_bytes());
         DelegationOps {
             body,
@@ -105,27 +97,19 @@ impl DelegationOps {
     }
 }
 
-type BlockAmount = u64;
-
 /// The body of a delegation operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Data {
     /// the target validator to delegated to
     pub validator: TendermintAddr,
-    /// how many heights should this delegation be locked
-    ///
-    /// **NOTE:** before users can actually get the rewards,
-    /// they need to wait for an extra `BOND_BLOCK_CNT` period
-    pub block_span: BlockAmount,
     nonce: NoReplayToken,
 }
 
 impl Data {
     #[inline(always)]
-    fn new(v: TendermintAddr, bs: BlockAmount, nonce: NoReplayToken) -> Self {
+    fn new(v: TendermintAddr, nonce: NoReplayToken) -> Self {
         Data {
             validator: v,
-            block_span: bs,
             nonce,
         }
     }
@@ -150,7 +134,7 @@ impl Data {
 // - total amount of operations is 3
 // - one of them is a `TransferAsset` to pay fee
 // - one of them  is a `Delegation`
-// - one of them  is a `TransferAsset` to pay to self
+// - one of them  is a `TransferAsset` to pay to CoinBasePrincipal
 //     - all inputs must be owned by a same address
 //     - number of its outputs must be 1,
 //     - and this output must be `NonConfidential`
@@ -176,7 +160,7 @@ fn check_delegation_context(tx: &Transaction) -> Result<Amount> {
         .ok_or(eg!("delegation ops not found"))?;
 
     // 3. check non-confidential self-`TransferAsset`
-    check_delegation_context_self_transfer(tx, owner, 3)
+    check_delegation_context_principal(tx, owner, 3)
         .c(d!("delegation amount is not paid correctly"))
 }
 
@@ -231,12 +215,13 @@ pub(crate) fn check_delegation_context_fee(
     alt!(valid, Ok(()), Err(eg!()))
 }
 
-fn check_delegation_context_self_transfer(
+fn check_delegation_context_principal(
     tx: &Transaction,
     owner: XfrPublicKey,
     total: usize,
 ) -> Result<Amount> {
     let mut am = None;
+    let target_pk = *COINBASE_PRINCIPAL_PK;
 
     for i in 0..total {
         if let Some(Operation::TransferAsset(ref x)) = tx.body.operations.get(i) {
@@ -265,7 +250,7 @@ fn check_delegation_context_self_transfer(
 
             let o = &x.body.outputs[0];
             if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                if ty == ASSET_TYPE_FRA && owner == o.record.public_key {
+                if ty == ASSET_TYPE_FRA && target_pk == o.record.public_key {
                     if let XfrAmount::NonConfidential(i_am) = o.record.amount {
                         check_balance!(x, {
                             am = Amount::try_from(i_am).ok();
@@ -278,29 +263,4 @@ fn check_delegation_context_self_transfer(
     }
 
     am.ok_or(eg!())
-}
-
-/// Transfer assets from delegated address is not allowed,
-/// except the unique `TransferAsset` operation in the delegation transaction.
-///
-/// Detect whether there are some delegated addresses in `tx`;
-/// If detected, return true, otherwise return false.
-///
-/// Rules:
-///     1. this transaction is not a 'delegation'
-///     2. this transaction contains delegated addresses in its `inputs`
-pub fn found_delegated_addresses(staking: &Staking, tx: &Transaction) -> bool {
-    check_delegation_context(tx).is_err()
-        && check_undelegation_context(tx).is_err()
-        && tx.body.operations.iter().any(|o| {
-            if let Operation::TransferAsset(ref x) = o {
-                return x
-                    .body
-                    .transfer
-                    .inputs
-                    .iter()
-                    .any(|i| staking.di.addr_map.contains_key(&i.public_key));
-            }
-            false
-        })
 }

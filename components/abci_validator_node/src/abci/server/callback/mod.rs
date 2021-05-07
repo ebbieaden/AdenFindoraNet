@@ -1,15 +1,25 @@
 use crate::abci::{server::ABCISubmissionServer, staking};
 use abci::*;
+use lazy_static::lazy_static;
 use ledger::{data_model::TxnEffect, store::LedgerAccess};
+use parking_lot::Mutex;
 use protobuf::RepeatedField;
 use ruc::*;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{
+    atomic::{AtomicI64, Ordering},
+    Arc,
+};
 use submission_server::convert_tx;
 
 mod pulse_cache;
 mod utils;
 
 static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
+
+lazy_static! {
+    static ref REQ_BEGIN_BLOCK: Arc<Mutex<RequestBeginBlock>> =
+        Arc::new(Mutex::new(RequestBeginBlock::new()));
+}
 
 pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
     let mut resp = ResponseInfo::new();
@@ -81,20 +91,12 @@ pub fn begin_block(
     let header = pnk!(req.header.as_ref());
     TENDERMINT_BLOCK_HEIGHT.swap(header.height, Ordering::Relaxed);
 
-    {
-        let mut la = s.la.write();
+    *REQ_BEGIN_BLOCK.lock() = req.clone();
 
-        staking::system_ops(
-            &mut *la.get_committed_state().write(),
-            &header,
-            req.last_commit_info.as_ref(),
-            &req.byzantine_validators.as_slice(),
-            la.get_fwder().unwrap().as_ref(),
-        );
+    let mut la = s.la.write();
 
-        if la.all_commited() {
-            la.begin_block();
-        }
+    if la.all_commited() {
+        la.begin_block();
     }
 
     ResponseBeginBlock::new()
@@ -119,6 +121,17 @@ pub fn end_block(
     )) {
         resp.set_validator_updates(RepeatedField::from_vec(vs));
     }
+
+    let begin_block_req = REQ_BEGIN_BLOCK.lock();
+    let header = pnk!(begin_block_req.header.as_ref());
+    staking::system_ops(
+        &mut *la.get_committed_state().write(),
+        &header,
+        begin_block_req.last_commit_info.as_ref(),
+        &begin_block_req.byzantine_validators.as_slice(),
+        la.get_fwder().unwrap().as_ref(),
+    );
+
     resp
 }
 

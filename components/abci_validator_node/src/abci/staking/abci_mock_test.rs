@@ -16,7 +16,8 @@ use ledger::{
     staking::{
         calculate_delegation_rewards, ops::governance::ByzantineKind,
         td_pubkey_to_td_addr, TendermintAddr, Validator as StakingValidator,
-        BLOCK_HEIGHT_MAX, COINBASE_KP, COINBASE_PK, FRA, FRA_TOTAL_AMOUNT,
+        BLOCK_HEIGHT_MAX, COINBASE_KP, COINBASE_PK, COINBASE_PRINCIPAL_PK, FRA,
+        FRA_TOTAL_AMOUNT,
     },
     store::{fra_gen_initial_tx, LedgerAccess},
 };
@@ -406,24 +407,22 @@ fn delegate(
     owner_kp: &XfrKeyPair,
     validator: TendermintAddr,
     amount: u64,
-    block_span: u64,
 ) -> Result<Digest> {
-    delegate_x(owner_kp, validator, amount, block_span, false).c(d!())
+    delegate_x(owner_kp, validator, amount, false).c(d!())
 }
 
 fn delegate_x(
     owner_kp: &XfrKeyPair,
     validator: TendermintAddr,
     mut amount: u64,
-    block_span: u64,
     is_evil: bool,
 ) -> Result<Digest> {
     let mut builder = new_tx_builder();
-    builder.add_operation_delegation(owner_kp, validator, block_span);
+    builder.add_operation_delegation(owner_kp, validator);
 
     alt!(is_evil, amount = 1);
     let trans_to_self =
-        gen_transfer_op(owner_kp, owner_kp.get_pk_ref(), amount, false).c(d!())?;
+        gen_transfer_op(owner_kp, &COINBASE_PRINCIPAL_PK, amount, false).c(d!())?;
     builder.add_operation(trans_to_self);
 
     if builder.add_fee_relative_auto(&owner_kp).is_err() {
@@ -529,33 +528,27 @@ fn env_refresh(validator_num: u8) {
 //
 // 5. make validators to finish their self-delegations
 //
-// 6. use `x` to propose a delegation(block span = 10)
-// 7. make sure `x` can not do transfer within block span
-// 8. make sure the power of co-responding validator is increased
-// 9. wait for the end of bond state
-// 10. make sure the power of co-responding validator is decreased
-// 11. make sure delegation reward is calculated and paid correctly
-// 12. make sure `x` can do transfer after bond-state expired
+// 6. use `x` to propose a delegation
+// 7. make sure `x` can continue to propose new delegations
+// 8. delegate to different validators is not allowed
+// 9. make sure `x` can do transfer
+// 10. make sure the power of co-responding validator is increased
+// 11. undelegate
+// 12. make sure the power of co-responding validator is decreased
+// 13. make sure delegation reward is calculated and paid correctly
 //
-// 13. delegation with an amount bigger than its actual amount will fail
-// 14. use `x` to propose a delegation(block span = 10_0000)
-// 15. make sure `x` can not do transfer within block span
-// 16. make sure the power of co-responding validator is increased
-// 17  propose a `UnDelegation` tx to force end the delegation
-// 18. make sure the power of co-responding validator is decreased
-// 19. make sure delegation reward is calculated and paid correctly
-// 20. make sure `x` can do transfer after bond-state expired
+// ...........................................................................
 //
 // 21. transfer FRAs from CoinBase to out-plan addr, and make sure it will fail
 //
 // 22. use `FraDistribution` to transfer FRAs to multi addrs
 // 23. make sure the result of `FraDistribution` is correct
-// 24. use these addrs to delegate to different validators(block span = 10)
+// 24. use these addrs to delegate to different validators,
 // 25. make sure the power of each validator is increased correctly
-// 26. wait for the end of bond state
+// 26. undelegate
 // 27. make sure the power of each validator is decreased correctly
 //
-// 28. re-delegate those multi addrs one by one(block span = 10_0000),
+// 28. re-delegate those multi addrs one by one,
 // make sure delegation-rewards-rate is correct in different global delegation levels
 //
 // 29. make sure the vote power of any vallidator can not exceed 20% of total power
@@ -629,13 +622,8 @@ fn staking_scene_1() -> Result<()> {
     // 4. use `x` to propose a delegation, and make sure that
     // it will fail because that all validators have not done self-delegation
 
-    let tx_hash = delegate(
-        &x_kp,
-        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
-        32 * FRA,
-        10,
-    )
-    .c(d!())?;
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 32 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_failed(&tx_hash));
 
@@ -650,13 +638,12 @@ fn staking_scene_1() -> Result<()> {
         wait_one_block();
         assert!(is_successful(&tx_hash));
 
-        let tx_hash = delegate(
-            kp,
-            td_pubkey_to_td_addr(&v_set[i].td_pubkey),
-            100 * FRA,
-            10_0000,
-        )
-        .c(d!())?;
+        let tx_hash = transfer(&keypair, &v_set[i].id, 100 * FRA).c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+
+        let tx_hash = delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 100 * FRA)
+            .c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
     }
@@ -668,36 +655,34 @@ fn staking_scene_1() -> Result<()> {
         assert!(is_failed(&tx_hash));
     }
 
-    // 6. use `x` to propose a delegation(block span = 10)
+    // 6. use `x` to propose a delegation
 
-    let tx_hash = delegate(
-        &x_kp,
-        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
-        32 * FRA,
-        10,
-    )
-    .c(d!())?;
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 32 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    // dup-delegation will fail
-    let tx_hash = delegate(
-        &x_kp,
-        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
-        32 * FRA,
-        10,
-    )
-    .c(d!())?;
+    // 7. make sure `x` can continue to propose new delegations
+
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 64 * FRA).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // 8. delegate to different validators is not allowed
+
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[1].td_pubkey), 64 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_failed(&tx_hash));
 
-    // 7. make sure `x` can not do transfer within block span
+    // 9. make sure `x` can do transfer
 
     let tx_hash = transfer(&x_kp, &COINBASE_PK, 1).c(d!())?;
     wait_one_block();
-    assert!(is_failed(&tx_hash));
+    assert!(is_successful(&tx_hash));
 
-    // 8. make sure the power of co-responding validator is increased
+    // 10. make sure the power of co-responding validator is increased
 
     let power = ABCI_MOCKER
         .read()
@@ -710,129 +695,15 @@ fn staking_scene_1() -> Result<()> {
         .validator_get_power(&v_set[0].id)
         .c(d!())?;
 
-    assert_eq!((32 + 100) * FRA as i64 + INITIAL_POWER, power);
+    assert_eq!((32 + 64 + 100) * FRA as i64 + INITIAL_POWER, power);
 
-    // 9. wait for the end of bond state
-
-    for _ in 0..20 {
-        trigger_next_block!();
-        wait_one_block();
-    }
-
-    // 10. make sure the power of co-responding validator is decreased
-
-    let power = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .validator_get_power(&v_set[0].id)
-        .c(d!())?;
-
-    assert_eq!(100 * FRA as i64 + INITIAL_POWER, power);
-
-    // 11. make sure delegation reward is calculated and paid correctly
-
-    for _ in 0..2 {
-        trigger_next_block!();
-        wait_one_block();
-    }
-
-    let return_rate = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .get_block_rewards_rate();
-
-    let rewards =
-        calculate_delegation_rewards(32 * FRA as i64, return_rate).c(d!())? * 10;
-
-    assert!(
-        10000 * FRA - TX_FEE_MIN
-            < ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
-    );
-
-    assert!(
-        10000 * FRA + rewards - TX_FEE_MIN
-            >= ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
-    );
-
-    // 12. make sure `x` can do transfer after bond-state expired
-
-    let tx_hash = transfer(&x_kp, &COINBASE_PK, 1).c(d!())?;
-    wait_one_block();
-    assert!(is_successful(&tx_hash));
-
-    // 13. delegation with an amount bigger than its actual amount will fail
-
-    let tx_hash = delegate_x(
-        &x_kp,
-        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
-        32_0000_0000 * FRA,
-        10,
-        true,
-    )
-    .c(d!())?;
-    wait_one_block();
-    assert!(is_failed(&tx_hash));
-
-    // 14. use `x` to propose a delegation(block span = 10_0000)
-
-    let tx_hash = delegate(
-        &x_kp,
-        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
-        32 * FRA,
-        10_0000,
-    )
-    .c(d!())?;
-    wait_one_block();
-    assert!(is_successful(&tx_hash));
-
-    // 15. make sure `x` can not do transfer within block span
-
-    let tx_hash = transfer(&x_kp, &COINBASE_PK, 1).c(d!())?;
-    wait_one_block();
-    assert!(is_failed(&tx_hash));
-
-    // 16. make sure the power of co-responding validator is increased
-
-    let power = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .validator_get_power(&v_set[0].id)
-        .c(d!())?;
-
-    assert_eq!((32 + 100) * FRA as i64 + INITIAL_POWER, power);
-
-    // 17  propose a `UnDelegation` tx to force end the delegation
-
-    for _ in 0..8 {
-        trigger_next_block!();
-        wait_one_block();
-    }
+    // 11. undelegate
 
     let tx_hash = undelegate(&x_kp).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    // 18. make sure the power of co-responding validator is decreased
-
-    for _ in 0..2 {
-        trigger_next_block!();
-        wait_one_block();
-    }
+    // 12. make sure the power of co-responding validator is decreased
 
     let power = ABCI_MOCKER
         .read()
@@ -847,12 +718,7 @@ fn staking_scene_1() -> Result<()> {
 
     assert_eq!(100 * FRA as i64 + INITIAL_POWER, power);
 
-    // 19. make sure delegation reward is calculated and paid correctly
-
-    for _ in 0..20 {
-        trigger_next_block!();
-        wait_one_block();
-    }
+    // 13. make sure delegation reward is calculated and paid correctly
 
     let return_rate = ABCI_MOCKER
         .read()
@@ -866,6 +732,12 @@ fn staking_scene_1() -> Result<()> {
 
     let rewards =
         calculate_delegation_rewards(32 * FRA as i64, return_rate).c(d!())? * 10;
+
+    // UnBond time: 10 blocks
+    for _ in 0..12 {
+        trigger_next_block!();
+        wait_one_block();
+    }
 
     assert!(
         10000 * FRA - 4 * TX_FEE_MIN
@@ -877,11 +749,7 @@ fn staking_scene_1() -> Result<()> {
             >= ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
     );
 
-    // 20. make sure `x` can do transfer after bond-state expired
-
-    let tx_hash = transfer(&x_kp, &COINBASE_PK, 1).c(d!())?;
-    wait_one_block();
-    assert!(is_successful(&tx_hash));
+    // ...........................................................................
 
     // 21. transfer FRAs from CoinBase to out-plan addr, and make sure it will fail
 
@@ -965,11 +833,11 @@ fn staking_scene_1() -> Result<()> {
 
     drop(abci_mocker);
 
-    // 24. use these addrs to delegate to different validators(block span = 10)
+    // 24. use these addrs to delegate to different validators
 
     for (v, (kp, _)) in v_set.iter().zip(alloc_table_x.iter()) {
         let tx_hash =
-            delegate(kp, td_pubkey_to_td_addr(&v.td_pubkey), 32 * FRA, 10).c(d!())?;
+            delegate(kp, td_pubkey_to_td_addr(&v.td_pubkey), 32 * FRA).c(d!())?;
         wait_one_block();
 
         assert!(is_successful(&tx_hash));
@@ -998,9 +866,16 @@ fn staking_scene_1() -> Result<()> {
         assert_eq!((32 + 100) * FRA as i64 + INITIAL_POWER, power);
     }
 
-    // 26. wait for the end of bond state
+    // 26. wait for the end of unbond state
 
-    for _ in 0..20 {
+    for (kp, _) in alloc_table_x.iter().take(n) {
+        let tx_hash = undelegate(kp).c(d!())?;
+        wait_one_block();
+
+        assert!(is_successful(&tx_hash));
+    }
+
+    for _ in 0..12 {
         trigger_next_block!();
         wait_one_block();
     }
@@ -1021,7 +896,7 @@ fn staking_scene_1() -> Result<()> {
         assert_eq!(100 * FRA as i64 + INITIAL_POWER, power);
     }
 
-    // 28. re-delegate those multi addrs one by one(block span = 10_0000),
+    // 28. re-delegate those multi addrs one by one
     // make sure delegation-rewards-rate is correct in different global delegation levels
     // ...........................................
     // .... will be tested in unit-test cases ....
@@ -1033,7 +908,6 @@ fn staking_scene_1() -> Result<()> {
         &keypair,
         td_pubkey_to_td_addr(&v_set[0].td_pubkey),
         32_0000 * FRA,
-        10,
     )
     .c(d!())?;
     wait_one_block();
@@ -1045,7 +919,6 @@ fn staking_scene_1() -> Result<()> {
         &COINBASE_KP,
         td_pubkey_to_td_addr(&v_set[0].td_pubkey),
         32 * FRA,
-        20,
     )
     .c(d!())?;
     wait_one_block();
@@ -1072,31 +945,19 @@ fn staking_scene_1() -> Result<()> {
 // 0. issue FRA
 // 1. update validators
 // 2. paid 400m FRAs to CoinBase
-// 3. do self-delegations(10 block span)
+// 3. do self-delegations
 // 4. do a regular delegation to the first validator
-// 5. make sure the end-height of self-delegation is changed to `BLOCK_HEIGHT_MAX` automatically
+// 5. make sure the end-height of delegation is `BLOCK_HEIGHT_MAX`
 // 6. governance one of them, and make sure its power is decreased to 1/3
-// 7. make sure its delegation rewards is punished
-// 8. make sure the delegation rewards of regular delegator is punished(1/10)
+// 7. make sure its delegation principal is punished
+// 8. make sure the delegation principal of regular delegator is punished(1/10)
 // 9. update validator, remove it from validator list
-// 10. make sure it can not escape before punishment is fully paid
-//   - it can not do undelegate if the amount of delegation reward is negative
-//   - it can not get actual rewards foreve if the amount of delegation reward is negativer
 fn staking_scene_2() -> Result<()> {
     const VALIDATORS_NUM: u8 = 20;
 
     env_refresh(VALIDATORS_NUM);
 
     let keypair = gen_keypair();
-
-    // mid-util:
-    // send a tx to trigger next block
-    macro_rules! trigger_next_block {
-        () => {
-            let _ = transfer(&keypair, &COINBASE_PK, 1).c(d!())?;
-            wait_one_block();
-        };
-    }
 
     // 0. issue FRA
 
@@ -1137,16 +998,19 @@ fn staking_scene_2() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    // 3. do self-delegations(10 block span)
+    // 3. do self-delegations
 
     for (i, kp) in kps.iter().enumerate() {
         let tx_hash = transfer(&keypair, &v_set[i].id, 100 * FRA).c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
 
-        let tx_hash =
-            delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 100 * FRA, 10)
-                .c(d!())?;
+        let tx_hash = transfer(&keypair, &v_set[i].id, 100 * FRA).c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+
+        let tx_hash = delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 100 * FRA)
+            .c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
     }
@@ -1159,13 +1023,8 @@ fn staking_scene_2() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    let tx_hash = delegate(
-        &x_kp,
-        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
-        32 * FRA,
-        20,
-    )
-    .c(d!())?;
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 32 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -1224,9 +1083,9 @@ fn staking_scene_2() -> Result<()> {
     assert!(old_power / 3 <= new_power);
     assert!(old_power / 3 + 1 >= new_power);
 
-    // 7. make sure its delegation rewards is punished
+    // 7. make sure its delegation principle is punished
 
-    let rewards = ABCI_MOCKER
+    let principal = ABCI_MOCKER
         .read()
         .0
         .la
@@ -1234,14 +1093,14 @@ fn staking_scene_2() -> Result<()> {
         .get_committed_state()
         .read()
         .get_staking()
-        .delegation_get_rewards(&v_set[0].id)
+        .delegation_get_principal(&v_set[0].id)
         .c(d!())?;
 
-    assert!(0 > rewards);
+    assert_eq!(100 * FRA * 95 / 100, principal as u64);
 
     // 8. make sure the delegation rewards of regular delegator is punished(1/10)
 
-    let user_rewards = ABCI_MOCKER
+    let user_principal = ABCI_MOCKER
         .read()
         .0
         .la
@@ -1249,23 +1108,12 @@ fn staking_scene_2() -> Result<()> {
         .get_committed_state()
         .read()
         .get_staking()
-        .delegation_get_rewards(&x_kp.get_pk())
+        .delegation_get_principal(&x_kp.get_pk())
         .c(d!())?;
 
-    assert!(0 > user_rewards);
-    assert!(rewards < user_rewards);
-
-    // any address with a negative reward is denied to undelegate
-    let tx_hash = undelegate(&x_kp).c(d!())?;
-    wait_one_block();
-    assert!(is_failed(&tx_hash));
+    assert_eq!(32 * FRA * (950 + 45) / 1000, user_principal as u64);
 
     // 9. update validator, remove it from validator list
-
-    for _ in 0..4 {
-        trigger_next_block!();
-        wait_one_block();
-    }
 
     let v_set_new = v_set.split_off(1);
     let kps_new = kps.split_off(1);
@@ -1274,33 +1122,6 @@ fn staking_scene_2() -> Result<()> {
             .c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
-
-    // 10. make sure it can not escape before punishment is fully paid
-    //   - it can not do undelegate if the amount of delegation reward is negative
-    //   - it can not get actual rewards foreve if the amount of delegation reward is negative
-
-    let new_rewards = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .delegation_get_rewards(&v_set[0].id)
-        .c(d!())?;
-
-    assert!(0 > new_rewards);
-    assert!(new_rewards > rewards);
-
-    let tx_hash = undelegate(&kps[0]).c(d!())?;
-    wait_one_block();
-    assert!(is_failed(&tx_hash));
-
-    assert_eq!(
-        100 * FRA - TX_FEE_MIN,
-        ABCI_MOCKER.read().get_owned_balance(&v_set[0].id)
-    );
 
     Ok(())
 }

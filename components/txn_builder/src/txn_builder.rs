@@ -313,7 +313,6 @@ pub trait BuildsTransactions {
         &mut self,
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
-        block_span: u64,
     ) -> &mut Self;
     fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self;
     fn add_operation_fra_distribution(
@@ -836,14 +835,8 @@ impl BuildsTransactions for TransactionBuilder {
         &mut self,
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
-        block_span: u64,
     ) -> &mut Self {
-        let op = DelegationOps::new(
-            keypair,
-            validator,
-            block_span,
-            self.txn.body.no_replay_token,
-        );
+        let op = DelegationOps::new(keypair, validator, self.txn.body.no_replay_token);
         self.add_operation(Operation::Delegation(op))
     }
 

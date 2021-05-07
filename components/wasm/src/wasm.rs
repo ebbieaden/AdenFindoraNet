@@ -18,7 +18,7 @@ use ledger::data_model::{
 };
 use ledger::{
     policies::{DebtMemo, Fraction},
-    staking::{TendermintAddr, BLOCK_INTERVAL},
+    staking::TendermintAddr,
 };
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
@@ -504,11 +504,9 @@ impl TransactionBuilder {
         mut self,
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
-        time_secs: u64,
     ) -> Result<TransactionBuilder, JsValue> {
-        let block_span = time_secs / BLOCK_INTERVAL;
         self.get_builder_mut()
-            .add_operation_delegation(keypair, validator, block_span);
+            .add_operation_delegation(keypair, validator);
         Ok(self)
     }
 

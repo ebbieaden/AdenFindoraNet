@@ -897,6 +897,11 @@ impl LedgerStatus {
                         {
                             block.staking_simulator.coinbase_recharge(txo_sid);
                         }
+                        if block.staking_simulator.coinbase_principal_pubkey()
+                            == tx_output.record.public_key
+                        {
+                            block.staking_simulator.coinbase_principal_recharge(txo_sid);
+                        }
 
                         self.utxos.insert(txo_sid, Utxo(tx_output));
                         txn_utxo_sids.push(txo_sid);
@@ -931,6 +936,9 @@ impl LedgerStatus {
             block.staking_simulator.delegation_process();
             block.staking_simulator.validator_apply_current();
             block.staking_simulator.coinbase_clean_spent_txos(self);
+            block
+                .staking_simulator
+                .coinbase_principal_clean_spent_txos(self);
             mem::swap(&mut self.staking, &mut block.staking_simulator);
         }
 
@@ -966,7 +974,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
     ) -> Result<TxnTempSID> {
         block
             .staking_simulator
-            .coinbase_pay(&txe.txn)
+            .coinbase_check_and_pay(&txe.txn)
             .c(d!())
             .and_then(|_| self.status.check_txn_effects(&txe).c(d!()))
             .and_then(|_| block.add_txn_effect(txe).c(d!()))

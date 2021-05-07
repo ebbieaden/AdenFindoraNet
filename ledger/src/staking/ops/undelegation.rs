@@ -115,7 +115,7 @@ impl Data {
 // - total amount of operations is 2
 // - one of them is a `TransferAsset` to pay fee
 // - one of them is a `UnDelegation`
-pub(crate) fn check_undelegation_context(tx: &Transaction) -> Result<()> {
+fn check_undelegation_context(tx: &Transaction) -> Result<()> {
     if 2 != tx.body.operations.len() {
         return Err(eg!("incorrect number of operations"));
     }

@@ -5,10 +5,8 @@ use crate::policy_script::{run_txn_check, TxnCheckInputs, TxnPolicyData};
 use crate::staking::{
     self,
     ops::{
-        delegation::{found_delegated_addresses, DelegationOps},
-        fra_distribution::FraDistributionOps,
-        governance::GovernanceOps,
-        undelegation::UnDelegationOps,
+        delegation::DelegationOps, fra_distribution::FraDistributionOps,
+        governance::GovernanceOps, undelegation::UnDelegationOps,
         update_validator::UpdateValidatorOps,
     },
 };
@@ -821,12 +819,6 @@ impl BlockEffect {
         for i in txn_effect.undelegations.values() {
             i.check_run(&mut self.staking_simulator, &txn_effect.txn)
                 .c(d!())?;
-        }
-
-        // transfer from any delegated address is not allowed except
-        // the unique `TransferAsset` operation in the delegation/undelegation transaction.
-        if found_delegated_addresses(&self.staking_simulator, &txn_effect.txn) {
-            return Err(eg!("transaction denied"));
         }
 
         for i in txn_effect.update_validators.values() {

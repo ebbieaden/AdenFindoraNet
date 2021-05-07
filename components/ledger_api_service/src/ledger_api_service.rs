@@ -411,21 +411,16 @@ where
     let total_staking = stakings.validator_total_power();
     let total_delegation = stakings.delegation_info_total_amount();
 
-    let mut can_staking: bool = true;
     //Whether it is delegate or staking, an address can only be done
     let (rwd_amount, amount): (i64, i64) = match stakings.delegation_get(&xfr_public_key)
     {
-        Some(delegation) => {
-            can_staking = false;
-            (delegation.rwd_amount, delegation.amount)
-        }
+        Some(delegation) => (delegation.rwd_amount, delegation.amount),
         _ => (0i64, 0i64),
     };
     Ok(web::Json(StakerAccountInfo::new(
         block_rewards_rate,
         total_staking,
         rwd_amount,
-        can_staking,
         total_delegation,
         amount,
     )))

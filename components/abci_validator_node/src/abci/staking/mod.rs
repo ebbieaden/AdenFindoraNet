@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use txn_builder::TransferOperationBuilder;
 use zei::xfr::asset_record::{open_blind_asset_record, AssetRecordType};
 use zei::xfr::{
-    sig::XfrPublicKey,
+    sig::{XfrKeyPair, XfrPublicKey},
     structs::{AssetRecordTemplate, XfrAmount, XfrAssetType},
 };
 
@@ -158,7 +158,7 @@ fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
     governance_penalty_tendermint_auto(staking, bz.addr, &kind).c(d!())
 }
 
-// Pay for bond 'Delegations' and 'FraDistributions'.
+// Pay for unbond 'Delegations' and 'FraDistributions'.
 fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()> {
     if *TD_NODE_SELF_ADDR != proposer {
         return Ok(());
@@ -179,18 +179,39 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
         .take(256)
         .collect::<Vec<_>>();
 
-    if paylist.is_empty() {
-        return Ok(());
-    }
+    let mut principal_paylist = staking
+        .delegation_get_global_principal()
+        .into_iter()
+        .take(256)
+        .collect::<Vec<_>>();
 
     // sort by amount
     paylist.sort_by_key(|i| i.1);
+    principal_paylist.sort_by_key(|i| i.1);
+
+    macro_rules! pay {
+        ($is_principal: expr, $utxos: expr, $paylist: expr) => {
+            gen_transaction(la, $utxos, $paylist, $is_principal)
+                .c(d!())
+                .and_then(|tx| forward_txn_with_mode(fwder, tx, true).c(d!()))
+        };
+    }
 
     let coinbase_utxo_sids = staking.coinbase_txos().into_iter().collect::<Vec<_>>();
+    let coinbase_principal_utxo_sids = staking
+        .coinbase_principal_txos()
+        .into_iter()
+        .collect::<Vec<_>>();
 
-    gen_transaction(la, coinbase_utxo_sids, paylist)
-        .c(d!())
-        .and_then(|tx| forward_txn_with_mode(fwder, tx, true).c(d!()))
+    if !paylist.is_empty() {
+        ruc::info_omit!(pay!(false, coinbase_utxo_sids, paylist));
+    }
+
+    if !principal_paylist.is_empty() {
+        ruc::info_omit!(pay!(true, coinbase_principal_utxo_sids, principal_paylist));
+    }
+
+    Ok(())
 }
 
 // Generate all tx in batch mode.
@@ -198,6 +219,7 @@ fn gen_transaction(
     la: &impl LedgerAccess,
     utxo_sids: Vec<TxoSID>,
     paylist: Vec<(XfrPublicKey, u64)>,
+    is_principal: bool,
 ) -> Result<Transaction> {
     let staking = la.get_staking();
     let seq_id = la.get_state_commitment().1;
@@ -241,19 +263,27 @@ fn gen_transaction(
 
     alt!(inputs.is_empty() || outputs.is_empty(), return Err(eg!()));
 
-    do_gen_transaction(staking, inputs, outputs, seq_id).c(d!())
+    do_gen_transaction(
+        inputs,
+        outputs,
+        seq_id,
+        alt!(
+            is_principal,
+            staking.coinbase_principal_keypair(),
+            staking.coinbase_keypair()
+        ),
+    )
+    .c(d!())
 }
 
 // **NOTE:**
 // transfer from CoinBase need not to pay FEE
 fn do_gen_transaction(
-    staking: &Staking,
     inputs: Vec<(TxoSID, Utxo, u64)>,
     dests: HashMap<XfrPublicKey, u64>,
     seq_id: u64,
+    keypair: &XfrKeyPair,
 ) -> Result<Transaction> {
-    let keypair = staking.coinbase_keypair();
-
     let mut op = TransferOperationBuilder::new();
 
     for (sid, utxo, n) in inputs.into_iter() {

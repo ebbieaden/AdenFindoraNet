@@ -297,13 +297,9 @@ impl Staking {
         validator: TendermintAddrRef,
         am: Amount,
         start_height: BlockHeight,
-        mut end_height: BlockHeight,
     ) -> Result<()> {
         let validator = self.td_addr_to_app_pk(validator).c(d!())?;
-
-        if end_height > BLOCK_HEIGHT_MAX || start_height > end_height {
-            return Err(eg!("invalid delegation heights"));
-        }
+        let end_height = BLOCK_HEIGHT_MAX;
 
         if !(MIN_DELEGATION_AMOUNT..=MAX_DELEGATION_AMOUNT).contains(&(am as u64)) {
             return Err(eg!("invalid delegation amount"));
@@ -314,42 +310,42 @@ impl Staking {
         }
 
         if let Some(d) = self.delegation_get(&validator) {
-            // check delegation deadline
             if BLOCK_HEIGHT_MAX != d.end_height {
-                // should NOT happen
-                return Err(eg!("invalid self-delegation of validator"));
+                unreachable!();
             }
         } else if owner == validator {
             // do self-delegation
-            end_height = BLOCK_HEIGHT_MAX;
         } else {
             return Err(eg!("self-delegation has not been finished"));
         }
 
-        let k = owner;
-        if self.di.addr_map.get(&k).is_some() {
-            return Err(eg!("already exists"));
+        if let Some(d) = self.delegation_get(&owner) {
+            if validator != d.validator {
+                return Err(eg!("delegate to different validators is not allowed"));
+            }
         }
 
-        self.validator_change_power(&validator, am as Amount)
-            .c(d!())?;
-
         let v = Delegation {
-            amount: am,
+            amount: 0,
             validator,
             rwd_pk: owner,
             start_height,
             end_height,
-            state: DelegationState::Locked,
+            state: DelegationState::Bond,
             rwd_amount: 0,
         };
 
-        self.di.addr_map.insert(k, v);
+        let d = self.di.addr_map.entry(owner).or_insert(v);
+        d.amount = d.amount.saturating_add(am);
+
         self.di
             .end_height_map
             .entry(end_height)
             .or_insert_with(BTreeSet::new)
-            .insert(k);
+            .insert(owner);
+
+        self.validator_change_power(&validator, am as Amount)
+            .c(d!())?;
 
         // total amount of all delegations
         self.di.total_amount += am;
@@ -357,8 +353,7 @@ impl Staking {
         Ok(())
     }
 
-    /// When delegation period expired,
-    /// - compute rewards
+    /// When un-delegation happens,
     /// - decrease the vote power of the co-responding validator
     ///
     /// **NOTE:** validator self-undelegation is not permitted
@@ -366,25 +361,33 @@ impl Staking {
         let h = self.cur_height;
         let mut orig_h = None;
 
-        if let Some(vs) = self.validator_get_effective_at_height(h) {
-            if vs.body.get(addr).is_some() {
-                return Err(eg!("validator self-undelegation is not permitted"));
-            }
+        if self.addr_is_validator(addr) {
+            return Err(eg!("validator self-undelegation is not permitted"));
         }
 
-        self.di
+        let (validator, am) = self
+            .di
             .addr_map
             .get_mut(addr)
             .ok_or(eg!("not exists"))
             .and_then(|d| alt!(0 > d.rwd_amount, Err(eg!()), Ok(d)))
             .map(|d| {
+                d.state = DelegationState::UnBond;
+
                 if d.end_height != h {
                     orig_h = Some(d.end_height);
                     d.end_height = h;
                 }
+
+                (d.validator, d.amount)
             })?;
 
-        // scene: forced un-delegation
+        // total amount of all delegations
+        self.di.total_amount -= am;
+
+        // reduce the power of the target validator
+        ruc::info_omit!(self.validator_change_power(&validator, -am));
+
         if let Some(orig_h) = orig_h {
             self.di
                 .end_height_map
@@ -401,9 +404,17 @@ impl Staking {
     }
 
     #[inline(always)]
-    fn delegation_unbond(&mut self, addr: &XfrPublicKey) -> Result<Delegation> {
+    fn delegation_clean_paid(
+        &mut self,
+        addr: &XfrPublicKey,
+        h: &BlockHeight,
+    ) -> Result<Delegation> {
         let d = self.di.addr_map.remove(addr).ok_or(eg!("not exists"))?;
         if d.state == DelegationState::Paid {
+            self.di
+                .end_height_map
+                .get_mut(h)
+                .map(|addrs| addrs.remove(addr));
             Ok(d)
         } else {
             // we assume that this probability is very low
@@ -467,6 +478,24 @@ impl Staking {
 
     #[inline(always)]
     #[allow(missing_docs)]
+    pub fn delegation_get_global_principal(&self) -> HashMap<XfrPublicKey, u64> {
+        self.delegation_get_global_principal_before_height(self.cur_height)
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn delegation_get_global_principal_before_height(
+        &self,
+        h: BlockHeight,
+    ) -> HashMap<XfrPublicKey, u64> {
+        self.delegation_get_freed_before_height(h)
+            .into_iter()
+            .map(|(k, d)| (k, d.amount as u64))
+            .collect()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
     pub fn delegation_get_global_rewards(&self) -> HashMap<XfrPublicKey, u64> {
         self.delegation_get_global_rewards_before_height(self.cur_height)
     }
@@ -477,8 +506,9 @@ impl Staking {
         &self,
         h: BlockHeight,
     ) -> HashMap<XfrPublicKey, u64> {
-        self.delegation_get_bonds_before_height(h)
+        self.delegation_get_freed_before_height(h)
             .into_iter()
+            .filter(|(_, d)| 0 < d.rwd_amount)
             .map(|(k, d)| (k, d.rwd_amount as u64))
             .collect()
     }
@@ -489,15 +519,21 @@ impl Staking {
         self.di.addr_map.get(pk).map(|d| d.rwd_amount).ok_or(eg!())
     }
 
-    /// Query all bond delegations.
+    /// Query delegation principal.
     #[inline(always)]
-    pub fn delegation_get_bonds(&self) -> HashMap<XfrPublicKey, &Delegation> {
-        self.delegation_get_bonds_before_height(self.cur_height)
+    pub fn delegation_get_principal(&self, pk: &XfrPublicKey) -> Result<i64> {
+        self.di.addr_map.get(pk).map(|d| d.amount).ok_or(eg!())
     }
 
-    /// Query bond delegations before a specified height(included).
+    /// Query all freed delegations.
     #[inline(always)]
-    pub fn delegation_get_bonds_before_height(
+    pub fn delegation_get_freed(&self) -> HashMap<XfrPublicKey, &Delegation> {
+        self.delegation_get_freed_before_height(self.cur_height)
+    }
+
+    /// Query freed delegations before a specified height(included).
+    #[inline(always)]
+    pub fn delegation_get_freed_before_height(
         &self,
         h: BlockHeight,
     ) -> HashMap<XfrPublicKey, &Delegation> {
@@ -508,56 +544,40 @@ impl Staking {
                 addrs
                     .iter()
                     .flat_map(|addr| self.di.addr_map.get(addr).map(|d| (*addr, d)))
-                    .filter(|(_, d)| {
-                        0 < d.rwd_amount && matches!(d.state, DelegationState::Bond)
-                    })
+                    .filter(|(_, d)| matches!(d.state, DelegationState::Free))
             })
             .collect()
     }
 
     /// Clean delegation states along with each new block.
     pub fn delegation_process(&mut self) {
-        let h = self.cur_height;
-        self.di
-            .end_height_map
-            .range(..=h)
-            .map(|(_, addr)| addr)
-            .flatten()
-            .copied()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .for_each(|addr| {
-                let mut need_change_power = false;
-                let (v, am) = if let Some(d) = self.di.addr_map.get_mut(&addr) {
-                    if DelegationState::Locked == d.state {
-                        d.state = DelegationState::Bond;
-                        need_change_power = true;
+        let h = self.cur_height.saturating_sub(UNBOND_BLOCK_CNT);
+        if 0 < h {
+            self.di
+                .end_height_map
+                .range(..=h)
+                .map(|(_, addr)| addr)
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .for_each(|addr| {
+                    if let Some(d) = self.di.addr_map.get_mut(&addr) {
+                        if DelegationState::UnBond == d.state {
+                            d.state = DelegationState::Free;
+                        }
                     }
-                    (d.validator, d.amount)
-                } else {
-                    return;
-                };
-
-                if need_change_power {
-                    // total amount of all delegations
-                    self.di.total_amount -= am;
-                    // reduce the power of the target validator
-                    ruc::info_omit!(self.validator_change_power(&v, -am));
-                }
-            });
-
-        let h = h.saturating_sub(BOND_BLOCK_CNT);
-        if 2 < h {
-            self.deletation_process_finished_before_height(h);
+                });
+            self.delegation_process_finished_before_height(h.saturating_sub(4));
         }
     }
 
     // call this when:
-    // - the bond period expired
+    // - the unbond period expired
     // - rewards have been paid successfully.
     //
     // @param h: included
-    fn deletation_process_finished_before_height(&mut self, h: BlockHeight) {
+    fn delegation_process_finished_before_height(&mut self, h: BlockHeight) {
         self.di
             .end_height_map
             .range(0..=h)
@@ -566,12 +586,7 @@ impl Staking {
             .iter()
             .for_each(|(h, addrs)| {
                 addrs.iter().for_each(|addr| {
-                    if self.delegation_unbond(addr).is_ok() {
-                        self.di
-                            .end_height_map
-                            .get_mut(&h)
-                            .map(|addrs| addrs.remove(addr));
-                    }
+                    ruc::info_omit!(self.delegation_clean_paid(addr, h));
                 });
                 // this unwrap is safe
                 if self.di.end_height_map.get(&h).unwrap().is_empty() {
@@ -593,7 +608,6 @@ impl Staking {
     }
 
     // Penalize the FRAs by a specified pubkey.
-    #[inline(always)]
     fn governance_penalty_by_pubkey(
         &mut self,
         addr: &XfrPublicKey,
@@ -626,18 +640,8 @@ impl Staking {
         Ok(())
     }
 
-    // Look up the `XfrPublicKey`
-    // co-responding to a specified 'tendermint node address'.
     #[inline(always)]
-    fn td_addr_to_app_pk(&self, addr: TendermintAddrRef) -> Result<XfrPublicKey> {
-        self.validator_get_current()
-            .ok_or(eg!())
-            .and_then(|vd| vd.addr_td_to_app.get(addr).copied().ok_or(eg!()))
-    }
-
-    /// Import extern amount changes,
-    /// eg.. 'Block Rewards'/'Governance Penalty'
-    pub fn delegation_import_extern_amount(
+    fn delegation_import_extern_amount(
         &mut self,
         addr: &XfrPublicKey,
         am: Amount,
@@ -651,10 +655,20 @@ impl Staking {
         if DelegationState::Paid == d.state {
             return Err(eg!("delegation has been paid"));
         } else {
-            d.rwd_amount = d.rwd_amount.saturating_add(am);
+            // NOTE: use amount field, not rwd_amount
+            d.amount = d.amount.saturating_add(am);
         }
 
         Ok(())
+    }
+
+    // Look up the `XfrPublicKey`
+    // co-responding to a specified 'tendermint node address'.
+    #[inline(always)]
+    fn td_addr_to_app_pk(&self, addr: TendermintAddrRef) -> Result<XfrPublicKey> {
+        self.validator_get_current()
+            .ok_or(eg!())
+            .and_then(|vd| vd.addr_td_to_app.get(addr).copied().ok_or(eg!()))
     }
 
     /// Generate sha256 digest.
@@ -677,6 +691,18 @@ impl Staking {
         &self.coinbase.keypair
     }
 
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn coinbase_principal_pubkey(&self) -> XfrPublicKey {
+        self.coinbase.principal_pubkey
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn coinbase_principal_keypair(&self) -> &XfrKeyPair {
+        &self.coinbase.principal_keypair
+    }
+
     /// Add new FRA utxo to CoinBase.
     #[inline(always)]
     pub fn coinbase_recharge(&mut self, txo_sid: TxoSID) {
@@ -695,6 +721,28 @@ impl Staking {
         self.coinbase.bank.clone().into_iter().for_each(|sid| {
             if !ls.is_unspent_txo(sid) {
                 self.coinbase.bank.remove(&sid);
+            }
+        });
+    }
+
+    /// Add new FRA utxo to CoinBase.
+    #[inline(always)]
+    pub fn coinbase_principal_recharge(&mut self, txo_sid: TxoSID) {
+        self.coinbase.principal_bank.insert(txo_sid);
+    }
+
+    /// Get all avaliable utos owned by CoinBase.
+    #[inline(always)]
+    pub fn coinbase_principal_txos(&self) -> BTreeSet<TxoSID> {
+        self.coinbase.principal_bank.clone()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn coinbase_principal_clean_spent_txos(&mut self, ls: &LedgerStatus) {
+        self.coinbase.bank.clone().into_iter().for_each(|sid| {
+            if !ls.is_unspent_txo(sid) {
+                self.coinbase.principal_bank.remove(&sid);
             }
         });
     }
@@ -723,12 +771,19 @@ impl Staking {
     }
 
     /// Do the final payment on staking structures.
-    pub fn coinbase_pay(&mut self, tx: &Transaction) -> Result<()> {
+    ///
+    /// NOTE:
+    /// this function also serves as the checker of invalid tx
+    /// sent from COIN_BASE_PRINCIPAL, every tx that can
+    /// not pass this checker will be regarded as invalid.
+    pub fn coinbase_check_and_pay(&mut self, tx: &Transaction) -> Result<()> {
         if !self.is_coinbase_ops(tx) {
             return Ok(());
         }
 
-        if !self.seems_valid_coinbase_ops(tx) {
+        if !self.seems_valid_coinbase_ops(tx, false)
+            && !self.seems_valid_coinbase_ops(tx, true)
+        {
             return Err(eg!());
         }
 
@@ -746,13 +801,10 @@ impl Staking {
     fn is_coinbase_ops(&self, tx: &Transaction) -> bool {
         tx.body.operations.iter().any(|o| {
             if let Operation::TransferAsset(ref ops) = o {
-                if ops
-                    .body
-                    .transfer
-                    .inputs
-                    .iter()
-                    .any(|i| i.public_key == self.coinbase.pubkey)
-                {
+                if ops.body.transfer.inputs.iter().any(|i| {
+                    i.public_key == self.coinbase.pubkey
+                        || i.public_key == self.coinbase.principal_pubkey
+                }) {
                     return true;
                 }
             }
@@ -769,20 +821,22 @@ impl Staking {
     // - all outputs must be owned by addresses in 'fra distribution' or 'delegation'
     //
     // **NOTE:** amount is not checked in this function !
-    fn seems_valid_coinbase_ops(&self, tx: &Transaction) -> bool {
+    fn seems_valid_coinbase_ops(&self, tx: &Transaction, is_principal: bool) -> bool {
+        let cbpk = alt!(
+            is_principal,
+            self.coinbase_principal_pubkey(),
+            self.coinbase_pubkey()
+        );
+
         let inputs_is_valid = |o: &TransferAsset| {
-            o.body
-                .transfer
-                .inputs
-                .iter()
-                .all(|i| i.public_key == self.coinbase.pubkey)
+            o.body.transfer.inputs.iter().all(|i| i.public_key == cbpk)
         };
 
         let outputs_is_valid = |o: &TransferAsset| {
             o.body.transfer.outputs.iter().all(|i| {
-                self.coinbase_pubkey() == i.public_key
+                cbpk == i.public_key
                     || self.addr_is_in_distribution_plan(&i.public_key)
-                    || self.addr_is_in_bond_delegation(&i.public_key)
+                    || self.addr_is_in_freed_delegation(&i.public_key)
             })
         };
 
@@ -831,7 +885,7 @@ impl Staking {
                                     v = distribution.entry(u.public_key).or_insert(0);
                                     *v = v.checked_add(am).ok_or(eg!("overflow"))?;
                                 }
-                                if self.addr_is_in_bond_delegation(&u.public_key) {
+                                if self.addr_is_in_freed_delegation(&u.public_key) {
                                     v = delegation.entry(u.public_key).or_insert(0);
                                     *v = v.checked_add(am).ok_or(eg!("overflow"))?;
                                 }
@@ -842,11 +896,13 @@ impl Staking {
             }
         }
 
-        let xa = distribution
-            .iter()
-            .any(|(addr, am)| self.coinbase.distribution_plan.get(addr).unwrap() != am);
+        let xa = distribution.iter().any(|(addr, am)| {
+            0 == *am || self.coinbase.distribution_plan.get(addr).unwrap() != am
+        });
         let xb = delegation.iter().any(|(addr, am)| {
-            self.delegation_get(addr).unwrap().rwd_amount != *am as Amount
+            let d = self.delegation_get(addr).unwrap();
+            let am = *am as Amount;
+            0 == am || (d.rwd_amount != am && d.amount != am)
         });
 
         if xa || xb {
@@ -877,12 +933,22 @@ impl Staking {
     }
 
     // - amounts have been checked in `coinbase_collect_payments`
+    //     - either equal to amount or equal to rwd_amound
     // - pubkey existances have been checked in `seems_valid_coinbase_ops`
-    // - delegation states has been checked in `addr_is_in_bond_delegation`
+    // - delegation states has been checked in `addr_is_in_freed_delegation`
     #[inline(always)]
     fn coinbase_pay_delegation(&mut self, payments: &HashMap<XfrPublicKey, u64>) {
-        payments.keys().for_each(|k| {
-            self.delegation_get_mut(k).unwrap().state = DelegationState::Paid;
+        payments.iter().for_each(|(pk, am)| {
+            let d = self.delegation_get_mut(pk).unwrap();
+            let am = *am as Amount;
+            if am == d.rwd_amount {
+                d.rwd_amount = 0;
+            } else {
+                d.amount = 0;
+            }
+            if 0 == d.rwd_amount && 0 == d.amount {
+                d.state = DelegationState::Paid;
+            }
         });
     }
 
@@ -895,9 +961,9 @@ impl Staking {
     }
 
     #[inline(always)]
-    fn addr_is_in_bond_delegation(&self, pk: &XfrPublicKey) -> bool {
+    fn addr_is_in_freed_delegation(&self, pk: &XfrPublicKey) -> bool {
         if let Some(dlg) = self.di.addr_map.get(pk) {
-            matches!(dlg.state, DelegationState::Bond)
+            matches!(dlg.state, DelegationState::Free)
         } else {
             false
         }
@@ -1024,11 +1090,20 @@ pub const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
 /// The 24-words mnemonic of 'FRA CoinBase Address'.
 pub const COIN_BASE_MNEMONIC: &str = "load second west source excuse skin thought inside wool kick power tail universe brush kid butter bomb other mistake oven raw armed tree walk";
 
+/// The 24-words mnemonic of 'FRA Delegation Principal Address'.
+pub const COIN_BASE_PRINCIPAL_MNEMONIC: &str = "kit someone head sister claim whisper order wrong family crisp area ten left chronic endless outdoor insect artist cool black eternal rifle ill shine";
+
 lazy_static! {
+    /// for 'Block Delegation Rewards' and 'Block Proposer Rewards'
+    pub static ref COINBASE_KP: XfrKeyPair = pnk!(wallet::restore_keypair_from_mnemonic_default(COIN_BASE_MNEMONIC));
     #[allow(missing_docs)]
     pub static ref COINBASE_PK: XfrPublicKey = COINBASE_KP.get_pk();
+    /// for 'Delegation Principal'
+    pub static ref COINBASE_PRINCIPAL_KP: XfrKeyPair = pnk!(
+        wallet::restore_keypair_from_mnemonic_default(COIN_BASE_PRINCIPAL_MNEMONIC)
+    );
     #[allow(missing_docs)]
-    pub static ref COINBASE_KP: XfrKeyPair = pnk!(wallet::restore_keypair_from_mnemonic_default(COIN_BASE_MNEMONIC));
+    pub static ref COINBASE_PRINCIPAL_PK: XfrPublicKey = COINBASE_PRINCIPAL_KP.get_pk();
 }
 
 /// A limitation from
@@ -1050,11 +1125,11 @@ pub const BLOCK_INTERVAL: u64 = 15 + 1;
 
 /// The lock time after the delegation expires, about 21 days.
 #[cfg(not(feature = "abci_mock"))]
-pub const BOND_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
+pub const UNBOND_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
 
 /// used in test env
 #[cfg(feature = "abci_mock")]
-pub const BOND_BLOCK_CNT: u64 = 10;
+pub const UNBOND_BLOCK_CNT: u64 = 10;
 
 // minimal number of validators
 pub(crate) const VALIDATORS_MIN: usize = 6;
@@ -1245,11 +1320,11 @@ pub struct Delegation {
     /// the height at which the delegation ends
     ///
     /// **NOTE:** before users can actually get the rewards,
-    /// they need to wait for an extra `BOND_BLOCK_CNT` period
+    /// they need to wait for an extra `UNBOND_BLOCK_CNT` period
     pub end_height: BlockHeight,
     #[allow(missing_docs)]
     pub state: DelegationState,
-    /// set this field when `Locked` state finished
+    /// set this field when `Bond` state finished
     pub rwd_amount: Amount,
 }
 
@@ -1257,19 +1332,18 @@ pub struct Delegation {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum DelegationState {
     /// during delegation
-    Locked,
-    /// delegation finished,
-    /// entered bond time
     Bond,
-    /// during or after bond time,
-    /// and rewards have been paid successfully,
-    /// the co-responding account should be unbond
+    /// delegation finished, entered unbond time
+    UnBond,
+    /// it's time to pay principals and rewards
+    Free,
+    /// principals and rewards have been paid successfully
     Paid,
 }
 
 impl Default for DelegationState {
     fn default() -> Self {
-        DelegationState::Locked
+        DelegationState::Bond
     }
 }
 
@@ -1282,11 +1356,14 @@ impl Delegation {
         cur_height: BlockHeight,
         return_rate: [u64; 2],
     ) -> Result<()> {
-        if self.end_height < cur_height || DelegationState::Locked != self.state {
+        if self.end_height < cur_height || DelegationState::Bond != self.state {
             return Ok(());
         }
 
-        calculate_delegation_rewards(self.amount, return_rate)
+        // APY
+        let am = self.amount.saturating_add(self.rwd_amount);
+
+        calculate_delegation_rewards(am, return_rate)
             .c(d!())
             .and_then(|n| {
                 self.rwd_amount
@@ -1323,6 +1400,11 @@ struct CoinBase {
     pubkey: XfrPublicKey,
     keypair: XfrKeyPair,
     bank: BTreeSet<TxoSID>,
+
+    principal_pubkey: XfrPublicKey,
+    principal_keypair: XfrKeyPair,
+    principal_bank: BTreeSet<TxoSID>,
+
     distribution_hist: BTreeSet<Digest>,
     distribution_plan: BTreeMap<XfrPublicKey, u64>,
 }
@@ -1344,9 +1426,14 @@ impl Default for CoinBase {
 impl CoinBase {
     fn gen() -> Self {
         CoinBase {
-            pubkey: COINBASE_KP.get_pk(),
+            pubkey: *COINBASE_PK,
             keypair: COINBASE_KP.clone(),
             bank: BTreeSet::new(),
+
+            principal_pubkey: *COINBASE_PRINCIPAL_PK,
+            principal_keypair: COINBASE_PRINCIPAL_KP.clone(),
+            principal_bank: BTreeSet::new(),
+
             distribution_hist: BTreeSet::new(),
             distribution_plan: BTreeMap::new(),
         }
