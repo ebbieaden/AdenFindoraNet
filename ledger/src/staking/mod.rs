@@ -448,6 +448,7 @@ impl Staking {
     ) -> HashMap<XfrPublicKey, u64> {
         self.delegation_get_frozens_before_height(h)
             .into_iter()
+            .filter(|d| d.rwd_amount > 0)
             .map(|d| (d.rwd_pk, d.rwd_amount as u64))
             .collect()
     }

@@ -13,6 +13,11 @@ TendermintForwarder --> `if cfg!(feature = "abci_mock")` --> mpsc channel --> Te
 
 ![](./pics/delegation_and_undelegation.png)
 
+```
+propose Delegation --> [ state: Locked ] --> end time of Delegation --> [ state: Frozen ]
+  --> rewards paid --> [ state: Paid ]   --> end time of bond [ state: Free ]
+```
+
 - a delegated address can not send any assets to any addresses, but can receive any assets from other addresses, this state will continue until the `Frozen` state ends
 - the increase in the voting weight of the target validator is exactly the same as the amount of delegation
 - after the `Locked` state expires, the reduction in the voting weight of the target validator is exactly the same as the delegation amount
