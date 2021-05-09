@@ -99,6 +99,7 @@ bench:
 lint:
 	cargo clippy --workspace
 	cargo clippy --workspace --tests
+	cargo clippy --features="abci_mock" --workspace --tests
 
 test_status:
 	scripts/incur build

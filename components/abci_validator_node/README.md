@@ -14,20 +14,20 @@ TendermintForwarder --> `if cfg!(feature = "abci_mock")` --> mpsc channel --> Te
 ![](./pics/delegation_and_undelegation.png)
 
 ```
-propose Delegation --> [ state: Locked ] --> end time of Delegation --> [ state: Frozen ]
+propose Delegation --> [ state: Locked ] --> end time of Delegation --> [ state: Bond ]
   --> rewards paid --> [ state: Paid ]   --> end time of bond [ state: Free ]
 ```
 
-- a delegated address can not send any assets to any addresses, but can receive any assets from other addresses, this state will continue until the `Frozen` state ends
+- a delegated address can not send any assets to any addresses, but can receive any assets from other addresses, this state will continue until the `Bond` state ends
 - the increase in the voting weight of the target validator is exactly the same as the amount of delegation
 - after the `Locked` state expires, the reduction in the voting weight of the target validator is exactly the same as the delegation amount
 - if the balance in `CoinBase` is sufficient, the corresponding delegation rewards will be paid in the next block, and the amount is correct
-- if the balance in `CoinBase` is insufficient, the corresponding delegation rewards can not be paid, and the delegation address contine to stay in the `Frozen` state, even if the `Frozen` deadline has expired
-- when `CoinBase` gets new recharge, the corresponding rewards will be automatically paid, and the `Frozen` state will be lifted if it is not within the default `Frozen` period
+- if the balance in `CoinBase` is insufficient, the corresponding delegation rewards can not be paid, and the delegation address contine to stay in the `Bond` state, even if the `Bond` deadline has expired
+- when `CoinBase` gets new recharge, the corresponding rewards will be automatically paid, and the `Bond` state will be lifted if it is not within the default `Bond` period
 - addresses in the validator list can never be released from the `Locked` state, such addresses must first exit the validator list
 - a validator that has not finished self-delegation can not accept delegations from other addresses, and therefore can not increase its voting power
 
-- a successful `UnDelegation` transaction will convert the state of a `Locked` delegation address to `Frozen`
+- a successful `UnDelegation` transaction will convert the state of a `Locked` delegation address to `Bond`
 - the corresponding delegation rewards will be calculated according to the actual end time, rather than the initial end time defined when the delegation is created
 - the voting power of the corresponding validator will be reduced correctly
 

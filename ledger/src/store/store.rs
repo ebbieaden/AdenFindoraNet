@@ -1971,6 +1971,16 @@ impl LedgerState {
 }
 
 impl LedgerStatus {
+    #[allow(missing_docs)]
+    #[cfg(feature = "abci_mock")]
+    pub fn get_owned_utxos(&self, addr: &XfrPublicKey) -> HashMap<TxoSID, Utxo> {
+        self.utxos
+            .iter()
+            .filter(|(sid, utxo)| &utxo.0.record.public_key == addr)
+            .map(|(sid, utxo)| (sid.clone(), utxo.clone()))
+            .collect()
+    }
+
     fn get_utxo(&self, addr: TxoSID) -> Option<&Utxo> {
         self.utxos.get(&addr)
     }

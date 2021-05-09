@@ -11,7 +11,7 @@ use submission_api::SubmissionApi;
 
 mod config;
 mod server;
-mod staking;
+pub mod staking;
 
 use config::ABCIConfig;
 

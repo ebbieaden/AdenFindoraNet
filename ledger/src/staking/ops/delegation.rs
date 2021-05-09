@@ -115,7 +115,7 @@ pub struct Data {
     /// how many heights should this delegation be locked
     ///
     /// **NOTE:** before users can actually get the rewards,
-    /// they need to wait for an extra `FROZEN_BLOCK_CNT` period
+    /// they need to wait for an extra `BOND_BLOCK_CNT` period
     pub block_span: BlockAmount,
     nonce: NoReplayToken,
 }

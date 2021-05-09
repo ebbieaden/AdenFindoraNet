@@ -4,8 +4,9 @@
 //! Business logic based on [**Ledger Staking**](ledger::staking).
 //!
 
-use crate::abci::server::{forward_txn_with_mode, TD_NODE_SELF_ADDR};
+use crate::abci::server::forward_txn_with_mode;
 use abci::{Evidence, Header, LastCommitInfo, PubKey, ValidatorUpdate};
+use lazy_static::lazy_static;
 use ledger::{
     data_model::{Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA},
     staking::Staking,
@@ -13,6 +14,7 @@ use ledger::{
 };
 use rand_core::{CryptoRng, RngCore};
 use ruc::*;
+use std::env;
 use txn_builder::TransferOperationBuilder;
 use zei::xfr::asset_record::{open_blind_asset_record, AssetRecordType};
 use zei::xfr::{
@@ -20,15 +22,21 @@ use zei::xfr::{
     structs::{AssetRecordTemplate, XfrAmount, XfrAssetType},
 };
 
-#[cfg(test)]
-#[cfg(feature = "abci_mock")]
-mod abci_mock_test;
-
 type SignedPower = i64;
 
 // The top 50 candidate validators
 // will become official validators.
 const VALIDATOR_LIMIT: usize = 50;
+
+lazy_static! {
+    /// Tendermint node address, sha256(pubkey)[:20]
+    pub static ref TD_NODE_SELF_ADDR: Vec<u8> = {
+        let hex_addr = pnk!(env::var("TD_NODE_SELF_ADDR"));
+        let bytes_addr = pnk!(hex::decode(hex_addr));
+        assert_eq!(20, bytes_addr.len());
+        bytes_addr
+    };
+}
 
 /// Get the effective validators at current block height.
 pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
@@ -138,7 +146,7 @@ fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
     staking.governance_penalty(bz.addr, i64::MAX).c(d!())
 }
 
-// Pay for frozen 'Delegations' and 'FraDistributions'.
+// Pay for bond 'Delegations' and 'FraDistributions'.
 fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()> {
     if *TD_NODE_SELF_ADDR != proposer {
         return Ok(());
@@ -255,3 +263,7 @@ fn gen_transaction(
 
     Ok(Transaction::from_operation(op, seq_id))
 }
+
+#[cfg(test)]
+#[cfg(feature = "abci_mock")]
+pub mod abci_mock_test;

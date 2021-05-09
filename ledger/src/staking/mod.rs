@@ -370,7 +370,7 @@ impl Staking {
     }
 
     #[inline(always)]
-    fn delegation_unfrozen(&mut self, addr: &XfrPublicKey) -> Result<Delegation> {
+    fn delegation_unbond(&mut self, addr: &XfrPublicKey) -> Result<Delegation> {
         let d = self.di.addr_map.remove(addr).ok_or(eg!("not exists"))?;
         if d.state == DelegationState::Paid {
             Ok(d)
@@ -446,22 +446,22 @@ impl Staking {
         &self,
         h: BlockHeight,
     ) -> HashMap<XfrPublicKey, u64> {
-        self.delegation_get_frozens_before_height(h)
+        self.delegation_get_bonds_before_height(h)
             .into_iter()
             .filter(|d| d.rwd_amount > 0)
             .map(|d| (d.rwd_pk, d.rwd_amount as u64))
             .collect()
     }
 
-    /// Query all frozen delegations.
+    /// Query all bond delegations.
     #[inline(always)]
-    pub fn delegation_get_frozens(&self) -> Vec<&Delegation> {
-        self.delegation_get_frozens_before_height(self.cur_height)
+    pub fn delegation_get_bonds(&self) -> Vec<&Delegation> {
+        self.delegation_get_bonds_before_height(self.cur_height)
     }
 
-    /// Query frozen delegations before a specified height(included).
+    /// Query bond delegations before a specified height(included).
     #[inline(always)]
-    pub fn delegation_get_frozens_before_height(
+    pub fn delegation_get_bonds_before_height(
         &self,
         h: BlockHeight,
     ) -> Vec<&Delegation> {
@@ -473,7 +473,7 @@ impl Staking {
                     .iter()
                     .flat_map(|addr| self.di.addr_map.get(addr))
                     .filter(|d| {
-                        0 < d.rwd_amount && matches!(d.state, DelegationState::Frozen)
+                        0 < d.rwd_amount && matches!(d.state, DelegationState::Bond)
                     })
             })
             .collect()
@@ -481,7 +481,7 @@ impl Staking {
 
     /// Clean delegation states along with each new block.
     pub fn deletation_process(&mut self) {
-        let h = self.cur_height.saturating_sub(FROZEN_BLOCK_CNT);
+        let h = self.cur_height.saturating_sub(BOND_BLOCK_CNT);
         if 0 < h {
             self.di
                 .end_height_map
@@ -494,7 +494,7 @@ impl Staking {
                 .for_each(|addr| {
                     let (v, am) = if let Some(d) = self.di.addr_map.get_mut(&addr) {
                         if DelegationState::Locked == d.state {
-                            d.state = DelegationState::Frozen;
+                            d.state = DelegationState::Bond;
                         }
                         (d.validator, d.amount)
                     } else {
@@ -512,7 +512,7 @@ impl Staking {
     }
 
     // call this when:
-    // - the frozen period expired
+    // - the bond period expired
     // - rewards have been paid successfully.
     //
     // @param h: included
@@ -525,7 +525,7 @@ impl Staking {
             .iter()
             .for_each(|(h, addrs)| {
                 addrs.iter().for_each(|addr| {
-                    if self.delegation_unfrozen(addr).is_ok() {
+                    if self.delegation_unbond(addr).is_ok() {
                         self.di
                             .end_height_map
                             .get_mut(&h)
@@ -725,7 +725,7 @@ impl Staking {
         let outputs_is_valid = |o: &TransferAsset| {
             o.body.transfer.outputs.iter().all(|i| {
                 self.addr_is_in_distribution_plan(&i.public_key)
-                    || self.addr_is_in_frozen_delegation(&i.public_key)
+                    || self.addr_is_in_bond_delegation(&i.public_key)
             })
         };
 
@@ -774,7 +774,7 @@ impl Staking {
                                     v = distribution.entry(u.public_key).or_insert(0);
                                     *v = v.checked_add(am).ok_or(eg!("overflow"))?;
                                 }
-                                if self.addr_is_in_frozen_delegation(&u.public_key) {
+                                if self.addr_is_in_bond_delegation(&u.public_key) {
                                     v = delegation.entry(u.public_key).or_insert(0);
                                     *v = v.checked_add(am).ok_or(eg!("overflow"))?;
                                 }
@@ -821,7 +821,7 @@ impl Staking {
 
     // - amounts have been checked in `coinbase_collect_payments`
     // - pubkey existances have been checked in `seems_valid_coinbase_ops`
-    // - delegation states has been checked in `addr_is_in_frozen_delegation`
+    // - delegation states has been checked in `addr_is_in_bond_delegation`
     #[inline(always)]
     fn coinbase_pay_delegation(&mut self, payments: &HashMap<XfrPublicKey, u64>) {
         payments.keys().for_each(|k| {
@@ -838,9 +838,9 @@ impl Staking {
     }
 
     #[inline(always)]
-    fn addr_is_in_frozen_delegation(&self, pk: &XfrPublicKey) -> bool {
+    fn addr_is_in_bond_delegation(&self, pk: &XfrPublicKey) -> bool {
         if let Some(dlg) = self.di.addr_map.get(pk) {
-            matches!(dlg.state, DelegationState::Frozen)
+            matches!(dlg.state, DelegationState::Bond)
         } else {
             false
         }
@@ -875,10 +875,7 @@ impl Staking {
         }
 
         let h = self.cur_height;
-        let return_rate = Self::get_block_rewards_rate([
-            self.di.total_amount as u64,
-            FRA_TOTAL_AMOUNT,
-        ]);
+        let return_rate = self.get_block_rewards_rate();
 
         self.di
             .addr_map
@@ -899,9 +896,9 @@ impl Staking {
         Ok(())
     }
 
-    // SEE:
-    // https://www.notion.so/findora/PoS-Stage-1-Consensus-Rewards-Penalties-72f5c9a697ff461c89c3728e34348834#3d2f1b8ff8244632b715abdd42b6a67b
-    fn get_block_rewards_rate(global_delegation_percent: [u64; 2]) -> [u64; 2] {
+    /// SEE:
+    /// https://www.notion.so/findora/PoS-Stage-1-Consensus-Rewards-Penalties-72f5c9a697ff461c89c3728e34348834#3d2f1b8ff8244632b715abdd42b6a67b
+    pub fn get_block_rewards_rate(&self) -> [u64; 2] {
         const RATE_RULE: [([u64; 2], u64); 8] = [
             ([0, 10], 20),
             ([10, 20], 17),
@@ -913,7 +910,7 @@ impl Staking {
             ([67, 101], 1),
         ];
 
-        let p = global_delegation_percent;
+        let p = [self.di.total_amount as u64, FRA_TOTAL_AMOUNT];
         for ([low, high], rate) in RATE_RULE.iter() {
             if p[0] * 100 < p[1] * high && p[0] * 100 >= p[1] * low {
                 return [*rate, 100];
@@ -966,7 +963,7 @@ pub const FRA: u64 = 10_u64.pow(FRA_DECIMALS as u32);
 const FRA_TOTAL_AMOUNT: u64 = 210_0000_0000 * FRA;
 
 const MIN_DELEGATION_AMOUNT: u64 = 32 * FRA;
-const MAX_DELEGATION_AMOUNT: u64 = 32_0000 * FRA;
+const MAX_DELEGATION_AMOUNT: u64 = FRA_TOTAL_AMOUNT;
 
 const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
 
@@ -991,7 +988,12 @@ const MAX_POWER_PERCENT_PER_VALIDATOR: [u128; 2] = [1, 5];
 const BLOCK_INTERVAL: u64 = 15 + 1;
 
 /// The lock time after the delegation expires, about 21 days.
-pub const FROZEN_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
+#[cfg(not(feature = "abci_mock"))]
+pub const BOND_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
+
+/// used in test env
+#[cfg(feature = "abci_mock")]
+pub const BOND_BLOCK_CNT: u64 = 10;
 
 // minimal number of validators
 pub(crate) const VALIDATORS_MIN: usize = 6;
@@ -1165,7 +1167,7 @@ pub struct Delegation {
     /// the height at which the delegation ends
     ///
     /// **NOTE:** before users can actually get the rewards,
-    /// they need to wait for an extra `FROZEN_BLOCK_CNT` period
+    /// they need to wait for an extra `BOND_BLOCK_CNT` period
     pub end_height: BlockHeight,
     #[allow(missing_docs)]
     pub state: DelegationState,
@@ -1179,11 +1181,11 @@ pub enum DelegationState {
     /// during delegation
     Locked,
     /// delegation finished,
-    /// entered frozen time
-    Frozen,
-    /// during or after frozen time,
+    /// entered bond time
+    Bond,
+    /// during or after bond time,
     /// and rewards have been paid successfully,
-    /// the co-responding account should be unfrozen
+    /// the co-responding account should be unbond
     Paid,
 }
 
@@ -1267,9 +1269,9 @@ impl CoinBase {
     }
 }
 
-// sha256(pubkey)[:20]
+/// sha256(pubkey)[:20]
 #[inline(always)]
-fn td_pubkey_to_td_addr(pubkey: &[u8]) -> Vec<u8> {
+pub fn td_pubkey_to_td_addr(pubkey: &[u8]) -> Vec<u8> {
     sha2::Sha256::digest(pubkey)[..20].to_vec()
 }
 
