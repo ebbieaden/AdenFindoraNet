@@ -10,7 +10,7 @@ use cryptohash::sha256::{self, Digest};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     fmt::{self, Debug},
 };
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSignature};
@@ -154,7 +154,7 @@ where
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct CoSigRule {
     /// weight of each `XfrPublicKey`,
-    pub weights: HashMap<XfrPublicKey, KeyWeight>,
+    pub weights: BTreeMap<XfrPublicKey, KeyWeight>,
     /// check rule:
     /// - `[actual weight].sum() / [rule weight].sum() >= threshold%`
     /// - threshold% = `numerator / denominator` = `threshold[0] / threshold[1]`

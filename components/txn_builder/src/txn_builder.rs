@@ -263,6 +263,7 @@ fn policy_from_choice(
 
 pub trait BuildsTransactions {
     fn transaction(&self) -> &Transaction;
+    fn take_transaction(self) -> Transaction;
     fn sign(&mut self, kp: &XfrKeyPair) -> &mut Self;
     fn add_signature(
         &mut self,
@@ -685,6 +686,11 @@ impl BuildsTransactions for TransactionBuilder {
     fn transaction(&self) -> &Transaction {
         &self.txn
     }
+
+    fn take_transaction(self) -> Transaction {
+        self.txn
+    }
+
     fn add_memo(&mut self, memo: Memo) -> &mut Self {
         self.txn.body.memos.push(memo);
         self

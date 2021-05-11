@@ -12,7 +12,7 @@ use tx_sender::TendermintForward;
 pub use tx_sender::forward_txn_with_mode;
 
 pub mod callback;
-mod tx_sender;
+pub mod tx_sender;
 
 pub struct ABCISubmissionServer {
     pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,

@@ -569,8 +569,8 @@ impl Staking {
     #[inline(always)]
     fn td_addr_to_app_pk(&self, addr: TendermintAddrRef) -> Result<XfrPublicKey> {
         self.validator_get_current()
-            .and_then(|vd| vd.addr_td_to_app.get(addr).copied())
             .ok_or(eg!())
+            .and_then(|vd| vd.addr_td_to_app.get(addr).copied().ok_or(eg!()))
     }
 
     /// Import extern amount changes,
@@ -1011,8 +1011,8 @@ pub type BlockHeight = u64;
 type Amount = i64;
 
 // sha256(pubkey)[:20]
-type TendermintAddr = Vec<u8>;
-type TendermintAddrRef<'a> = &'a [u8];
+type TendermintAddr = String;
+type TendermintAddrRef<'a> = &'a str;
 
 type ValidatorInfo = BTreeMap<BlockHeight, ValidatorData>;
 
@@ -1271,8 +1271,8 @@ impl CoinBase {
 
 /// sha256(pubkey)[:20]
 #[inline(always)]
-pub fn td_pubkey_to_td_addr(pubkey: &[u8]) -> Vec<u8> {
-    sha2::Sha256::digest(pubkey)[..20].to_vec()
+pub fn td_pubkey_to_td_addr(pubkey: &[u8]) -> String {
+    hex::encode(&sha2::Sha256::digest(pubkey)[..20])
 }
 
 #[cfg(test)]

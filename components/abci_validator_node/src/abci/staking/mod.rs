@@ -56,8 +56,9 @@ pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
     // reverse sort
     vs.sort_by_key(|v| -v.0);
 
-    Ok(vs[..VALIDATOR_LIMIT]
+    Ok(vs
         .iter()
+        .take(VALIDATOR_LIMIT)
         .map(|(power, pubkey)| {
             let mut vu = ValidatorUpdate::new();
             let mut pk = PubKey::new();
@@ -124,7 +125,7 @@ fn set_rewards(
     last_vote_power: Option<i64>,
 ) -> Result<()> {
     staking
-        .set_last_block_rewards(proposer, last_vote_power)
+        .set_last_block_rewards(&hex::encode(proposer), last_vote_power)
         .c(d!())
 }
 
@@ -143,7 +144,9 @@ struct ByzantineInfo<'a> {
 
 // Auto governance.
 fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
-    staking.governance_penalty(bz.addr, i64::MAX).c(d!())
+    staking
+        .governance_penalty(&hex::encode(bz.addr), i64::MAX)
+        .c(d!())
 }
 
 // Pay for bond 'Delegations' and 'FraDistributions'.

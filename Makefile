@@ -90,8 +90,8 @@ test:
 	cargo test --release --workspace -- --ignored
 
 staking_test:
-	cargo test --release staking -- --test-threads=1
-	cargo test --release staking --features="abci_mock" -- --test-threads=1
+	# cargo test staking -- --test-threads=1 --nocapture
+	cargo test staking --features="abci_mock" -- --test-threads=1 --nocapture
 
 bench:
 	cargo bench --workspace
