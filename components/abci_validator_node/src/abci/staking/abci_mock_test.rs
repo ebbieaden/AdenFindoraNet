@@ -4,6 +4,8 @@
 //! The content of on-chain governance is not covered.
 //!
 
+#![allow(warnings)]
+
 use crate::abci::server::{tx_sender::forward_txn_with_mode, ABCISubmissionServer};
 use abci::*;
 use cryptohash::sha256::{self, Digest};
@@ -14,16 +16,17 @@ use ledger::{
         BLACK_HOLE_PUBKEY, TX_FEE_MIN,
     },
     staking::{
-        td_pubkey_to_td_addr, Validator as StakingValidator, COIN_BASE_MNEMONIC, FRA,
+        td_pubkey_to_td_addr, Validator as StakingValidator, COINBASE_KP, COINBASE_PK,
+        FRA, FRA_TOTAL_AMOUNT,
     },
     store::fra_gen_initial_tx,
 };
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::*;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     env,
     sync::{
         atomic::{AtomicI64, Ordering},
@@ -41,15 +44,19 @@ use zei::xfr::{
 };
 
 lazy_static! {
-    /// will be used in [tx_sender](super::server::tx_sender)
-    pub static ref TD_MOCKER: TendermintMocker = TendermintMocker::new();
+    static ref TD_MOCKER: Arc<RwLock<TendermintMocker>> = Arc::new(RwLock::new(TendermintMocker::new()));
     static ref ABCI_MOCKER: Arc<RwLock<AbciMocker>> = Arc::new(RwLock::new(AbciMocker::new()));
     static ref FAILED_TXS: Arc<RwLock<HashMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {}));
-    static ref COINBASE_KP: XfrKeyPair = pnk!(wallet::restore_keypair_from_mnemonic_default(COIN_BASE_MNEMONIC));
+    static ref SUCCESS_TXS: Arc<RwLock<HashMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {}));
+    /// will be used in [tx_sender](super::server::tx_sender)
+    pub static ref CHAN: (Arc<Mutex<Sender<Transaction>>>, Arc<Mutex<Receiver<Transaction>>>) = {
+        let (s, r) = channel();
+        (Arc::new(Mutex::new(s)), Arc::new(Mutex::new(r)))
+    };
 }
 
 static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
-const ITV: u64 = 100;
+const ITV: u64 = 10;
 
 struct AbciMocker(ABCISubmissionServer);
 
@@ -61,14 +68,14 @@ impl AbciMocker {
     fn produce_block(&mut self) {
         // do not generate empty blocks,
         // in order to reduce error messages
-        let txs = TD_MOCKER.mem_pool.try_iter().collect::<Vec<_>>();
+        let txs = CHAN.1.lock().try_iter().collect::<Vec<_>>();
         alt!(txs.is_empty(), return);
 
         let h = 1 + TENDERMINT_BLOCK_HEIGHT.fetch_add(1, Ordering::Relaxed);
         let proposer = pnk!(hex::decode(
             TD_MOCKER
-                .validators
                 .read()
+                .validators
                 .keys()
                 .next()
                 .unwrap()
@@ -78,17 +85,21 @@ impl AbciMocker {
         self.0.begin_block(&gen_req_begin_block(h, proposer));
 
         let mut failed_txs = FAILED_TXS.write();
+        let mut successful_txs = SUCCESS_TXS.write();
         for tx in txs.into_iter() {
             let key = gen_tx_hash(&tx);
-            if 0 != self.0.deliver_tx(&gen_req_deliver_tx(tx.clone())).code {
+            if 0 == self.0.deliver_tx(&gen_req_deliver_tx(tx.clone())).code {
+                assert!(successful_txs.insert(key, tx).is_none());
+            } else {
                 assert!(failed_txs.insert(key, tx).is_none());
             }
         }
         drop(failed_txs);
+        drop(successful_txs);
 
         let resp = self.0.end_block(&gen_req_end_block());
         if 0 < resp.validator_updates.len() {
-            *TD_MOCKER.validators.write() = resp
+            TD_MOCKER.write().validators = resp
                 .validator_updates
                 .into_vec()
                 .into_iter()
@@ -112,16 +123,24 @@ impl AbciMocker {
             .get_status()
             .get_owned_utxos(addr)
     }
+
+    fn get_owned_balance(&self, addr: &XfrPublicKey) -> u64 {
+        self.get_owned_utxos(addr)
+            .values()
+            .map(|utxo| {
+                if let XfrAmount::NonConfidential(am) = utxo.0.record.amount {
+                    am
+                } else {
+                    0
+                }
+            })
+            .sum()
+    }
 }
 
 pub struct TendermintMocker {
-    mem_pool: Receiver<Transaction>,
-    pub sender: Sender<Transaction>,
-    validators: Arc<RwLock<HashMap<String, i64>>>,
+    validators: BTreeMap<String, i64>,
 }
-
-unsafe impl Send for TendermintMocker {}
-unsafe impl Sync for TendermintMocker {}
 
 impl TendermintMocker {
     fn new() -> TendermintMocker {
@@ -132,19 +151,14 @@ impl TendermintMocker {
             }
         });
 
-        let (sender, recver) = channel();
-        let validators = Arc::new(RwLock::new(map! { hex::encode(&[0; 20]) => 1 }));
-
         TendermintMocker {
-            mem_pool: recver,
-            sender,
-            validators,
+            validators: map! {B hex::encode(&[0; 20]) => 1 },
         }
     }
 
-    fn clean(&self) {
-        self.mem_pool.try_iter().for_each(|_| {});
-        *self.validators.write() = map! { hex::encode(&[0; 20]) => 1 };
+    fn clean(&mut self) {
+        CHAN.1.lock().try_iter().for_each(|_| {});
+        self.validators = map! {B hex::encode(&[0; 20]) => 1 };
     }
 }
 
@@ -238,7 +252,7 @@ fn gen_transfer_op(
 
 fn new_tx_builder() -> TransactionBuilder {
     let h = TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed) as u64;
-    TransactionBuilder::from_seq_id(h.saturating_sub(1))
+    TransactionBuilder::from_seq_id(h.saturating_sub(10))
 }
 
 fn gen_fee_op(owner_kp: &XfrKeyPair) -> Result<Operation> {
@@ -248,9 +262,17 @@ fn gen_fee_op(owner_kp: &XfrKeyPair) -> Result<Operation> {
 fn gen_new_validators(n: u8) -> (Vec<StakingValidator>, Vec<XfrKeyPair>) {
     let kps = (0..n).map(|_| gen_keypair()).collect::<Vec<_>>();
 
-    let v_set = (0..n)
+    // ensure the sequence is same as them in BTreeMap
+    let td_pubkey_bytes = (0..n)
+        .map(|i| vec![i; 32])
+        .map(|k| (td_pubkey_to_td_addr(&k), k))
+        .collect::<BTreeMap<_, _>>();
+
+    let v_set = td_pubkey_bytes
+        .into_iter()
+        .map(|(_, td_pk)| td_pk)
         .zip(kps.iter())
-        .map(|(i, kp)| StakingValidator::new(vec![i; 32], 1, kp.get_pk(), None))
+        .map(|(td_pk, kp)| StakingValidator::new(td_pk, 1, kp.get_pk(), None))
         .collect::<Vec<_>>();
 
     (v_set, kps)
@@ -266,6 +288,25 @@ fn gen_final_tx_update_validator(
 
     builder
         .add_operation_update_validator(cosig_kps, h, v_set)
+        .c(d!())
+        .and_then(|b| {
+            gen_fee_op(owner_kp)
+                .c(d!())
+                .map(move |op| b.add_operation(op))
+        })?;
+
+    Ok(builder.take_transaction())
+}
+
+fn gen_final_tx_fra_distribution(
+    owner_kp: &XfrKeyPair,
+    cosig_kps: &[&XfrKeyPair],
+    alloc_table: BTreeMap<XfrPublicKey, u64>,
+) -> Result<Transaction> {
+    let mut builder = new_tx_builder();
+
+    builder
+        .add_operation_fra_distribution(cosig_kps, alloc_table)
         .c(d!())
         .and_then(|b| {
             gen_fee_op(owner_kp)
@@ -317,18 +358,29 @@ fn wait_n_block(n: u8) {
     });
 }
 
-fn is_failed(tx_hash: &Digest) -> bool {
-    FAILED_TXS.read().contains_key(tx_hash)
+fn is_successful(tx_hash: &Digest) -> bool {
+    SUCCESS_TXS.read().contains_key(tx_hash) && !FAILED_TXS.read().contains_key(tx_hash)
 }
 
-fn env_refresh() {
-    env::set_var(
-        "TD_NODE_SELF_ADDR",
-        hex::encode(&sha256::hash(&[0; 32])[..20]),
-    );
+// fn is_failed(tx_hash: &Digest) -> bool {
+//     FAILED_TXS.read().contains_key(tx_hash) && !SUCCESS_TXS.read().contains_key(tx_hash)
+// }
+
+fn env_refresh(validator_num: u8) {
+    // ensure the sequence is same as them in BTreeMap
+    let td_pubkey_bytes = (0..validator_num)
+        .map(|i| vec![i; 32])
+        .map(|k| (td_pubkey_to_td_addr(&k), k))
+        .collect::<BTreeMap<_, _>>()
+        .into_iter()
+        .next()
+        .unwrap()
+        .1;
+
+    env::set_var("TD_NODE_SELF_ADDR", td_pubkey_to_td_addr(&td_pubkey_bytes));
 
     *ABCI_MOCKER.write() = AbciMocker::new();
-    TD_MOCKER.clean();
+    TD_MOCKER.write().clean();
 }
 
 // 0. issue FRA
@@ -361,47 +413,69 @@ fn env_refresh() {
 // 23. ensure the power of each validator is increased correctly
 // 24. wait for the end of bond state
 // 25. ensure the power of each validator is decreased correctly
-// 26. ensure delegation-rewards-rate is correct in different global delegation levels
 //
-// 27. replay history transactions and ensure all of them will fail
+// 26. re-delegate those multi addrs one by one(block span = 10_0000)
+// 27. ensure delegation-rewards-rate is correct in different global delegation levels
+//
+// 28. replay old transactions and ensure all of them will fail
 fn staking_scene_1() -> Result<()> {
-    env_refresh();
+    const VALIDATORS_NUM: u8 = 6;
+
+    env_refresh(VALIDATORS_NUM);
 
     let keypair = gen_keypair();
+
+    // send a tx to trigger next block
+    macro_rules! trigger_next_block {
+        () => {
+            let tx_hash = transfer(&keypair, &COINBASE_PK, 1).c(d!())?;
+            wait_one_block();
+        };
+    }
 
     // 0. issue FRA
     let tx = fra_gen_initial_tx(&keypair);
     let tx_hash = gen_tx_hash(&tx);
     send_tx(tx).c(d!())?;
+
     wait_one_block();
-    assert!(!is_failed(&tx_hash));
+    assert!(is_successful(&tx_hash));
 
     // 1. update validators
-    let (v_set, kps) = gen_new_validators(6);
+    let (v_set, kps) = gen_new_validators(VALIDATORS_NUM);
     assert_eq!(v_set.len(), kps.len());
+
+    // update validators at height 2
     let tx = gen_final_tx_update_validator(&keypair, &[], 2, v_set.clone()).c(d!())?;
     let tx_hash = gen_tx_hash(&tx);
     send_tx(tx).c(d!())?;
-    wait_n_block(2);
-    assert!(!is_failed(&tx_hash));
-    let td_v_set = TD_MOCKER.validators.read();
+
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    wait_one_block();
+    let td_mocker = TD_MOCKER.read();
+    let td_v_set = &td_mocker.validators;
     assert_eq!(v_set.len(), td_v_set.len());
     v_set.iter().for_each(|v| {
+        // initial power == 1
         assert_eq!(&1, pnk!(td_v_set.get(&td_pubkey_to_td_addr(&v.td_pubkey))));
     });
-    drop(td_v_set);
+
+    drop(td_mocker);
 
     // 2. paid 400m FRAs to CoinBase
-    let tx_hash =
-        transfer(&keypair, COINBASE_KP.get_pk_ref(), 400 * 10000 * FRA).c(d!())?;
+    let tx_hash = transfer(&keypair, &COINBASE_PK, 400 * 10000 * FRA).c(d!())?;
+
     wait_one_block();
-    assert!(!is_failed(&tx_hash));
+    assert!(is_successful(&tx_hash));
 
     // 3. transfer some FRAs to a new addr `x`
     let x_kp = gen_keypair();
     let tx_hash = transfer(&keypair, x_kp.get_pk_ref(), 10000 * FRA).c(d!())?;
+
     wait_one_block();
-    assert!(!is_failed(&tx_hash));
+    assert!(is_successful(&tx_hash));
 
     // 4. use `x` to propose a delegation(block span = 10)
 
@@ -436,6 +510,77 @@ fn staking_scene_1() -> Result<()> {
     // 19. try to transfer FRAs from CoinBase with invalid amount or target addr, and ensure it will fail
 
     // 20. use `FraDistribution` to transfer FRAs to multi addrs
+    //
+    // rewards rate:
+    //   - ([0, 10], 20)
+    //   - ([10, 20], 17)
+    //   - ([20, 30], 14)
+    //   - ([30, 40], 11)
+    //   - ([40, 50], 8)
+    //   - ([50, 50], 5)
+    //   - ([60, 67], 2)
+    //   - ([67, 101], 1)
+    let (a_kp, a_am) = (gen_keypair(), 1 + FRA_TOTAL_AMOUNT * 5 / 100); // 5%, total 5%
+    let (b_kp, b_am) = (gen_keypair(), 2 + FRA_TOTAL_AMOUNT * 10 / 100); // 10%, total 15%
+    let (c_kp, c_am) = (gen_keypair(), 3 + FRA_TOTAL_AMOUNT * 10 / 100); // 10%, total 25%
+    let (d_kp, d_am) = (gen_keypair(), 4 + FRA_TOTAL_AMOUNT * 10 / 100); // 10%, total 35%
+    let (e_kp, e_am) = (gen_keypair(), 5 + FRA_TOTAL_AMOUNT * 10 / 100); // 10%, total 45%
+    let (f_kp, f_am) = (gen_keypair(), 6 + FRA_TOTAL_AMOUNT * 10 / 100); // 10%, total 55%
+    let (g_kp, g_am) = (gen_keypair(), 7 + FRA_TOTAL_AMOUNT * 10 / 100); // 10%, total 65%
+    let (h_kp, h_am) = (gen_keypair(), 8 + FRA_TOTAL_AMOUNT * 3 / 100); // 3%, total 68%
+    let (i_kp, i_am) = (gen_keypair(), 9 + FRA_TOTAL_AMOUNT * 12 / 100); // 12%, total 80%
+
+    // Transfer 80% of total FRAs to CoinBase.
+    let tx_hash = transfer(&keypair, &COINBASE_PK, FRA_TOTAL_AMOUNT * 9 / 10).c(d!())?;
+
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    let alloc_table = [
+        (&a_kp, a_am),
+        (&b_kp, b_am),
+        (&c_kp, c_am),
+        (&d_kp, d_am),
+        (&e_kp, e_am),
+        (&f_kp, f_am),
+        (&g_kp, g_am),
+        (&h_kp, h_am),
+        (&i_kp, i_am),
+    ]
+    .iter()
+    .map(|(kp, am)| (kp.get_pk(), *am))
+    .collect::<BTreeMap<_, _>>();
+
+    let cosig_kps = kps.iter().collect::<Vec<_>>();
+
+    let tx = gen_final_tx_fra_distribution(&keypair, &cosig_kps, alloc_table.clone())
+        .c(d!())?;
+
+    let coinbase_balance = ABCI_MOCKER.read().get_owned_balance(&COINBASE_PK);
+
+    let tx_hash = gen_tx_hash(&tx);
+    send_tx(tx).c(d!())?;
+
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    for _ in 0..2 {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
+    let abci_mocker = ABCI_MOCKER.read();
+    assert!(
+        alloc_table
+            .iter()
+            .all(|(pk, am)| *am == abci_mocker.get_owned_balance(pk))
+    );
+    assert!(
+        alloc_table.values().sum::<u64>()
+            <= 2 + coinbase_balance - abci_mocker.get_owned_balance(&COINBASE_PK)
+    );
+
+    drop(abci_mocker);
 
     // 21. ensure the result of `FraDistribution` is correct
 
@@ -447,9 +592,11 @@ fn staking_scene_1() -> Result<()> {
 
     // 25. ensure the power of each validator is decreased correctly
 
-    // 26. ensure delegation-rewards-rate is correct in different global delegation levels
+    // 26. re-delegate those multi addrs one by one(block span = 10_0000)
 
-    // 27. replay history transactions and ensure all of them will fail
+    // 27. ensure delegation-rewards-rate is correct in different global delegation levels
+
+    // 28. replay old transactions and ensure all of them will fail
 
     Ok(())
 }

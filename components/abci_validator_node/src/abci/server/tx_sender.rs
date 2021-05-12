@@ -83,7 +83,7 @@ mod real {
 #[cfg(test)]
 #[cfg(feature = "abci_mock")]
 mod mocker {
-    use crate::abci::staking::abci_mock_test::TD_MOCKER;
+    use crate::abci::staking::abci_mock_test::CHAN;
     use ledger::data_model::Transaction;
     use ruc::*;
     use submission_server::TxnForward;
@@ -109,6 +109,6 @@ mod mocker {
         tx: Transaction,
         _async_mode: bool,
     ) -> Result<()> {
-        TD_MOCKER.sender.send(tx).c(d!())
+        CHAN.0.lock().send(tx).c(d!())
     }
 }

@@ -7,10 +7,13 @@ use crate::{
     des_fail,
     policy_script::{Policy, PolicyGlobals, TxnPolicyData},
     ser_fail,
-    staking::ops::{
-        delegation::DelegationOps, fra_distribution::FraDistributionOps,
-        governance::GovernanceOps, undelegation::UnDelegationOps,
-        update_validator::UpdateValidatorOps,
+    staking::{
+        ops::{
+            delegation::DelegationOps, fra_distribution::FraDistributionOps,
+            governance::GovernanceOps, undelegation::UnDelegationOps,
+            update_validator::UpdateValidatorOps,
+        },
+        COINBASE_PK,
     },
 };
 
@@ -1385,7 +1388,7 @@ impl Transaction {
                         .transfer
                         .inputs
                         .iter()
-                        .all(|i| *BLACK_HOLE_PUBKEY == i.public_key));
+                        .all(|i| *COINBASE_PK == i.public_key));
             } else if let Operation::DefineAsset(ref x) = ops {
                 if x.body.asset.code.val == ASSET_TYPE_FRA {
                     return true;

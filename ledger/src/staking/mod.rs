@@ -23,6 +23,7 @@ use crate::{
 };
 use cosig::CoSigRule;
 use cryptohash::sha256::{self, Digest};
+use lazy_static::lazy_static;
 use ops::fra_distribution::FraDistributionOps;
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -724,7 +725,8 @@ impl Staking {
 
         let outputs_is_valid = |o: &TransferAsset| {
             o.body.transfer.outputs.iter().all(|i| {
-                self.addr_is_in_distribution_plan(&i.public_key)
+                self.coinbase_pubkey() == i.public_key
+                    || self.addr_is_in_distribution_plan(&i.public_key)
                     || self.addr_is_in_bond_delegation(&i.public_key)
             })
         };
@@ -855,12 +857,8 @@ impl Staking {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn fra_distribution_get_plan(&self) -> HashMap<XfrPublicKey, u64> {
-        self.coinbase
-            .distribution_plan
-            .iter()
-            .map(|(k, v)| (*k, *v))
-            .collect()
+    pub fn fra_distribution_get_plan(&self) -> &BTreeMap<XfrPublicKey, u64> {
+        &self.coinbase.distribution_plan
     }
 
     /// A helper for setting block rewards in ABCI.
@@ -959,8 +957,8 @@ impl Staking {
 /// How many FRA units per FRA
 pub const FRA: u64 = 10_u64.pow(FRA_DECIMALS as u32);
 
-// total amount of FRA-units issuance
-const FRA_TOTAL_AMOUNT: u64 = 210_0000_0000 * FRA;
+/// Total amount of FRA-units issuance.
+pub const FRA_TOTAL_AMOUNT: u64 = 210_0000_0000 * FRA;
 
 const MIN_DELEGATION_AMOUNT: u64 = 32 * FRA;
 const MAX_DELEGATION_AMOUNT: u64 = FRA_TOTAL_AMOUNT;
@@ -969,6 +967,13 @@ const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
 
 /// The 24-words mnemonic of 'FRA CoinBase Address'.
 pub const COIN_BASE_MNEMONIC: &str = "load second west source excuse skin thought inside wool kick power tail universe brush kid butter bomb other mistake oven raw armed tree walk";
+
+lazy_static! {
+    #[allow(missing_docs)]
+    pub static ref COINBASE_PK: XfrPublicKey = COINBASE_KP.get_pk();
+    #[allow(missing_docs)]
+    pub static ref COINBASE_KP: XfrKeyPair = pnk!(wallet::restore_keypair_from_mnemonic_default(COIN_BASE_MNEMONIC));
+}
 
 // A limitation from
 // [tendermint](https://docs.tendermint.com/v0.33/spec/abci/apps.html#validator-updates)
@@ -1256,12 +1261,9 @@ impl Default for CoinBase {
 
 impl CoinBase {
     fn gen() -> Self {
-        let keypair = pnk!(wallet::restore_keypair_from_mnemonic_default(
-            COIN_BASE_MNEMONIC
-        ));
         CoinBase {
-            pubkey: keypair.get_pk(),
-            keypair,
+            pubkey: COINBASE_KP.get_pk(),
+            keypair: COINBASE_KP.clone(),
             bank: BTreeSet::new(),
             distribution_hist: BTreeSet::new(),
             distribution_plan: BTreeMap::new(),

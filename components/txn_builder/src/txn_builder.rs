@@ -844,13 +844,17 @@ impl BuildsTransactions for TransactionBuilder {
         validator: XfrPublicKey,
         block_span: u64,
     ) -> &mut Self {
-        let op =
-            DelegationOps::new(keypair, validator, block_span, self.no_replay_token);
+        let op = DelegationOps::new(
+            keypair,
+            validator,
+            block_span,
+            self.txn.body.no_replay_token,
+        );
         self.add_operation(Operation::Delegation(op))
     }
 
     fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self {
-        let op = UnDelegationOps::new(keypair, self.no_replay_token);
+        let op = UnDelegationOps::new(keypair, self.txn.body.no_replay_token);
         self.add_operation(Operation::UnDelegation(op))
     }
 
@@ -859,7 +863,7 @@ impl BuildsTransactions for TransactionBuilder {
         kps: &[&XfrKeyPair],
         alloc_table: BTreeMap<XfrPublicKey, u64>,
     ) -> Result<&mut Self> {
-        FraDistributionOps::new(kps, alloc_table, self.no_replay_token)
+        FraDistributionOps::new(kps, alloc_table, self.txn.body.no_replay_token)
             .c(d!())
             .map(move |op| self.add_operation(Operation::FraDistribution(op)))
     }
@@ -870,7 +874,7 @@ impl BuildsTransactions for TransactionBuilder {
         byzantine_id: XfrPublicKey,
         kind: ByzantineKind,
     ) -> Result<&mut Self> {
-        GovernanceOps::new(kps, byzantine_id, kind, self.no_replay_token)
+        GovernanceOps::new(kps, byzantine_id, kind, self.txn.body.no_replay_token)
             .c(d!())
             .map(move |op| self.add_operation(Operation::Governance(op)))
     }
@@ -881,7 +885,7 @@ impl BuildsTransactions for TransactionBuilder {
         h: BlockHeight,
         v_set: Vec<Validator>,
     ) -> Result<&mut Self> {
-        UpdateValidatorOps::new(kps, h, v_set, self.no_replay_token)
+        UpdateValidatorOps::new(kps, h, v_set, self.txn.body.no_replay_token)
             .c(d!())
             .map(move |op| self.add_operation(Operation::UpdateValidator(op)))
     }

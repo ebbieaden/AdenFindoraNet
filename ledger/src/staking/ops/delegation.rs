@@ -186,8 +186,8 @@ pub(crate) fn check_delegation_context_fee(
 ) -> Result<()> {
     let valid = (0..total).any(|i| {
         if let Some(Operation::TransferAsset(ref x)) = tx.body.operations.get(i) {
-            // multi outputs is not allowed
-            if 1 != x.body.outputs.len() {
+            // more than 2 outputs is not allowed
+            if 2 < x.body.outputs.len() {
                 return false;
             }
 
@@ -195,7 +195,25 @@ pub(crate) fn check_delegation_context_fee(
             if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
                 if ty == ASSET_TYPE_FRA && *BLACK_HOLE_PUBKEY == o.record.public_key {
                     if let XfrAmount::NonConfidential(_) = o.record.amount {
-                        return true;
+                        // if balance output exists,
+                        // target addr must be same as the inputs
+                        if let Some(o) = x.body.outputs.get(1) {
+                            if 1 == x
+                                .body
+                                .transfer
+                                .inputs
+                                .iter()
+                                .map(|i| i.public_key)
+                                .collect::<HashSet<_>>()
+                                .len()
+                                && o.record.public_key
+                                    == x.body.transfer.inputs[0].public_key
+                            {
+                                return true;
+                            }
+                        } else {
+                            return true;
+                        }
                     }
                 }
             }

@@ -14,7 +14,7 @@ use ledger::{
 };
 use rand_core::{CryptoRng, RngCore};
 use ruc::*;
-use std::env;
+use std::{collections::HashMap, env};
 use txn_builder::TransferOperationBuilder;
 use zei::xfr::asset_record::{open_blind_asset_record, AssetRecordType};
 use zei::xfr::{
@@ -157,104 +157,119 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
 
     let staking = la.get_staking();
 
+    // at most 256 items to pay per block
     let mut paylist = staking
         .delegation_get_rewards()
         .into_iter()
-        .chain(staking.fra_distribution_get_plan().into_iter())
+        .chain(
+            staking
+                .fra_distribution_get_plan()
+                .iter()
+                .map(|(k, v)| (*k, *v)),
+        )
+        .take(256)
         .collect::<Vec<_>>();
+
+    if paylist.is_empty() {
+        return Ok(());
+    }
 
     // sort by amount
     paylist.sort_by_key(|i| i.1);
 
     let coinbase_utxo_sids = staking.coinbase_txos().into_iter().collect::<Vec<_>>();
 
-    gen_transaction_list(la, coinbase_utxo_sids, paylist)
-        .into_iter()
-        .for_each(|tx| {
-            // send tx in 'async' mode
-            ruc::info_omit!(forward_txn_with_mode(fwder, tx, true));
-        });
-
-    Ok(())
+    gen_transaction(la, coinbase_utxo_sids, paylist)
+        .c(d!())
+        .and_then(|tx| forward_txn_with_mode(fwder, tx, true).c(d!()))
 }
 
 // Generate all tx in batch mode.
-fn gen_transaction_list(
+fn gen_transaction(
     la: &impl LedgerAccess,
     utxo_sids: Vec<TxoSID>,
     paylist: Vec<(XfrPublicKey, u64)>,
-) -> Vec<Transaction> {
+) -> Result<Transaction> {
     let staking = la.get_staking();
     let seq_id = la.get_state_commitment().1;
 
-    let mut res = vec![];
-    let mut sids = utxo_sids.into_iter();
+    let mut inputs = vec![];
+    let mut outputs = map! {};
 
-    'fin: for (addr, am) in paylist.into_iter() {
-        let mut am2 = am;
-        let mut inputs = vec![];
-        while am2 > 0 {
+    for i in 0..paylist.len() {
+        let mut total_amount =
+            paylist.iter().rev().skip(i).map(|(_, am)| *am).sum::<u64>();
+        let mut sids = utxo_sids.iter();
+        while total_amount > 0 {
             if let Some(sid) = sids.next() {
-                if let Some(auth_utxo) = la.get_utxo(sid) {
+                if let Some(auth_utxo) = la.get_utxo(*sid) {
                     let utxo = auth_utxo.utxo;
                     if let XfrAssetType::NonConfidential(ty) = utxo.0.record.asset_type {
                         if ASSET_TYPE_FRA == ty {
-                            if let XfrAmount::NonConfidential(i_am) =
-                                utxo.0.record.amount
+                            if let XfrAmount::NonConfidential(am) = utxo.0.record.amount
                             {
-                                am2 = am2.saturating_sub(i_am);
-                                inputs.push((sid, utxo, i_am));
+                                inputs.push((
+                                    *sid,
+                                    utxo,
+                                    alt!(total_amount > am, am, total_amount),
+                                ));
+                                total_amount = total_amount.saturating_sub(am);
                             }
                         }
                     }
                 }
             } else {
                 // insufficient balance in coinbase
-                break 'fin;
+                break;
             }
         }
-        if let Ok(tx) = ruc::info!(gen_transaction(staking, inputs, addr, am, seq_id)) {
-            res.push(tx);
+
+        if 0 == total_amount {
+            outputs = paylist.into_iter().rev().skip(i).collect();
+            break;
         }
     }
 
-    res
+    alt!(inputs.is_empty() || outputs.is_empty(), return Err(eg!()));
+
+    do_gen_transaction(staking, inputs, outputs, seq_id).c(d!())
 }
 
 // **NOTE:**
 // transfer from CoinBase need not to pay FEE
-fn gen_transaction(
+fn do_gen_transaction(
     staking: &Staking,
     inputs: Vec<(TxoSID, Utxo, u64)>,
-    dest: XfrPublicKey,
-    am: u64,
+    dests: HashMap<XfrPublicKey, u64>,
     seq_id: u64,
 ) -> Result<Transaction> {
     let keypair = staking.coinbase_keypair();
 
-    let output_template = AssetRecordTemplate::with_no_asset_tracing(
-        am,
-        ASSET_TYPE_FRA,
-        AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-        dest,
-    );
-
     let mut op = TransferOperationBuilder::new();
 
-    for (sid, utxo, i_am) in inputs.into_iter() {
+    for (sid, utxo, n) in inputs.into_iter() {
         op.add_input(
             TxoRef::Absolute(sid),
             open_blind_asset_record(&utxo.0.record, &None, keypair).unwrap(),
             None,
             None,
-            i_am,
+            n,
         )
         .c(d!())?;
     }
 
+    for output in dests.iter().map(|(pk, n)| {
+        AssetRecordTemplate::with_no_asset_tracing(
+            *n,
+            ASSET_TYPE_FRA,
+            AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
+            *pk,
+        )
+    }) {
+        op.add_output(&output, None, None, None).c(d!())?;
+    }
+
     let op = op
-        .add_output(&output_template, None, None, None)
-        .c(d!())?
         .balance()
         .c(d!())?
         .create(TransferType::Standard)
