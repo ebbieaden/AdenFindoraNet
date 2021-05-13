@@ -184,7 +184,8 @@ pub extern "C" fn findora_ffi_encryption_pbkdf2_aes256gcm(
         c_char_to_string(password),
     );
 
-    string_to_c_char(String::from_utf8(res).unwrap())
+    let c_str = CString::new(res).expect("CString::new failed");
+    c_str.into_raw()
 }
 
 #[no_mangle]
@@ -264,8 +265,37 @@ pub unsafe extern "C" fn findora_ffi_create_keypair_from_secret(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn findora_ffi_get_pk_from_keypair(
+    key_pair: *const types::XfrKeyPair,
+) -> *mut types::XfrPublicKey {
+    assert!(!key_pair.is_null());
+
+    let boxed_data =
+        Box::new(types::XfrPublicKey::from(get_pk_from_keypair(&*key_pair)));
+    Box::into_raw(boxed_data)
+}
+
+#[no_mangle]
 /// Creates a new transfer key pair.
 pub unsafe extern "C" fn findora_ffi_new_keypair() -> *mut types::XfrKeyPair {
     let boxed_data = Box::new(types::XfrKeyPair::from(new_keypair()));
     Box::into_raw(boxed_data)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn findora_ffi_bech32_to_base64(pk: *const c_char) -> *mut c_char {
+    if let Ok(info) = rs_bech32_to_base64(c_char_to_string(pk).as_str()) {
+        string_to_c_char(info)
+    } else {
+        ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn findora_ffi_base64_to_bech32(pk: *const c_char) -> *mut c_char {
+    if let Ok(info) = rs_base64_to_bech32(c_char_to_string(pk).as_str()) {
+        string_to_c_char(info)
+    } else {
+        ptr::null_mut()
+    }
 }

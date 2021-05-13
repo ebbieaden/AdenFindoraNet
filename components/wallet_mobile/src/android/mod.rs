@@ -202,7 +202,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_getPubKeyStr(
 #[no_mangle]
 /// Restore the XfrKeyPair from a mnemonic with a default bip44-path,
 /// that is "m/44'/917'/0'/0/0" ("m/44'/coin'/account'/change/address").
-pub extern "system" fn Java_com_findora_JniApi_restore_keypairFromMnemonicDefault(
+pub extern "system" fn Java_com_findora_JniApi_restoreKeypairFromMnemonicDefault(
     env: JNIEnv,
     _: JClass,
     phrase: JString,
@@ -244,6 +244,17 @@ pub extern "system" fn Java_com_findora_JniApi_createKeypairFromSecret(
 }
 
 #[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_getPkFromKeypair(
+    _env: JNIEnv,
+    _: JClass,
+    xfr_keypair_ptr: jlong,
+) -> jlong {
+    let kp = &*(xfr_keypair_ptr as *mut types::XfrKeyPair);
+    let pk = get_pk_from_keypair(kp);
+    Box::into_raw(Box::new(types::XfrPublicKey::from(pk))) as jlong
+}
+
+#[no_mangle]
 /// Creates a new transfer key pair.
 pub extern "system" fn Java_com_findora_JniApi_newKeypair(
     _env: JNIEnv,
@@ -251,4 +262,36 @@ pub extern "system" fn Java_com_findora_JniApi_newKeypair(
 ) -> jlong {
     let keypair = new_keypair();
     Box::into_raw(Box::new(types::XfrKeyPair::from(keypair))) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_findora_JniApi_bech32ToBase64(
+    env: JNIEnv,
+    _: JClass,
+    pk: JString,
+) -> jstring {
+    let pk: String = env
+        .get_string(pk)
+        .expect("Couldn't get java string!")
+        .into();
+
+    let bs = rs_bech32_to_base64(pk.as_str()).unwrap();
+    let output = env.new_string(bs).expect("Couldn't create java string!");
+    output.into_inner()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_findora_JniApi_base64ToBech32(
+    env: JNIEnv,
+    _: JClass,
+    pk: JString,
+) -> jstring {
+    let pk: String = env
+        .get_string(pk)
+        .expect("Couldn't get java string!")
+        .into();
+
+    let bs = rs_base64_to_bech32(pk.as_str()).unwrap();
+    let output = env.new_string(bs).expect("Couldn't create java string!");
+    output.into_inner()
 }

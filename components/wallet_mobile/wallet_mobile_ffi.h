@@ -114,10 +114,16 @@ char *findora_ffi_keypair_to_str(const struct XfrKeyPair *key_pair);
 
 struct XfrKeyPair *findora_ffi_create_keypair_from_secret(const char *sk_str);
 
+struct XfrPublicKey *findora_ffi_get_pk_from_keypair(const struct XfrKeyPair *key_pair);
+
 /**
  * Creates a new transfer key pair.
  */
 struct XfrKeyPair *findora_ffi_new_keypair(void);
+
+char *findora_ffi_bech32_to_base64(const char *pk);
+
+char *findora_ffi_base64_to_bech32(const char *pk);
 
 void findora_ffi_fee_inputs_free(struct FeeInputs *ptr);
 
