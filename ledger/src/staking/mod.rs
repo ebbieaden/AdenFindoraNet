@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    convert::TryFrom,
     mem,
 };
 use zei::xfr::{
@@ -217,6 +218,15 @@ impl Staking {
             })
     }
 
+    /// Get the power of a specified validator at current term.
+    #[inline(always)]
+    pub fn validator_get_power(&self, vldtor: &XfrPublicKey) -> Result<i64> {
+        self.validator_get_current()
+            .and_then(|vd| vd.body.get(vldtor))
+            .map(|v| v.td_power)
+            .ok_or(eg!())
+    }
+
     #[inline(always)]
     fn validator_check_power(
         &self,
@@ -228,19 +238,16 @@ impl Staking {
             return Err(eg!("total power overflow"));
         }
 
-        if let Some(v) = self
-            .validator_get_current()
-            .and_then(|vd| vd.body.get(vldtor))
-        {
-            if ((v.td_power + new_power) as u128)
-                .checked_mul(MAX_POWER_PERCENT_PER_VALIDATOR[1])
+        let power = self.validator_get_power(vldtor).c(d!())?;
+
+        if ((power + new_power) as u128)
+            .checked_mul(MAX_POWER_PERCENT_PER_VALIDATOR[1])
+            .ok_or(eg!())?
+            > MAX_POWER_PERCENT_PER_VALIDATOR[0]
+                .checked_mul(total_power as u128)
                 .ok_or(eg!())?
-                > MAX_POWER_PERCENT_PER_VALIDATOR[0]
-                    .checked_mul(total_power as u128)
-                    .ok_or(eg!())?
-            {
-                return Err(eg!("validator power overflow"));
-            }
+        {
+            return Err(eg!("validator power overflow"));
         }
 
         Ok(())
@@ -271,11 +278,13 @@ impl Staking {
     pub fn delegate(
         &mut self,
         owner: XfrPublicKey,
-        validator: XfrPublicKey,
+        validator: TendermintAddrRef,
         am: Amount,
         start_height: BlockHeight,
         mut end_height: BlockHeight,
     ) -> Result<()> {
+        let validator = self.td_addr_to_app_pk(validator).c(d!())?;
+
         if end_height > BLOCK_HEIGHT_MAX || start_height > end_height {
             return Err(eg!("invalid delegation heights"));
         }
@@ -482,32 +491,37 @@ impl Staking {
 
     /// Clean delegation states along with each new block.
     pub fn deletation_process(&mut self) {
-        let h = self.cur_height.saturating_sub(BOND_BLOCK_CNT);
-        if 0 < h {
-            self.di
-                .end_height_map
-                .range(..=h)
-                .map(|(_, addr)| addr)
-                .flatten()
-                .copied()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .for_each(|addr| {
-                    let (v, am) = if let Some(d) = self.di.addr_map.get_mut(&addr) {
-                        if DelegationState::Locked == d.state {
-                            d.state = DelegationState::Bond;
-                        }
-                        (d.validator, d.amount)
-                    } else {
-                        return;
-                    };
+        let h = self.cur_height;
+        self.di
+            .end_height_map
+            .range(..=h)
+            .map(|(_, addr)| addr)
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .for_each(|addr| {
+                let mut need_change_power = false;
+                let (v, am) = if let Some(d) = self.di.addr_map.get_mut(&addr) {
+                    if DelegationState::Locked == d.state {
+                        d.state = DelegationState::Bond;
+                        need_change_power = true;
+                    }
+                    (d.validator, d.amount)
+                } else {
+                    return;
+                };
 
+                if need_change_power {
                     // total amount of all delegations
                     self.di.total_amount -= am;
-
+                    // reduce the power of the target validator
                     ruc::info_omit!(self.validator_change_power(&v, -am));
-                });
+                }
+            });
 
+        let h = h.saturating_sub(BOND_BLOCK_CNT);
+        if 2 < h {
             self.deletation_process_finished_before_height(h);
         }
     }
@@ -1015,8 +1029,8 @@ pub type BlockHeight = u64;
 // use i64 to keep compatible with the logic of asset penalty
 type Amount = i64;
 
-// sha256(pubkey)[:20]
-type TendermintAddr = String;
+/// sha256(pubkey)[:20] in hex format
+pub type TendermintAddr = String;
 type TendermintAddrRef<'a> = &'a str;
 
 type ValidatorInfo = BTreeMap<BlockHeight, ValidatorData>;
@@ -1201,9 +1215,6 @@ impl Default for DelegationState {
 }
 
 impl Delegation {
-    /// Calculate the amount(in FRA units) that
-    /// should be paid to the owner of this delegation
-    ///
     /// > **NOTE:**
     /// > use 'AssignAdd' instead of 'Assign'
     /// > to keep compatible with the logic of governance penalty.
@@ -1216,23 +1227,35 @@ impl Delegation {
             return Ok(());
         }
 
-        let am = self.amount as u128;
-        let block_itv = BLOCK_INTERVAL as u128;
-        let return_rate = [return_rate[0] as u128, return_rate[1] as u128];
-
-        am.checked_mul(return_rate[0])
-            .and_then(|i| i.checked_mul(block_itv))
-            .and_then(|i| {
-                return_rate[1]
-                    .checked_mul(365 * 24 * 3600)
-                    .and_then(|j| i.checked_div(j))
+        calculate_delegation_rewards(self.amount, return_rate)
+            .c(d!())
+            .and_then(|n| {
+                self.rwd_amount
+                    .checked_add(n as Amount)
+                    .ok_or(eg!("overflow"))
             })
-            .and_then(|n| self.rwd_amount.checked_add(n as Amount))
             .map(|n| {
                 self.rwd_amount = n;
             })
-            .ok_or(eg!("overflow"))
     }
+}
+
+/// Calculate the amount(in FRA units) that
+/// should be paid to the owner of this delegation.
+pub fn calculate_delegation_rewards(amount: i64, return_rate: [u64; 2]) -> Result<u64> {
+    let am = amount as u128;
+    let block_itv = BLOCK_INTERVAL as u128;
+    let return_rate = [return_rate[0] as u128, return_rate[1] as u128];
+
+    am.checked_mul(return_rate[0])
+        .and_then(|i| i.checked_mul(block_itv))
+        .and_then(|i| {
+            return_rate[1]
+                .checked_mul(365 * 24 * 3600)
+                .and_then(|j| i.checked_div(j))
+        })
+        .ok_or(eg!("overflow"))
+        .and_then(|n| u64::try_from(n).c(d!()))
 }
 
 // All transactions sent from CoinBase must support idempotence.

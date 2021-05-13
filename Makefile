@@ -84,14 +84,13 @@ else
 	$(call pack_musl_debug,$(target_dir))
 endif
 
-test:
+test: staking_test
 	cargo test --release --workspace -- --test-threads=1
-	# cargo test --release --workspace --features="abci_mock" -- --test-threads=1
 	cargo test --release --workspace -- --ignored
 
 staking_test:
-	# cargo test staking -- --test-threads=1 --nocapture
-	cargo test staking --features="abci_mock" -- --test-threads=1 --nocapture
+	cargo test staking --release -- --test-threads=1 --nocapture
+	cargo test staking --release --features="abci_mock" -- --test-threads=1 --nocapture
 
 bench:
 	cargo bench --workspace

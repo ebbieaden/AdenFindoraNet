@@ -1344,7 +1344,7 @@ lazy_static! {
 }
 
 /// see [**mainnet-v1.0 defination**](https://www.notion.so/findora/Transaction-Fees-Analysis-d657247b70f44a699d50e1b01b8a2287)
-pub const TX_FEE_MIN: u64 = 10_000;
+pub const TX_FEE_MIN: u64 = 1_0000;
 
 impl Transaction {
     /// All-in-one checker

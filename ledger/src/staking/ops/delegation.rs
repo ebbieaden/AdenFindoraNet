@@ -9,7 +9,7 @@ use crate::{
     data_model::{
         NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY,
     },
-    staking::{Amount, Staking},
+    staking::{Amount, Staking, TendermintAddr},
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -47,7 +47,7 @@ impl DelegationOps {
                 staking
                     .delegate(
                         self.pubkey,
-                        self.body.validator,
+                        &self.body.validator,
                         am,
                         staking.cur_height,
                         staking.cur_height.saturating_add(self.body.block_span),
@@ -72,14 +72,14 @@ impl DelegationOps {
     #[inline(always)]
     #[allow(missing_docs)]
     pub fn get_related_pubkeys(&self) -> Vec<XfrPublicKey> {
-        vec![self.pubkey, self.body.validator]
+        vec![self.pubkey]
     }
 
     #[inline(always)]
     #[allow(missing_docs)]
     pub fn new(
         keypair: &XfrKeyPair,
-        validator: XfrPublicKey,
+        validator: TendermintAddr,
         block_span: BlockAmount,
         nonce: NoReplayToken,
     ) -> Self {
@@ -111,7 +111,7 @@ type BlockAmount = u64;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Data {
     /// the target validator to delegated to
-    pub validator: XfrPublicKey,
+    pub validator: TendermintAddr,
     /// how many heights should this delegation be locked
     ///
     /// **NOTE:** before users can actually get the rewards,
@@ -122,7 +122,7 @@ pub struct Data {
 
 impl Data {
     #[inline(always)]
-    fn new(v: XfrPublicKey, bs: BlockAmount, nonce: NoReplayToken) -> Self {
+    fn new(v: TendermintAddr, bs: BlockAmount, nonce: NoReplayToken) -> Self {
         Data {
             validator: v,
             block_span: bs,
@@ -180,6 +180,29 @@ fn check_delegation_context(tx: &Transaction) -> Result<Amount> {
         .c(d!("delegation amount is not paid correctly"))
 }
 
+// if balance output exists,
+// target addr must be same as the inputs
+macro_rules! check_balance {
+    ($op: expr, $action: block) => {
+        if let Some(o) = $op.body.outputs.get(1) {
+            if 1 == $op
+                .body
+                .transfer
+                .inputs
+                .iter()
+                .map(|i| i.public_key)
+                .collect::<HashSet<_>>()
+                .len()
+                && o.record.public_key == $op.body.transfer.inputs[0].public_key
+            {
+                $action
+            }
+        } else {
+            $action
+        }
+    };
+}
+
 pub(crate) fn check_delegation_context_fee(
     tx: &Transaction,
     total: usize,
@@ -195,25 +218,9 @@ pub(crate) fn check_delegation_context_fee(
             if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
                 if ty == ASSET_TYPE_FRA && *BLACK_HOLE_PUBKEY == o.record.public_key {
                     if let XfrAmount::NonConfidential(_) = o.record.amount {
-                        // if balance output exists,
-                        // target addr must be same as the inputs
-                        if let Some(o) = x.body.outputs.get(1) {
-                            if 1 == x
-                                .body
-                                .transfer
-                                .inputs
-                                .iter()
-                                .map(|i| i.public_key)
-                                .collect::<HashSet<_>>()
-                                .len()
-                                && o.record.public_key
-                                    == x.body.transfer.inputs[0].public_key
-                            {
-                                return true;
-                            }
-                        } else {
+                        check_balance!(x, {
                             return true;
-                        }
+                        });
                     }
                 }
             }
@@ -251,8 +258,8 @@ fn check_delegation_context_self_transfer(
                 continue;
             }
 
-            // multi outputs is not allowed
-            if 1 != x.body.outputs.len() {
+            // more than 2 outputs is not allowed
+            if 2 < x.body.outputs.len() {
                 continue;
             }
 
@@ -260,8 +267,10 @@ fn check_delegation_context_self_transfer(
             if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
                 if ty == ASSET_TYPE_FRA && owner == o.record.public_key {
                     if let XfrAmount::NonConfidential(i_am) = o.record.amount {
-                        am = Amount::try_from(i_am).ok();
-                        break;
+                        check_balance!(x, {
+                            am = Amount::try_from(i_am).ok();
+                            break;
+                        });
                     }
                 }
             }

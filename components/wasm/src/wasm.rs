@@ -290,11 +290,10 @@ impl TransactionBuilder {
     /// @param kp: owner's XfrKeyPair
     pub fn add_fee_relative_auto(
         mut self,
-        am: u64,
         kp: XfrKeyPair,
     ) -> Result<TransactionBuilder, JsValue> {
         self.transaction_builder
-            .add_fee_relative_auto(am, &kp)
+            .add_fee_relative_auto(&kp)
             .c(d!())
             .map_err(error_to_jsvalue)?;
         Ok(self)

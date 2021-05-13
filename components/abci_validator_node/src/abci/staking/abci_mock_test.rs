@@ -4,8 +4,6 @@
 //! The content of on-chain governance is not covered.
 //!
 
-#![allow(warnings)]
-
 use crate::abci::server::{tx_sender::forward_txn_with_mode, ABCISubmissionServer};
 use abci::*;
 use cryptohash::sha256::{self, Digest};
@@ -16,10 +14,10 @@ use ledger::{
         BLACK_HOLE_PUBKEY, TX_FEE_MIN,
     },
     staking::{
-        td_pubkey_to_td_addr, Validator as StakingValidator, COINBASE_KP, COINBASE_PK,
-        FRA, FRA_TOTAL_AMOUNT,
+        calculate_delegation_rewards, td_pubkey_to_td_addr, TendermintAddr,
+        Validator as StakingValidator, COINBASE_KP, COINBASE_PK, FRA, FRA_TOTAL_AMOUNT,
     },
-    store::fra_gen_initial_tx,
+    store::{fra_gen_initial_tx, LedgerAccess},
 };
 use parking_lot::{Mutex, RwLock};
 use rand_chacha::ChaChaRng;
@@ -27,7 +25,7 @@ use rand_core::SeedableRng;
 use ruc::*;
 use std::{
     collections::{BTreeMap, HashMap},
-    env,
+    env, mem,
     sync::{
         atomic::{AtomicI64, Ordering},
         mpsc::{channel, Receiver, Sender},
@@ -49,14 +47,21 @@ lazy_static! {
     static ref FAILED_TXS: Arc<RwLock<HashMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {}));
     static ref SUCCESS_TXS: Arc<RwLock<HashMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {}));
     /// will be used in [tx_sender](super::server::tx_sender)
-    pub static ref CHAN: (Arc<Mutex<Sender<Transaction>>>, Arc<Mutex<Receiver<Transaction>>>) = {
+    pub static ref CHAN: ChanPair = {
         let (s, r) = channel();
         (Arc::new(Mutex::new(s)), Arc::new(Mutex::new(r)))
     };
 }
 
+type ChanPair = (
+    Arc<Mutex<Sender<Transaction>>>,
+    Arc<Mutex<Receiver<Transaction>>>,
+);
+
 static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
+
 const ITV: u64 = 10;
+const INIT_POWER: i64 = 1_0000 * FRA as i64;
 
 struct AbciMocker(ABCISubmissionServer);
 
@@ -252,7 +257,7 @@ fn gen_transfer_op(
 
 fn new_tx_builder() -> TransactionBuilder {
     let h = TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed) as u64;
-    TransactionBuilder::from_seq_id(h.saturating_sub(10))
+    TransactionBuilder::from_seq_id(h.saturating_sub(20))
 }
 
 fn gen_fee_op(owner_kp: &XfrKeyPair) -> Result<Operation> {
@@ -272,18 +277,18 @@ fn gen_new_validators(n: u8) -> (Vec<StakingValidator>, Vec<XfrKeyPair>) {
         .into_iter()
         .map(|(_, td_pk)| td_pk)
         .zip(kps.iter())
-        .map(|(td_pk, kp)| StakingValidator::new(td_pk, 1, kp.get_pk(), None))
+        .map(|(td_pk, kp)| StakingValidator::new(td_pk, INIT_POWER, kp.get_pk(), None))
         .collect::<Vec<_>>();
 
     (v_set, kps)
 }
 
-fn gen_final_tx_update_validator(
+fn update_validator(
     owner_kp: &XfrKeyPair,
     cosig_kps: &[&XfrKeyPair],
     h: u64,
     v_set: Vec<StakingValidator>,
-) -> Result<Transaction> {
+) -> Result<Digest> {
     let mut builder = new_tx_builder();
 
     builder
@@ -295,14 +300,16 @@ fn gen_final_tx_update_validator(
                 .map(move |op| b.add_operation(op))
         })?;
 
-    Ok(builder.take_transaction())
+    let tx = builder.take_transaction();
+    let h = gen_tx_hash(&tx);
+    send_tx(tx).c(d!()).map(|_| h)
 }
 
-fn gen_final_tx_fra_distribution(
+fn distribute_fra(
     owner_kp: &XfrKeyPair,
     cosig_kps: &[&XfrKeyPair],
     alloc_table: BTreeMap<XfrPublicKey, u64>,
-) -> Result<Transaction> {
+) -> Result<Digest> {
     let mut builder = new_tx_builder();
 
     builder
@@ -314,7 +321,55 @@ fn gen_final_tx_fra_distribution(
                 .map(move |op| b.add_operation(op))
         })?;
 
-    Ok(builder.take_transaction())
+    let tx = builder.take_transaction();
+    let h = gen_tx_hash(&tx);
+    send_tx(tx).c(d!()).map(|_| h)
+}
+
+fn delegate(
+    owner_kp: &XfrKeyPair,
+    validator: TendermintAddr,
+    amount: u64,
+    block_span: u64,
+) -> Result<Digest> {
+    delegate_x(owner_kp, validator, amount, block_span, false).c(d!())
+}
+
+fn delegate_x(
+    owner_kp: &XfrKeyPair,
+    validator: TendermintAddr,
+    mut amount: u64,
+    block_span: u64,
+    is_evil: bool,
+) -> Result<Digest> {
+    let mut builder = new_tx_builder();
+    builder.add_operation_delegation(owner_kp, validator, block_span);
+
+    alt!(is_evil, amount = 1);
+    let trans_to_self =
+        gen_transfer_op(owner_kp, owner_kp.get_pk_ref(), amount).c(d!())?;
+    builder.add_operation(trans_to_self);
+
+    if builder.add_fee_relative_auto(&owner_kp).is_err() {
+        builder.add_operation(gen_fee_op(owner_kp).c(d!())?);
+    }
+
+    let tx = builder.take_transaction();
+    let h = gen_tx_hash(&tx);
+    send_tx(tx).c(d!()).map(|_| h)
+}
+
+fn undelegate(owner_kp: &XfrKeyPair) -> Result<Digest> {
+    let mut builder = new_tx_builder();
+    builder.add_operation_undelegation(owner_kp);
+
+    gen_fee_op(owner_kp)
+        .c(d!())
+        .map(|op| builder.add_operation(op))?;
+
+    let tx = builder.take_transaction();
+    let h = gen_tx_hash(&tx);
+    send_tx(tx).c(d!()).map(|_| h)
 }
 
 fn gen_final_tx_auto_fee(
@@ -323,13 +378,13 @@ fn gen_final_tx_auto_fee(
 ) -> Result<Transaction> {
     let mut builder = new_tx_builder();
 
-    ops.into_iter().for_each(|tx| {
-        builder.add_operation(tx);
+    ops.into_iter().for_each(|op| {
+        builder.add_operation(op);
     });
 
-    builder
-        .add_fee_relative_auto(TX_FEE_MIN, &owner_kp)
-        .c(d!())?;
+    if builder.add_fee_relative_auto(&owner_kp).is_err() {
+        builder.add_operation(gen_fee_op(owner_kp).c(d!())?);
+    }
 
     Ok(builder.take_transaction())
 }
@@ -362,9 +417,9 @@ fn is_successful(tx_hash: &Digest) -> bool {
     SUCCESS_TXS.read().contains_key(tx_hash) && !FAILED_TXS.read().contains_key(tx_hash)
 }
 
-// fn is_failed(tx_hash: &Digest) -> bool {
-//     FAILED_TXS.read().contains_key(tx_hash) && !SUCCESS_TXS.read().contains_key(tx_hash)
-// }
+fn is_failed(tx_hash: &Digest) -> bool {
+    !SUCCESS_TXS.read().contains_key(tx_hash) && FAILED_TXS.read().contains_key(tx_hash)
+}
 
 fn env_refresh(validator_num: u8) {
     // ensure the sequence is same as them in BTreeMap
@@ -387,37 +442,44 @@ fn env_refresh(validator_num: u8) {
 // 1. update validators
 // 2. paid 400m FRAs to CoinBase
 // 3. transfer some FRAs to a new addr `x`
-// 4. use `x` to propose a delegation(block span = 10)
-// 5. ensure `x` can not do transfer within block span
-// 6. ensure the power of co-responding validator is increased
-// 7. wait for the end of bond state
-// 8. ensure the power of co-responding validator is decreased
-// 9. ensure delegation reward is calculated and paid correctly
-// 10. ensure `x` can do transfer after bond-state expired
 //
-// 11. transfer some FRAs to `x`
-// 12. use `x` to propose a delegation(block span = 10_0000)
-// 13. ensure `x` can not do transfer within block span
-// 14. ensure the power of co-responding validator is increased
-// 15  propose a `UnDelegation` tx to force end the delegation
-// 16. ensure the power of co-responding validator is decreased
-// 17. ensure delegation reward is calculated and paid correctly
-// 18. ensure `x` can do transfer after bond-state expired
+// 4. use `x` to propose a delegation, and ensure it will fail
+// because that all validators have not done self-delegation
 //
-// 19. try to transfer FRAs from CoinBase
-// with invalid amount or target addr, and ensure it will fail
+// 5. make validators to finish their self-delegations
 //
-// 20. use `FraDistribution` to transfer FRAs to multi addrs
-// 21. ensure the result of `FraDistribution` is correct
-// 22. use these addrs to delegate to different validators(block span = 10)
-// 23. ensure the power of each validator is increased correctly
-// 24. wait for the end of bond state
-// 25. ensure the power of each validator is decreased correctly
+// 6. use `x` to propose a delegation(block span = 10)
+// 7. ensure `x` can not do transfer within block span
+// 8. ensure the power of co-responding validator is increased
+// 9. wait for the end of bond state
+// 10. ensure the power of co-responding validator is decreased
+// 11. ensure delegation reward is calculated and paid correctly
+// 12. ensure `x` can do transfer after bond-state expired
 //
-// 26. re-delegate those multi addrs one by one(block span = 10_0000)
-// 27. ensure delegation-rewards-rate is correct in different global delegation levels
+// 13. delegation with an amount bigger than its actual amount will fail
+// 14. use `x` to propose a delegation(block span = 10_0000)
+// 15. ensure `x` can not do transfer within block span
+// 16. ensure the power of co-responding validator is increased
+// 17  propose a `UnDelegation` tx to force end the delegation
+// 18. ensure the power of co-responding validator is decreased
+// 19. ensure delegation reward is calculated and paid correctly
+// 20. ensure `x` can do transfer after bond-state expired
 //
-// 28. replay old transactions and ensure all of them will fail
+// 21. transfer FRAs from CoinBase to out-plan addr, and ensure it will fail
+//
+// 22. use `FraDistribution` to transfer FRAs to multi addrs
+// 23. ensure the result of `FraDistribution` is correct
+// 24. use these addrs to delegate to different validators(block span = 10)
+// 25. ensure the power of each validator is increased correctly
+// 26. wait for the end of bond state
+// 27. ensure the power of each validator is decreased correctly
+//
+// 28. re-delegate those multi addrs one by one(block span = 10_0000),
+// ensure delegation-rewards-rate is correct in different global delegation levels
+//
+// 29. ensure the vote power of any vallidator can not exceed 20% of total power
+//
+// 30. replay old transactions and ensure all of them is failed
 fn staking_scene_1() -> Result<()> {
     const VALIDATORS_NUM: u8 = 6;
 
@@ -425,31 +487,30 @@ fn staking_scene_1() -> Result<()> {
 
     let keypair = gen_keypair();
 
+    // mid-util:
     // send a tx to trigger next block
     macro_rules! trigger_next_block {
         () => {
-            let tx_hash = transfer(&keypair, &COINBASE_PK, 1).c(d!())?;
+            let _ = transfer(&keypair, &COINBASE_PK, 1).c(d!())?;
             wait_one_block();
         };
     }
 
     // 0. issue FRA
+
     let tx = fra_gen_initial_tx(&keypair);
     let tx_hash = gen_tx_hash(&tx);
     send_tx(tx).c(d!())?;
-
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
     // 1. update validators
+
     let (v_set, kps) = gen_new_validators(VALIDATORS_NUM);
     assert_eq!(v_set.len(), kps.len());
 
     // update validators at height 2
-    let tx = gen_final_tx_update_validator(&keypair, &[], 2, v_set.clone()).c(d!())?;
-    let tx_hash = gen_tx_hash(&tx);
-    send_tx(tx).c(d!())?;
-
+    let tx_hash = update_validator(&keypair, &[], 2, v_set.clone()).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -458,59 +519,285 @@ fn staking_scene_1() -> Result<()> {
     let td_v_set = &td_mocker.validators;
     assert_eq!(v_set.len(), td_v_set.len());
     v_set.iter().for_each(|v| {
-        // initial power == 1
-        assert_eq!(&1, pnk!(td_v_set.get(&td_pubkey_to_td_addr(&v.td_pubkey))));
+        assert_eq!(
+            &INIT_POWER,
+            pnk!(td_v_set.get(&td_pubkey_to_td_addr(&v.td_pubkey)))
+        );
     });
 
     drop(td_mocker);
 
     // 2. paid 400m FRAs to CoinBase
-    let tx_hash = transfer(&keypair, &COINBASE_PK, 400 * 10000 * FRA).c(d!())?;
 
+    let tx_hash = transfer(&keypair, &COINBASE_PK, 400 * 1_0000 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
     // 3. transfer some FRAs to a new addr `x`
-    let x_kp = gen_keypair();
-    let tx_hash = transfer(&keypair, x_kp.get_pk_ref(), 10000 * FRA).c(d!())?;
 
+    let x_kp = gen_keypair();
+
+    let tx_hash = transfer(&keypair, x_kp.get_pk_ref(), 1_0000 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    // 4. use `x` to propose a delegation(block span = 10)
+    // 4. use `x` to propose a delegation, and ensure that
+    // it will fail because that all validators have not done self-delegation
 
-    // 5. ensure `x` can not do transfer within block span
+    let tx_hash = delegate(
+        &x_kp,
+        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
+        32 * FRA,
+        10,
+    )
+    .c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
 
-    // 6. ensure the power of co-responding validator is increased
+    let tx_hash = undelegate(&x_kp).c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
 
-    // 7. wait for the end of bond state
+    // 5. make validators to finish their self-delegations
 
-    // 8. ensure the power of co-responding validator is decreased
+    for (i, kp) in kps.iter().enumerate() {
+        let tx_hash = transfer(&keypair, &v_set[i].id, 100 * FRA).c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
 
-    // 9. ensure delegation reward is calculated and paid correctly
+        let tx_hash = delegate(
+            kp,
+            td_pubkey_to_td_addr(&v_set[i].td_pubkey),
+            100 * FRA,
+            10_0000,
+        )
+        .c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+    }
 
-    // 10. ensure `x` can do transfer after bond-state expired
+    // validators are not allowed to do undelegation
+    for kp in kps.iter() {
+        let tx_hash = undelegate(kp).c(d!())?;
+        wait_one_block();
+        assert!(is_failed(&tx_hash));
+    }
 
-    // 11. transfer some FRAs to `x`
+    // 6. use `x` to propose a delegation(block span = 10)
 
-    // 12. use `x` to propose a delegation(block span = 10_0000)
+    let tx_hash = delegate(
+        &x_kp,
+        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
+        32 * FRA,
+        10,
+    )
+    .c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
 
-    // 13. ensure `x` can not do transfer within block span
+    // dup-delegation will fail
+    let tx_hash = delegate(
+        &x_kp,
+        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
+        32 * FRA,
+        10,
+    )
+    .c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
 
-    // 14. ensure the power of co-responding validator is increased
+    // 7. ensure `x` can not do transfer within block span
 
-    // 15  propose a `UnDelegation` tx to force end the delegation
+    let tx_hash = transfer(&x_kp, &COINBASE_PK, 1).c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
 
-    // 16. ensure the power of co-responding validator is decreased
+    // 8. ensure the power of co-responding validator is increased
 
-    // 17. ensure delegation reward is calculated and paid correctly
+    let power = ABCI_MOCKER
+        .read()
+        .0
+        .la
+        .read()
+        .get_committed_state()
+        .read()
+        .get_staking()
+        .validator_get_power(&v_set[0].id)
+        .c(d!())?;
+    assert_eq!((32 + 100) * FRA as i64 + INIT_POWER, power);
 
-    // 18. ensure `x` can do transfer after bond-state expired
+    // 9. wait for the end of bond state
 
-    // 19. try to transfer FRAs from CoinBase with invalid amount or target addr, and ensure it will fail
+    for _ in 0..20 {
+        trigger_next_block!();
+        wait_one_block();
+    }
 
-    // 20. use `FraDistribution` to transfer FRAs to multi addrs
-    //
+    // 10. ensure the power of co-responding validator is decreased
+
+    let power = ABCI_MOCKER
+        .read()
+        .0
+        .la
+        .read()
+        .get_committed_state()
+        .read()
+        .get_staking()
+        .validator_get_power(&v_set[0].id)
+        .c(d!())?;
+    assert_eq!(100 * FRA as i64 + INIT_POWER, power);
+
+    // 11. ensure delegation reward is calculated and paid correctly
+
+    for _ in 0..2 {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
+    let return_rate = ABCI_MOCKER
+        .read()
+        .0
+        .la
+        .read()
+        .get_committed_state()
+        .read()
+        .get_staking()
+        .get_block_rewards_rate();
+
+    let rewards =
+        calculate_delegation_rewards(32 * FRA as i64, return_rate).c(d!())? * 10;
+    assert!(
+        10000 * FRA - TX_FEE_MIN
+            < ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
+    );
+    assert!(
+        10000 * FRA + rewards - TX_FEE_MIN
+            >= ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
+    );
+
+    // 12. ensure `x` can do transfer after bond-state expired
+
+    let tx_hash = transfer(&x_kp, &COINBASE_PK, 1).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // 13. delegation with an amount bigger than its actual amount will fail
+
+    let tx_hash = delegate_x(
+        &x_kp,
+        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
+        32_0000_0000 * FRA,
+        10,
+        true,
+    )
+    .c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
+
+    // 14. use `x` to propose a delegation(block span = 10_0000)
+
+    let tx_hash = delegate(
+        &x_kp,
+        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
+        32 * FRA,
+        10_0000,
+    )
+    .c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // 15. ensure `x` can not do transfer within block span
+
+    let tx_hash = transfer(&x_kp, &COINBASE_PK, 1).c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
+
+    // 16. ensure the power of co-responding validator is increased
+
+    let power = ABCI_MOCKER
+        .read()
+        .0
+        .la
+        .read()
+        .get_committed_state()
+        .read()
+        .get_staking()
+        .validator_get_power(&v_set[0].id)
+        .c(d!())?;
+    assert_eq!((32 + 100) * FRA as i64 + INIT_POWER, power);
+
+    // 17  propose a `UnDelegation` tx to force end the delegation
+
+    for _ in 0..8 {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
+    let tx_hash = undelegate(&x_kp).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // 18. ensure the power of co-responding validator is decreased
+
+    for _ in 0..2 {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
+    let power = ABCI_MOCKER
+        .read()
+        .0
+        .la
+        .read()
+        .get_committed_state()
+        .read()
+        .get_staking()
+        .validator_get_power(&v_set[0].id)
+        .c(d!())?;
+    assert_eq!(100 * FRA as i64 + INIT_POWER, power);
+
+    // 19. ensure delegation reward is calculated and paid correctly
+
+    for _ in 0..20 {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
+    let return_rate = ABCI_MOCKER
+        .read()
+        .0
+        .la
+        .read()
+        .get_committed_state()
+        .read()
+        .get_staking()
+        .get_block_rewards_rate();
+
+    let rewards =
+        calculate_delegation_rewards(32 * FRA as i64, return_rate).c(d!())? * 10;
+    assert!(
+        10000 * FRA - 4 * TX_FEE_MIN
+            < ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
+    );
+    assert!(
+        10000 * FRA + rewards - 4 * TX_FEE_MIN
+            >= ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
+    );
+
+    // 20. ensure `x` can do transfer after bond-state expired
+
+    let tx_hash = transfer(&x_kp, &COINBASE_PK, 1).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // 21. transfer FRAs from CoinBase to out-plan addr, and ensure it will fail
+
+    let tx_hash = transfer(&COINBASE_KP, keypair.get_pk_ref(), 1).c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
+
+    // 22. use `FraDistribution` to transfer FRAs to multi addrs
+
     // rewards rate:
     //   - ([0, 10], 20)
     //   - ([10, 20], 17)
@@ -532,11 +819,10 @@ fn staking_scene_1() -> Result<()> {
 
     // Transfer 80% of total FRAs to CoinBase.
     let tx_hash = transfer(&keypair, &COINBASE_PK, FRA_TOTAL_AMOUNT * 9 / 10).c(d!())?;
-
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    let alloc_table = [
+    let alloc_table_x = [
         (&a_kp, a_am),
         (&b_kp, b_am),
         (&c_kp, c_am),
@@ -548,19 +834,19 @@ fn staking_scene_1() -> Result<()> {
         (&i_kp, i_am),
     ]
     .iter()
-    .map(|(kp, am)| (kp.get_pk(), *am))
-    .collect::<BTreeMap<_, _>>();
+    .map(|(kp, am)| (*kp, *am))
+    .collect::<Vec<(&XfrKeyPair, u64)>>();
+
+    let alloc_table = alloc_table_x
+        .iter()
+        .map(|(kp, am)| (kp.get_pk(), *am))
+        .collect::<BTreeMap<_, _>>();
 
     let cosig_kps = kps.iter().collect::<Vec<_>>();
 
-    let tx = gen_final_tx_fra_distribution(&keypair, &cosig_kps, alloc_table.clone())
-        .c(d!())?;
-
     let coinbase_balance = ABCI_MOCKER.read().get_owned_balance(&COINBASE_PK);
 
-    let tx_hash = gen_tx_hash(&tx);
-    send_tx(tx).c(d!())?;
-
+    let tx_hash = distribute_fra(&keypair, &cosig_kps, alloc_table.clone()).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -568,6 +854,8 @@ fn staking_scene_1() -> Result<()> {
         trigger_next_block!();
         wait_one_block();
     }
+
+    // 23. ensure the result of `FraDistribution` is correct
 
     let abci_mocker = ABCI_MOCKER.read();
     assert!(
@@ -582,21 +870,88 @@ fn staking_scene_1() -> Result<()> {
 
     drop(abci_mocker);
 
-    // 21. ensure the result of `FraDistribution` is correct
+    // 24. use these addrs to delegate to different validators(block span = 10)
 
-    // 22. use these addrs to delegate to different validators(block span = 10)
+    for (v, (kp, _)) in v_set.iter().zip(alloc_table_x.iter()) {
+        let tx_hash =
+            delegate(kp, td_pubkey_to_td_addr(&v.td_pubkey), 32 * FRA, 10).c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+    }
 
-    // 23. ensure the power of each validator is increased correctly
+    // 25. ensure the power of each validator is increased correctly
 
-    // 24. wait for the end of bond state
+    let n = alt!(
+        v_set.len() > alloc_table.len(),
+        alloc_table.len(),
+        v_set.len()
+    );
 
-    // 25. ensure the power of each validator is decreased correctly
+    for v in v_set.iter().take(n) {
+        let power = ABCI_MOCKER
+            .read()
+            .0
+            .la
+            .read()
+            .get_committed_state()
+            .read()
+            .get_staking()
+            .validator_get_power(&v.id)
+            .c(d!())?;
+        assert_eq!((32 + 100) * FRA as i64 + INIT_POWER, power);
+    }
 
-    // 26. re-delegate those multi addrs one by one(block span = 10_0000)
+    // 26. wait for the end of bond state
 
-    // 27. ensure delegation-rewards-rate is correct in different global delegation levels
+    for _ in 0..20 {
+        trigger_next_block!();
+        wait_one_block();
+    }
 
-    // 28. replay old transactions and ensure all of them will fail
+    // 27. ensure the power of each validator is decreased correctly
+
+    for v in v_set.iter().take(n) {
+        let power = ABCI_MOCKER
+            .read()
+            .0
+            .la
+            .read()
+            .get_committed_state()
+            .read()
+            .get_staking()
+            .validator_get_power(&v.id)
+            .c(d!())?;
+        assert_eq!(100 * FRA as i64 + INIT_POWER, power);
+    }
+
+    // 28. re-delegate those multi addrs one by one(block span = 10_0000),
+    // ensure delegation-rewards-rate is correct in different global delegation levels
+    // ................................................................................
+
+    // 29. ensure the vote power of any vallidator can not exceed 20% of total power
+
+    let tx_hash = delegate(
+        &keypair,
+        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
+        32_0000 * FRA,
+        10,
+    )
+    .c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
+
+    // 30. replay old transactions and ensure all of them is failed
+    let old_txs = mem::take(&mut *SUCCESS_TXS.write())
+        .into_iter()
+        .chain(mem::take(&mut *FAILED_TXS.write()).into_iter())
+        .map(|(tx_hash, tx)| send_tx(tx).c(d!()).map(|_| tx_hash))
+        .collect::<Result<Vec<_>>>();
+
+    wait_n_block(5);
+
+    for tx_hash in old_txs.c(d!())?.iter() {
+        assert!(is_failed(tx_hash));
+    }
 
     Ok(())
 }

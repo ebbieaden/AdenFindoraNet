@@ -21,7 +21,7 @@ use ledger::staking::{
         undelegation::UnDelegationOps,
         update_validator::UpdateValidatorOps,
     },
-    BlockHeight, Validator,
+    BlockHeight, TendermintAddr, Validator,
 };
 use rand_chacha::ChaChaRng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
@@ -312,7 +312,7 @@ pub trait BuildsTransactions {
     fn add_operation_delegation(
         &mut self,
         keypair: &XfrKeyPair,
-        validator: XfrPublicKey,
+        validator: TendermintAddr,
         block_span: u64,
     ) -> &mut Self;
     fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self;
@@ -563,27 +563,20 @@ impl TransactionBuilder {
     /// @param kp: owner's XfrKeyPair
     pub fn add_fee_relative_auto(
         &mut self,
-        mut am: u64,
         kp: &XfrKeyPair,
     ) -> Result<&mut TransactionBuilder> {
         let mut opb = TransferOperationBuilder::default();
         let outputs = self.get_relative_outputs();
 
+        let mut am = TX_FEE_MIN;
         for (idx, (o, om)) in outputs.into_iter().enumerate() {
             if 0 < am {
                 if let Ok(oar) = open_blind_asset_record(&o, &om, &kp) {
                     if ASSET_TYPE_FRA == oar.asset_type
                         && kp.get_pk_ref().as_bytes() == o.public_key.as_bytes()
                     {
-                        let n = if oar.amount > am {
-                            let n = am;
-                            am = 0;
-                            n
-                        } else {
-                            am -= oar.amount;
-                            oar.amount
-                        };
-
+                        let n = alt!(oar.amount > am, am, oar.amount);
+                        am = am.saturating_sub(oar.amount);
                         opb.add_input(TxoRef::Relative(idx as u64), oar, None, None, n)
                             .c(d!())?;
                     }
@@ -841,7 +834,7 @@ impl BuildsTransactions for TransactionBuilder {
     fn add_operation_delegation(
         &mut self,
         keypair: &XfrKeyPair,
-        validator: XfrPublicKey,
+        validator: TendermintAddr,
         block_span: u64,
     ) -> &mut Self {
         let op = DelegationOps::new(
@@ -1634,7 +1627,7 @@ mod tests {
 
         let mut tx2 = TransactionBuilder::from_seq_id(1);
         tx2.add_operation(transfer_to_bob!(txo_sid, bob_kp.get_pk()))
-            .add_fee_relative_auto(TX_FEE_MIN, &fra_owner_kp)
+            .add_fee_relative_auto(&fra_owner_kp)
             .unwrap();
         assert!(tx2.check_fee());
 
