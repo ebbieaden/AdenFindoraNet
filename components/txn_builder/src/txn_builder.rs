@@ -326,7 +326,7 @@ pub trait BuildsTransactions {
         kps: &[&XfrKeyPair],
         byzantine_id: XfrPublicKey,
         kind: ByzantineKind,
-        custom_amount: Option<i64>,
+        custom_amount: Option<[u64; 2]>,
     ) -> Result<&mut Self>;
     fn add_operation_update_validator(
         &mut self,
@@ -867,7 +867,7 @@ impl BuildsTransactions for TransactionBuilder {
         kps: &[&XfrKeyPair],
         byzantine_id: XfrPublicKey,
         kind: ByzantineKind,
-        custom_amount: Option<i64>,
+        custom_amount: Option<[u64; 2]>,
     ) -> Result<&mut Self> {
         GovernanceOps::new(kps, byzantine_id, kind, custom_amount, self.no_replay_token)
             .c(d!())

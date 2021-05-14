@@ -212,7 +212,9 @@ impl Staking {
                 cur.body
                     .get_mut(validator)
                     .map(|v| {
-                        v.td_power += power;
+                        let mut power = v.td_power.saturating_add(power);
+                        alt!(0 > power, power = 0);
+                        v.td_power = power;
                     })
                     .ok_or(eg!())
             })
@@ -560,11 +562,11 @@ impl Staking {
     pub fn governance_penalty(
         &mut self,
         addr: TendermintAddrRef,
-        am: Amount,
+        percent: [u64; 2],
     ) -> Result<()> {
         self.td_addr_to_app_pk(addr)
             .c(d!())
-            .and_then(|pk| self.governance_penalty_by_pubkey(&pk, am).c(d!()))
+            .and_then(|pk| self.governance_penalty_by_pubkey(&pk, percent).c(d!()))
     }
 
     // Penalize the FRAs by a specified pubkey.
@@ -572,12 +574,32 @@ impl Staking {
     fn governance_penalty_by_pubkey(
         &mut self,
         addr: &XfrPublicKey,
-        am: Amount,
+        percent: [u64; 2],
     ) -> Result<()> {
-        if am <= 0 {
-            return Err(eg!("the amount must be a positive integer"));
+        if 0 == percent[1] || percent[1] > i64::MAX as u64 || percent[0] > percent[1] {
+            return Err(eg!());
         }
-        self.delegation_import_extern_amount(addr, -am).c(d!())
+
+        let percent = [percent[0] as i64, percent[1] as i64];
+        for (pk, am) in self
+            .di
+            .addr_map
+            .values()
+            .filter(|d| &d.validator == addr)
+            .map(|d| (d.rwd_pk, d.amount))
+            .collect::<Vec<_>>()
+            .into_iter()
+        {
+            let p_am = if self.addr_is_validator(&pk) {
+                self.validator_change_power(&pk, i64::MAX).c(d!())?;
+                am * percent[0] / percent[1]
+            } else {
+                am * percent[0] / percent[1] / 10
+            };
+            self.delegation_import_extern_amount(&pk, -p_am).c(d!())?;
+        }
+
+        Ok(())
     }
 
     // Look up the `XfrPublicKey`
@@ -606,12 +628,6 @@ impl Staking {
             return Err(eg!("delegation has been paid"));
         } else {
             d.rwd_amount = d.rwd_amount.saturating_add(am);
-        }
-
-        // extern changes can NOT increase vote power
-        if 0 > am && self.addr_is_validator(addr) {
-            // governance penalty scene
-            self.validator_change_power(addr, am).c(d!())?;
         }
 
         Ok(())

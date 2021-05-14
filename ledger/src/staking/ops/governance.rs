@@ -9,7 +9,7 @@
 
 use crate::{
     data_model::NoReplayToken,
-    staking::{cosig::CoSigOp, Amount, Staking, TendermintAddrRef},
+    staking::{cosig::CoSigOp, Staking, TendermintAddrRef},
 };
 use lazy_static::lazy_static;
 use ruc::*;
@@ -49,9 +49,9 @@ impl GovernanceOps {
                 staking
                     .governance_penalty_by_pubkey(
                         &self.data.byzantine_id,
-                        self.data.custom_amount.unwrap_or_else(|| {
-                            rule.gen_penalty_amount(staking, &self.data.byzantine_id)
-                        }),
+                        self.data
+                            .custom_percent
+                            .unwrap_or_else(|| rule.gen_penalty_percent()),
                     )
                     .c(d!())
             })
@@ -73,11 +73,17 @@ impl GovernanceOps {
         kps: &[&XfrKeyPair],
         byzantine_id: XfrPublicKey,
         kind: ByzantineKind,
-        custom_amount: Option<Amount>,
+        custom_percent: Option<[u64; 2]>,
         nonce: NoReplayToken,
     ) -> Result<Self> {
+        if let Some(p) = custom_percent {
+            if 0 == p[1] || p[1] > i64::MAX as u64 || p[0] > p[1] {
+                return Err(eg!());
+            }
+        }
+
         let mut op =
-            CoSigOp::create(Data::new(kind, byzantine_id, custom_amount), nonce);
+            CoSigOp::create(Data::new(kind, byzantine_id, custom_percent), nonce);
         op.batch_sign(kps).c(d!()).map(|_| op)
     }
 }
@@ -87,7 +93,7 @@ impl GovernanceOps {
 pub struct Data {
     kind: ByzantineKind,
     byzantine_id: XfrPublicKey,
-    custom_amount: Option<Amount>,
+    custom_percent: Option<[u64; 2]>,
 }
 
 impl Data {
@@ -95,12 +101,12 @@ impl Data {
     fn new(
         kind: ByzantineKind,
         byzantine_id: XfrPublicKey,
-        custom_amount: Option<Amount>,
+        custom_percent: Option<[u64; 2]>,
     ) -> Self {
         Data {
             kind,
             byzantine_id,
-            custom_amount,
+            custom_percent,
         }
     }
 }
@@ -124,26 +130,18 @@ pub enum ByzantineKind {
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Rule {
-    penalty_percent: [i64; 2],
+    penalty_percent: [u64; 2],
 }
 
 impl Rule {
-    fn new(penalty_percent: [i64; 2]) -> Self {
+    fn new(penalty_percent: [u64; 2]) -> Self {
         Rule { penalty_percent }
     }
 
-    /// Calculate punishment amount according to the corresponding rule.
-    pub fn gen_penalty_amount(
-        &self,
-        staking: &Staking,
-        byzantine_id: &XfrPublicKey,
-    ) -> Amount {
-        if let Some(d) = staking.delegation_get(byzantine_id) {
-            if 0 < d.amount {
-                return d.amount * self.penalty_percent[0] / self.penalty_percent[1];
-            }
-        }
-        0
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn gen_penalty_percent(&self) -> [u64; 2] {
+        self.penalty_percent
     }
 }
 
@@ -157,7 +155,7 @@ pub fn governance_penalty_tendermint_auto(
     let rule = RULES.get(bz_kind).ok_or(eg!())?;
     staking.td_addr_to_app_pk(addr).c(d!()).and_then(|pk| {
         staking
-            .governance_penalty_by_pubkey(&pk, rule.gen_penalty_amount(staking, &pk))
+            .governance_penalty_by_pubkey(&pk, rule.gen_penalty_percent())
             .c(d!())
     })
 }
