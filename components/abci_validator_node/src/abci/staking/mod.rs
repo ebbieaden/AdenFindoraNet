@@ -48,7 +48,7 @@ pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
         .c(d!())?
         .body
         .values()
-        .map(|v| (v.td_power, &v.td_pubkey))
+        .map(|v| (&v.td_pubkey, v.td_power))
         .collect::<Vec<_>>();
 
     // Ensure the minimal amount of BFT-like algorithm
@@ -57,12 +57,17 @@ pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
     }
 
     // reverse sort
-    vs.sort_by_key(|v| -v.0);
+    vs.sort_by_key(|v| -v.1);
+
+    // set the power of every extra validators to zero,
+    // then tendermint can remove them from consensus logic.
+    vs.iter_mut().skip(VALIDATOR_LIMIT).for_each(|(_, power)| {
+        *power = 0;
+    });
 
     Ok(vs
         .iter()
-        .take(VALIDATOR_LIMIT)
-        .map(|(power, pubkey)| {
+        .map(|(pubkey, power)| {
             let mut vu = ValidatorUpdate::new();
             let mut pk = PubKey::new();
             // pk.set_field_type("ed25519".to_owned());

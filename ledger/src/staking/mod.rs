@@ -171,16 +171,20 @@ impl Staking {
 
     /// Make the validators at a specified height to be effective.
     pub fn validator_apply_at_height(&mut self, h: BlockHeight) {
-        let prev = self.validator_get_effective_at_height(h - 1).cloned();
-
-        if let Some(prev) = prev {
+        if let Some(mut prev) = self.validator_get_effective_at_height(h - 1).cloned() {
             if let Some(vs) = self.validator_get_at_height_mut(h) {
                 // inherit the powers of previous settings
                 // if new settings were found
                 vs.body.iter_mut().for_each(|(k, v)| {
-                    if let Some(pv) = prev.body.get(k) {
+                    if let Some(pv) = prev.body.remove(k) {
                         v.td_power = pv.td_power;
                     }
+                });
+                // out-dated validators should be removed from tendermint,
+                // set its power to zero, and let tendermint know the changes
+                prev.body.into_iter().for_each(|(k, mut v)| {
+                    v.td_power = 0;
+                    vs.body.insert(k, v);
                 });
             } else {
                 // copy previous settings
