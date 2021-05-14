@@ -133,7 +133,7 @@ fn set_rewards(
     last_vote_power: Option<i64>,
 ) -> Result<()> {
     staking
-        .set_last_block_rewards(&hex::encode(proposer), last_vote_power)
+        .set_last_block_rewards(&hex::encode_upper(proposer), last_vote_power)
         .c(d!())
 }
 

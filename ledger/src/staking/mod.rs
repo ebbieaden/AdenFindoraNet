@@ -182,8 +182,13 @@ impl Staking {
                 });
                 // out-dated validators should be removed from tendermint,
                 // set its power to zero, and let tendermint know the changes
+                let mut addr_map = mem::take(&mut prev.addr_td_to_app)
+                    .into_iter()
+                    .map(|(addr, pk)| (pk, addr))
+                    .collect::<HashMap<_, _>>();
                 prev.body.into_iter().for_each(|(k, mut v)| {
                     v.td_power = 0;
+                    vs.addr_td_to_app.insert(pnk!(addr_map.remove(&k)), k);
                     vs.body.insert(k, v);
                 });
             } else {
@@ -1318,7 +1323,7 @@ impl CoinBase {
 /// sha256(pubkey)[:20]
 #[inline(always)]
 pub fn td_pubkey_to_td_addr(pubkey: &[u8]) -> String {
-    hex::encode(&sha2::Sha256::digest(pubkey)[..20])
+    hex::encode_upper(&sha2::Sha256::digest(pubkey)[..20])
 }
 
 #[cfg(test)]

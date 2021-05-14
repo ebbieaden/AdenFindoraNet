@@ -42,8 +42,9 @@ use zei::xfr::{
 };
 
 lazy_static! {
-    static ref TD_MOCKER: Arc<RwLock<TendermintMocker>> = Arc::new(RwLock::new(TendermintMocker::new()));
+    static ref INITIAL_KEYPAIR_LIST: Vec<XfrKeyPair> = pnk!(gen_initial_keypair_list());
     static ref ABCI_MOCKER: Arc<RwLock<AbciMocker>> = Arc::new(RwLock::new(AbciMocker::new()));
+    static ref TD_MOCKER: Arc<RwLock<TendermintMocker>> = Arc::new(RwLock::new(TendermintMocker::new()));
     static ref FAILED_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {B}));
     static ref SUCCESS_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {B}));
     /// will be used in [tx_sender](super::server::tx_sender)
@@ -53,6 +54,29 @@ lazy_static! {
     };
 }
 
+const INITIAL_MNEMONIC: [&str; 20] = [
+    "portion dwarf silk physical critic jacket express action okay reject power draw neither addict tumble panda filter crawl path obscure merry proof end liberty",
+    "flat fiction patrol wheel lion pulp option cupboard super drum birth lava wedding quote noise room warm life path minor find mobile rice promote",
+    "nest genuine open merit metal night song photo child congress kiss assume perfect rice radio option afford cream library valley cancel curtain keen pumpkin",
+    "such similar city scene bamboo warfare inner novel soccer drift promote runway cruise list rule payment filter tomato scene verb dance portion save eye",
+    "uphold cushion dutch nice album truth target name antique pond number milk wire industry current urge able memory arrange device welcome true alter clean",
+    "east vicious lazy evolve tray minor hold despair tent orbit leisure invite squirrel puzzle arrest network hip club slight true leave tooth layer waste",
+    "bring sister wise grant desert marriage enemy farm pledge cream amused claim bag refuse firm toddler empty bind derive prepare fabric best win lumber",
+    "inflict artwork plate salad fitness ancient dress feed limb rescue another knock employ mirror garbage smooth walnut lottery busy street arrest zero fit gossip",
+    "salute apology unhappy thought person assume rough only present web merry lazy remain giant pledge day noodle oppose connect skill strategy talk burst melt",
+    "patient much snake tiny luxury surge health steak obey escape fee recall barrel era scan stem wire usual educate rookie blur fame pencil limit",
+    "tonight tribe pair spare among trim cream diamond angry measure skin pencil dutch legal razor video dry decline stairs uncover kangaroo model kid sauce",
+    "conduct fat execute jar deny wasp slam any know junk bronze damage trust relief mother apple chair pig embody adjust loud toast garbage april",
+    "blanket index shell cave discover drink hint desk famous chef yard output ridge face lucky end unlock control aspect snow crane odor behave also",
+    "unhappy truck item argue domain peace honey acoustic solar cry return butter live recipe rigid vivid skate detect student magnet holiday pond cabbage kiss",
+    "still fluid antenna mother nominee napkin lottery crisp debris kit suit game bitter gesture return foam casino sample frog depart worry limit cram suit",
+    "submit alpha dirt pulse acid leaf royal reward thunder purpose post frozen coral cross hidden bubble harvest rather flat cancel glory ugly egg differ",
+    "poet october tank record scan grit ticket weather exotic total tennis better mountain melt fire then traffic assume suffer boring office produce journey useless",
+    "fence census sunny manage nominee owner vital code tortoise foot choose cross wide capital lawsuit smooth ecology pause deposit worry mass limit crystal when",
+    "matrix uncle bachelor aunt lazy museum cancel feel also bundle gospel analyst index cereal move tower lion buyer long connect circle balance accuse valid",
+    "clerk purpose acid rail invite stone raccoon pottery blame harbor dawn wrap cluster relief account law angle warm bullet great auction naive moral cloth",
+];
+
 type ChanPair = (
     Arc<Mutex<Sender<Transaction>>>,
     Arc<Mutex<Receiver<Transaction>>>,
@@ -61,7 +85,7 @@ type ChanPair = (
 static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
 
 const ITV: u64 = 10;
-const INIT_POWER: i64 = 1_0000 * FRA as i64;
+const INITIAL_POWER: i64 = 1_0000 * FRA as i64;
 
 struct AbciMocker(ABCISubmissionServer);
 
@@ -108,6 +132,7 @@ impl AbciMocker {
                 .validator_updates
                 .into_vec()
                 .into_iter()
+                .filter(|v| 0 < v.power)
                 .filter_map(|v| {
                     v.pub_key
                         .as_ref()
@@ -157,14 +182,21 @@ impl TendermintMocker {
         });
 
         TendermintMocker {
-            validators: map! {B hex::encode(&[0; 20]) => 1 },
+            validators: map! {B hex::encode_upper(&[0; 20]) => 1 },
         }
     }
 
     fn clean(&mut self) {
         CHAN.1.lock().try_iter().for_each(|_| {});
-        self.validators = map! {B hex::encode(&[0; 20]) => 1 };
+        self.validators = map! {B hex::encode_upper(&[0; 20]) => 1 };
     }
+}
+
+fn gen_initial_keypair_list() -> Result<Vec<XfrKeyPair>> {
+    INITIAL_MNEMONIC
+        .iter()
+        .map(|m| wallet::restore_keypair_from_mnemonic_default(m).c(d!()))
+        .collect::<Result<Vec<_>>>()
 }
 
 fn gen_req_begin_block(h: i64, proposer: Vec<u8>) -> RequestBeginBlock {
@@ -286,7 +318,9 @@ fn gen_new_validators(n: u8) -> (Vec<StakingValidator>, Vec<XfrKeyPair>) {
         .into_iter()
         .map(|(_, td_pk)| td_pk)
         .zip(kps.iter())
-        .map(|(td_pk, kp)| StakingValidator::new(td_pk, INIT_POWER, kp.get_pk(), None))
+        .map(|(td_pk, kp)| {
+            StakingValidator::new(td_pk, INITIAL_POWER, kp.get_pk(), None)
+        })
         .collect::<Vec<_>>();
 
     (v_set, kps)
@@ -521,7 +555,9 @@ fn staking_scene_1() -> Result<()> {
     assert_eq!(v_set.len(), kps.len());
 
     // update validators at height 2
-    let tx_hash = update_validator(&keypair, &[], 2, v_set.clone()).c(d!())?;
+    let initial_keypairs = INITIAL_KEYPAIR_LIST.iter().collect::<Vec<_>>();
+    let tx_hash =
+        update_validator(&keypair, &initial_keypairs, 2, v_set.clone()).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -531,7 +567,7 @@ fn staking_scene_1() -> Result<()> {
     assert_eq!(v_set.len(), td_v_set.len());
     v_set.iter().for_each(|v| {
         assert_eq!(
-            &INIT_POWER,
+            &INITIAL_POWER,
             pnk!(td_v_set.get(&td_pubkey_to_td_addr(&v.td_pubkey)))
         );
     });
@@ -635,7 +671,7 @@ fn staking_scene_1() -> Result<()> {
         .get_staking()
         .validator_get_power(&v_set[0].id)
         .c(d!())?;
-    assert_eq!((32 + 100) * FRA as i64 + INIT_POWER, power);
+    assert_eq!((32 + 100) * FRA as i64 + INITIAL_POWER, power);
 
     // 9. wait for the end of bond state
 
@@ -656,7 +692,7 @@ fn staking_scene_1() -> Result<()> {
         .get_staking()
         .validator_get_power(&v_set[0].id)
         .c(d!())?;
-    assert_eq!(100 * FRA as i64 + INIT_POWER, power);
+    assert_eq!(100 * FRA as i64 + INITIAL_POWER, power);
 
     // 11. ensure delegation reward is calculated and paid correctly
 
@@ -735,7 +771,7 @@ fn staking_scene_1() -> Result<()> {
         .get_staking()
         .validator_get_power(&v_set[0].id)
         .c(d!())?;
-    assert_eq!((32 + 100) * FRA as i64 + INIT_POWER, power);
+    assert_eq!((32 + 100) * FRA as i64 + INITIAL_POWER, power);
 
     // 17  propose a `UnDelegation` tx to force end the delegation
 
@@ -765,7 +801,7 @@ fn staking_scene_1() -> Result<()> {
         .get_staking()
         .validator_get_power(&v_set[0].id)
         .c(d!())?;
-    assert_eq!(100 * FRA as i64 + INIT_POWER, power);
+    assert_eq!(100 * FRA as i64 + INITIAL_POWER, power);
 
     // 19. ensure delegation reward is calculated and paid correctly
 
@@ -909,7 +945,7 @@ fn staking_scene_1() -> Result<()> {
             .get_staking()
             .validator_get_power(&v.id)
             .c(d!())?;
-        assert_eq!((32 + 100) * FRA as i64 + INIT_POWER, power);
+        assert_eq!((32 + 100) * FRA as i64 + INITIAL_POWER, power);
     }
 
     // 26. wait for the end of bond state
@@ -932,7 +968,7 @@ fn staking_scene_1() -> Result<()> {
             .get_staking()
             .validator_get_power(&v.id)
             .c(d!())?;
-        assert_eq!(100 * FRA as i64 + INIT_POWER, power);
+        assert_eq!(100 * FRA as i64 + INITIAL_POWER, power);
     }
 
     // 28. re-delegate those multi addrs one by one(block span = 10_0000),
