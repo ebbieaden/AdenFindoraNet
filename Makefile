@@ -13,7 +13,8 @@ all: build_release
 
 export CARGO_NET_GIT_FETCH_WITH_CLI = true
 export PROTOC = $(shell which protoc)
-export STAKING_INITIAL_VALIDATOR_INFO_CONFIG = $(shell pwd)/tools/staking_initial_config.json
+export STAKING_INITIAL_VALIDATOR_CONFIG = $(shell pwd)/tools/staking_config.json
+export STAKING_INITIAL_VALIDATOR_CONFIG_ABCI_MOCK = $(shell pwd)/tools/staking_config_abci_mock.json
 
 ifdef DBG
 target_dir = debug
@@ -92,6 +93,9 @@ staking_test:
 	cargo test staking --release -- --test-threads=1 --nocapture
 	cargo test staking --release --features="abci_mock" -- --test-threads=1 --nocapture
 	# cargo test staking --features="abci_mock" -- --test-threads=1 --nocapture
+
+staking_cfg:
+	cargo run --bin staking_cfg_generator
 
 bench:
 	cargo bench --workspace

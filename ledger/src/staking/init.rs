@@ -1,3 +1,7 @@
+//!
+//! Initial Config
+//!
+
 use super::{BlockHeight, Validator, ValidatorData, FRA};
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -5,17 +9,19 @@ use std::{convert::TryFrom, fs};
 
 const DEFAULT_POWER: i64 = 32_0000 * FRA as i64;
 
-// Generate config during compiling time.
+/// Generate config during compiling time.
 #[derive(Serialize, Deserialize)]
-struct InitialValidatorInfo {
+pub struct InitialValidatorInfo {
     height: Option<BlockHeight>,
-    valiators: Vec<ValidatorStr>,
+    /// predefined validators
+    pub valiators: Vec<ValidatorStr>,
 }
 
+/// Used for parsing config from disk.
 #[derive(Serialize, Deserialize, Eq, PartialEq)]
-struct ValidatorStr {
-    // `XfrPublicKey` in base64 format
-    id: String,
+pub struct ValidatorStr {
+    /// `XfrPublicKey` in base64 format
+    pub id: String,
     // Tendermint Addr, in hex format
     td_addr: String,
     // Tendermint PubKey, in base64 format
@@ -51,11 +57,24 @@ pub(super) fn get_inital_validators() -> Result<ValidatorData> {
     })
 }
 
-fn get_cfg_data() -> Result<InitialValidatorInfo> {
-    option_env!("STAKING_INITIAL_VALIDATOR_INFO_CONFIG")
+#[allow(missing_docs)]
+pub fn get_cfg_data() -> Result<InitialValidatorInfo> {
+    get_cfg_path()
         .c(d!())
         .and_then(|f| fs::read(f).c(d!()))
         .and_then(|v| serde_json::from_slice::<InitialValidatorInfo>(&v).c(d!()))
+}
+
+#[allow(missing_docs)]
+#[cfg(not(feature = "abci_mock"))]
+pub fn get_cfg_path() -> Option<&'static str> {
+    option_env!("STAKING_INITIAL_VALIDATOR_CONFIG")
+}
+
+#[allow(missing_docs)]
+#[cfg(feature = "abci_mock")]
+pub fn get_cfg_path() -> Option<&'static str> {
+    option_env!("STAKING_INITIAL_VALIDATOR_CONFIG_ABCI_MOCK")
 }
 
 #[cfg(test)]

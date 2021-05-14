@@ -1075,7 +1075,7 @@ fn staking_scene_1() -> Result<()> {
 // 3. do self-delegations(10 block span)
 // 4. do a regular delegation to the first validator
 // 5. make sure the end-height of self-delegation is changed to `BLOCK_HEIGHT_MAX` automatically
-// 6. governance one of them, and make sure its power is decreased to half
+// 6. governance one of them, and make sure its power is decreased to 1/3
 // 7. make sure its delegation rewards is punished
 // 8. make sure the delegation rewards of regular delegator is punished(1/10)
 // 9. update validator, remove it from validator list
@@ -1187,7 +1187,7 @@ fn staking_scene_2() -> Result<()> {
         assert_eq!(BLOCK_HEIGHT_MAX, end_height);
     }
 
-    // 6. governance the first one, and make sure its power is decreased to half
+    // 6. governance the first one, and make sure its power is decreased to 1/3
 
     let old_power = ABCI_MOCKER
         .read()
@@ -1221,7 +1221,8 @@ fn staking_scene_2() -> Result<()> {
         .validator_get_power(&v_set[0].id)
         .c(d!())?;
 
-    assert_eq!(old_power / 2, new_power);
+    assert!(old_power / 3 <= new_power);
+    assert!(old_power / 3 + 1 >= new_power);
 
     // 7. make sure its delegation rewards is punished
 

@@ -12,7 +12,7 @@
 #![deny(missing_docs)]
 
 pub mod cosig;
-mod init;
+pub mod init;
 pub mod ops;
 
 use crate::{
@@ -609,7 +609,8 @@ impl Staking {
             .into_iter()
         {
             let p_am = if let Ok(cur_power) = self.validator_get_power(&pk) {
-                self.validator_change_power(&pk, -(cur_power / 2)).c(d!())?;
+                self.validator_change_power(&pk, -(cur_power * 2 / 3))
+                    .c(d!())?;
                 am * percent[0] / percent[1]
             } else {
                 am * percent[0] / percent[1] / 10
@@ -1010,7 +1011,7 @@ pub const FRA: u64 = 10_u64.pow(FRA_DECIMALS as u32);
 pub const FRA_TOTAL_AMOUNT: u64 = 210_0000_0000 * FRA;
 
 const MIN_DELEGATION_AMOUNT: u64 = 32 * FRA;
-const MAX_DELEGATION_AMOUNT: u64 = FRA_TOTAL_AMOUNT / 2;
+const MAX_DELEGATION_AMOUNT: u64 = FRA_TOTAL_AMOUNT / 10;
 
 /// The highest height in the context of tendermint.
 pub const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
@@ -1025,19 +1026,19 @@ lazy_static! {
     pub static ref COINBASE_KP: XfrKeyPair = pnk!(wallet::restore_keypair_from_mnemonic_default(COIN_BASE_MNEMONIC));
 }
 
-// A limitation from
-// [tendermint](https://docs.tendermint.com/v0.33/spec/abci/apps.html#validator-updates)
-//
-// > Note that the maximum total power of the validator set
-// > is bounded by MaxTotalVotingPower = MaxInt64 / 8.
-// > Applications are responsible for ensuring
-// > they do not make changes to the validator set
-// > that cause it to exceed this limit.
-const MAX_TOTAL_POWER: Amount = Amount::MAX / 8;
+/// A limitation from
+/// [tendermint](https://docs.tendermint.com/v0.33/spec/abci/apps.html#validator-updates)
+///
+/// > Note that the maximum total power of the validator set
+/// > is bounded by MaxTotalVotingPower = MaxInt64 / 8.
+/// > Applications are responsible for ensuring
+/// > they do not make changes to the validator set
+/// > that cause it to exceed this limit.
+pub const MAX_TOTAL_POWER: Amount = Amount::MAX / 8;
 
-// The max vote power of any validator
-// can not exceed 20% of total power.
-const MAX_POWER_PERCENT_PER_VALIDATOR: [u128; 2] = [1, 5];
+/// The max vote power of any validator
+/// can not exceed 20% of total power.
+pub const MAX_POWER_PERCENT_PER_VALIDATOR: [u128; 2] = [1, 5];
 
 /// Block time interval, in seconds.
 pub const BLOCK_INTERVAL: u64 = 15 + 1;

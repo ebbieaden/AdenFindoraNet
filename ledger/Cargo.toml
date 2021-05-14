@@ -5,6 +5,10 @@ authors = ["Brian Rogoff <brian@findora.org", "Nathan Yospe <nathan@eian.io>, Ke
 edition = "2018"
 build = "build.rs"
 
+[[bin]]
+name = "staking_cfg_generator"
+path = "src/staking/bin/cfg_generator.rs"
+
 [dependencies]
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 arrayref = "0.3.5"
