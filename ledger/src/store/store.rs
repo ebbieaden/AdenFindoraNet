@@ -19,8 +19,7 @@ use serde::{Deserialize, Serialize};
 use sliding_set::SlidingSet;
 use sparse_merkle_tree::{Key, SmtMap256};
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::fs::File;
-use std::fs::OpenOptions;
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::mem;
 use std::path::Path;
@@ -1504,6 +1503,7 @@ impl LedgerState {
     fn init_merkle_log(path: &str, create: bool) -> Result<AppendOnlyMerkle> {
         // Create a merkle tree or open an existing one.
         let tree = if create {
+            ruc::info_omit!(fs::remove_file(path));
             AppendOnlyMerkle::create(path).c(d!())?
         } else {
             AppendOnlyMerkle::open(path).c(d!())?
@@ -1523,17 +1523,17 @@ impl LedgerState {
 
     // Initialize a bitmap to track the unspent utxos.
     fn init_utxo_map(path: &str, create: bool) -> Result<BitMap> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(create)
-            .open(path)
-            .c(d!())?;
+        let mut file = OpenOptions::new();
+        let f = file.read(true).write(true);
 
         if create {
-            BitMap::create(file).c(d!())
+            f.create(true)
+                .truncate(true)
+                .open(path)
+                .c(d!())
+                .and_then(|f| BitMap::create(f).c(d!()))
         } else {
-            BitMap::open(file).c(d!())
+            f.open(path).c(d!()).and_then(|f| BitMap::open(f).c(d!()))
         }
     }
 
@@ -1567,7 +1567,7 @@ impl LedgerState {
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, true).c(d!())?,
             txn_log: Some((
                 txn_path.into(),
-                std::fs::OpenOptions::new()
+                OpenOptions::new()
                     .create_new(true)
                     .append(true)
                     .open(txn_path)
@@ -1624,7 +1624,7 @@ impl LedgerState {
         // dbg!(&blocks);
         let txn_log = (
             txn_path.into(),
-            std::fs::OpenOptions::new()
+            OpenOptions::new()
                 .append(true)
                 .open(txn_path)
                 .c(d!(PlatformError::Unknown))?,
@@ -1740,7 +1740,7 @@ impl LedgerState {
             LedgerState::load_transaction_log(txn_path).c(d!(PlatformError::Unknown))?;
         let txn_log = (
             txn_path.into(),
-            std::fs::OpenOptions::new()
+            OpenOptions::new()
                 .append(true)
                 .open(txn_path)
                 .c(d!(PlatformError::Unknown))?,
@@ -2729,9 +2729,9 @@ mod tests {
         let result_open_ok = LedgerState::init_merkle_log(path, false);
         assert!(result_open_ok.is_ok());
 
-        // Verify that creating an existing Merkle tree fails
-        let result_create_err = LedgerState::init_merkle_log(path, true);
-        assert!(result_create_err.is_err());
+        // // Verify that creating an existing Merkle tree fails
+        // let result_create_err = LedgerState::init_merkle_log(path, true);
+        // assert!(result_create_err.is_err());
 
         tmp_dir.close().unwrap();
     }
@@ -2754,9 +2754,9 @@ mod tests {
         let result_open_ok = LedgerState::init_utxo_map(path, false);
         assert!(result_open_ok.is_ok());
 
-        // Verify that opening an existing bitmap fails
-        let result_create_err = LedgerState::init_utxo_map(path, true);
-        assert!(result_create_err.is_err());
+        // // Verify that opening an existing bitmap fails
+        // let result_create_err = LedgerState::init_utxo_map(path, true);
+        // assert!(result_create_err.is_err());
 
         tmp_dir.close().unwrap();
     }

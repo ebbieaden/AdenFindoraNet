@@ -1039,8 +1039,8 @@ const MAX_TOTAL_POWER: Amount = Amount::MAX / 8;
 // can not exceed 20% of total power.
 const MAX_POWER_PERCENT_PER_VALIDATOR: [u128; 2] = [1, 5];
 
-// Block time interval, in seconds.
-const BLOCK_INTERVAL: u64 = 15 + 1;
+/// Block time interval, in seconds.
+pub const BLOCK_INTERVAL: u64 = 15 + 1;
 
 /// The lock time after the delegation expires, about 21 days.
 #[cfg(not(feature = "abci_mock"))]

@@ -16,7 +16,10 @@ use ledger::data_model::{
     AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
     ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
 };
-use ledger::policies::{DebtMemo, Fraction};
+use ledger::{
+    policies::{DebtMemo, Fraction},
+    staking::{TendermintAddr, BLOCK_INTERVAL},
+};
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::{d, err::RucResult};
@@ -493,6 +496,28 @@ impl TransactionBuilder {
 
         self.get_builder_mut()
             .add_operation_update_memo(auth_key_pair, code, &new_memo);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_delegation(
+        mut self,
+        keypair: &XfrKeyPair,
+        validator: TendermintAddr,
+        time_secs: u64,
+    ) -> Result<TransactionBuilder, JsValue> {
+        let block_span = time_secs / BLOCK_INTERVAL;
+        self.get_builder_mut()
+            .add_operation_delegation(keypair, validator, block_span);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_undelegation(
+        mut self,
+        keypair: &XfrKeyPair,
+    ) -> Result<TransactionBuilder, JsValue> {
+        self.get_builder_mut().add_operation_undelegation(keypair);
         Ok(self)
     }
 
