@@ -24,7 +24,7 @@ use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::*;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     env, mem,
     sync::{
         atomic::{AtomicI64, Ordering},
@@ -44,8 +44,8 @@ use zei::xfr::{
 lazy_static! {
     static ref TD_MOCKER: Arc<RwLock<TendermintMocker>> = Arc::new(RwLock::new(TendermintMocker::new()));
     static ref ABCI_MOCKER: Arc<RwLock<AbciMocker>> = Arc::new(RwLock::new(AbciMocker::new()));
-    static ref FAILED_TXS: Arc<RwLock<HashMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {}));
-    static ref SUCCESS_TXS: Arc<RwLock<HashMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {}));
+    static ref FAILED_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {B}));
+    static ref SUCCESS_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {B}));
     /// will be used in [tx_sender](super::server::tx_sender)
     pub static ref CHAN: ChanPair = {
         let (s, r) = channel();
@@ -119,7 +119,7 @@ impl AbciMocker {
         self.0.commit(&gen_req_commit());
     }
 
-    fn get_owned_utxos(&self, addr: &XfrPublicKey) -> HashMap<TxoSID, Utxo> {
+    fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo> {
         self.0
             .la
             .read()
@@ -200,7 +200,7 @@ fn gen_keypair() -> XfrKeyPair {
     XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
 }
 
-fn get_owned_utxos(pk: &XfrPublicKey) -> HashMap<TxoSID, Utxo> {
+fn get_owned_utxos(pk: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo> {
     ABCI_MOCKER.read().get_owned_utxos(pk)
 }
 
@@ -208,6 +208,7 @@ fn gen_transfer_op(
     owner_kp: &XfrKeyPair,
     target_pk: &XfrPublicKey,
     am: u64,
+    rev: bool,
 ) -> Result<Operation> {
     let output_template = AssetRecordTemplate::with_no_asset_tracing(
         am,
@@ -220,23 +221,31 @@ fn gen_transfer_op(
 
     let mut am = am;
     let mut i_am;
-    for (sid, utxo) in get_owned_utxos(owner_kp.get_pk_ref()).into_iter() {
-        if let XfrAmount::NonConfidential(n) = utxo.0.record.amount {
-            alt!(n < am, i_am = n, i_am = am);
-            am = am.saturating_sub(n);
-        } else {
-            continue;
-        }
+    let utxos = get_owned_utxos(owner_kp.get_pk_ref()).into_iter();
 
-        open_blind_asset_record(&utxo.0.record, &None, owner_kp)
-            .c(d!())
-            .and_then(|ob| {
-                trans_builder
-                    .add_input(TxoRef::Absolute(sid), ob, None, None, i_am)
+    macro_rules! add_inputs {
+        ($utxos: expr) => {
+            for (sid, utxo) in $utxos {
+                if let XfrAmount::NonConfidential(n) = utxo.0.record.amount {
+                    alt!(n < am, i_am = n, i_am = am);
+                    am = am.saturating_sub(n);
+                } else {
+                    continue;
+                }
+
+                open_blind_asset_record(&utxo.0.record, &None, owner_kp)
                     .c(d!())
-            })?;
-        alt!(0 == am, break);
+                    .and_then(|ob| {
+                        trans_builder
+                            .add_input(TxoRef::Absolute(sid), ob, None, None, i_am)
+                            .c(d!())
+                    })?;
+                alt!(0 == am, break);
+            }
+        };
     }
+
+    alt!(rev, add_inputs!(utxos.rev()), add_inputs!(utxos));
 
     if 0 != am {
         return Err(eg!());
@@ -261,7 +270,7 @@ fn new_tx_builder() -> TransactionBuilder {
 }
 
 fn gen_fee_op(owner_kp: &XfrKeyPair) -> Result<Operation> {
-    gen_transfer_op(owner_kp, &*BLACK_HOLE_PUBKEY, TX_FEE_MIN).c(d!())
+    gen_transfer_op(owner_kp, &*BLACK_HOLE_PUBKEY, TX_FEE_MIN, true).c(d!())
 }
 
 fn gen_new_validators(n: u8) -> (Vec<StakingValidator>, Vec<XfrKeyPair>) {
@@ -347,7 +356,7 @@ fn delegate_x(
 
     alt!(is_evil, amount = 1);
     let trans_to_self =
-        gen_transfer_op(owner_kp, owner_kp.get_pk_ref(), amount).c(d!())?;
+        gen_transfer_op(owner_kp, owner_kp.get_pk_ref(), amount, false).c(d!())?;
     builder.add_operation(trans_to_self);
 
     if builder.add_fee_relative_auto(&owner_kp).is_err() {
@@ -394,7 +403,7 @@ fn send_tx(tx: Transaction) -> Result<()> {
 }
 
 fn transfer(owner_kp: &XfrKeyPair, target_pk: &XfrPublicKey, am: u64) -> Result<Digest> {
-    gen_transfer_op(owner_kp, target_pk, am)
+    gen_transfer_op(owner_kp, target_pk, am, false)
         .c(d!())
         .and_then(|op| gen_final_tx_auto_fee(owner_kp, vec![op]).c(d!()))
         .and_then(|tx| {
@@ -438,6 +447,8 @@ fn env_refresh(validator_num: u8) {
     TD_MOCKER.write().clean();
 }
 
+// basic scene without punishments
+//
 // 0. issue FRA
 // 1. update validators
 // 2. paid 400m FRAs to CoinBase
@@ -926,7 +937,9 @@ fn staking_scene_1() -> Result<()> {
 
     // 28. re-delegate those multi addrs one by one(block span = 10_0000),
     // ensure delegation-rewards-rate is correct in different global delegation levels
-    // ................................................................................
+    // ...........................................
+    // .... will be tested in unit-test cases ....
+    // ...........................................
 
     // 29. ensure the vote power of any vallidator can not exceed 20% of total power
 
@@ -956,7 +969,14 @@ fn staking_scene_1() -> Result<()> {
     Ok(())
 }
 
+// test on-chain governance
+fn staking_scene_2() -> Result<()> {
+    // TODO
+    Ok(())
+}
+
 #[test]
 fn staking_integration() {
     pnk!(staking_scene_1());
+    pnk!(staking_scene_2());
 }

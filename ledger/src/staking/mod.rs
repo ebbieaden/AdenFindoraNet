@@ -356,6 +356,7 @@ impl Staking {
             .addr_map
             .get_mut(addr)
             .ok_or(eg!("not exists"))
+            .and_then(|d| alt!(0 > d.rwd_amount, Err(eg!()), Ok(d)))
             .map(|d| {
                 if d.end_height != h {
                     orig_h = Some(d.end_height);
@@ -490,7 +491,7 @@ impl Staking {
     }
 
     /// Clean delegation states along with each new block.
-    pub fn deletation_process(&mut self) {
+    pub fn delegation_process(&mut self) {
         let h = self.cur_height;
         self.di
             .end_height_map

@@ -18,7 +18,7 @@ use ruc::*;
 use serde::{Deserialize, Serialize};
 use sliding_set::SlidingSet;
 use sparse_merkle_tree::{Key, SmtMap256};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -209,7 +209,7 @@ pub struct LedgerStatus {
     // snapshot_path:       String,
 
     // All currently-unspent TXOs
-    utxos: HashMap<TxoSID, Utxo>,
+    utxos: BTreeMap<TxoSID, Utxo>,
 
     // Map a TXO to its output position in a transaction
     txo_to_txn_location: HashMap<TxoSID, (TxnSID, OutputPosition)>,
@@ -449,7 +449,7 @@ impl LedgerStatus {
             sliding_set: SlidingSet::<[u8; 8]>::new(TRANSACTION_WINDOW_WIDTH as usize),
             txn_path: txn_path.to_owned(),
             utxo_map_path: utxo_map_path.to_owned(),
-            utxos: HashMap::new(),
+            utxos: BTreeMap::new(),
             txo_to_txn_location: HashMap::new(),
             issuance_amounts: HashMap::new(),
             utxo_map_versions: VecDeque::new(),
@@ -926,7 +926,7 @@ impl LedgerStatus {
             block.staking_simulator.set_custom_block_height(
                 1 + block.pulse_count + self.block_commit_count + self.pulse_count,
             );
-            block.staking_simulator.deletation_process();
+            block.staking_simulator.delegation_process();
             block.staking_simulator.validator_apply_current();
             block.staking_simulator.coinbase_clean_spent_txos(self);
             mem::swap(&mut self.staking, &mut block.staking_simulator);
@@ -1973,7 +1973,7 @@ impl LedgerState {
 impl LedgerStatus {
     #[allow(missing_docs)]
     #[cfg(feature = "abci_mock")]
-    pub fn get_owned_utxos(&self, addr: &XfrPublicKey) -> HashMap<TxoSID, Utxo> {
+    pub fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo> {
         self.utxos
             .iter()
             .filter(|(sid, utxo)| &utxo.0.record.public_key == addr)

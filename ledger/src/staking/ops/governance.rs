@@ -9,7 +9,7 @@
 
 use crate::{
     data_model::NoReplayToken,
-    staking::{cosig::CoSigOp, Amount, Staking},
+    staking::{cosig::CoSigOp, Amount, Staking, TendermintAddrRef},
 };
 use lazy_static::lazy_static;
 use ruc::*;
@@ -18,16 +18,14 @@ use std::collections::HashMap;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 lazy_static! {
-    // TODO
-    //
     // The current MVP version is a fixed rule,
     // and it will be upgraded to a mechanism
     // that can update rules by sending a specific transaction.
     static ref RULES: HashMap<ByzantineKind, Rule> = {
         map! {
-            ByzantineKind::DuplicateVote => Rule::new(),
-            ByzantineKind::LightClientAttack => Rule::new(),
-            ByzantineKind::Unknown => Rule::new(),
+            ByzantineKind::DuplicateVote => Rule::new([5, 100]),
+            ByzantineKind::LightClientAttack => Rule::new([1, 1000]),
+            ByzantineKind::Unknown => Rule::new([1, 1000]),
         }
     };
 }
@@ -51,7 +49,9 @@ impl GovernanceOps {
                 staking
                     .governance_penalty_by_pubkey(
                         &self.data.byzantine_id,
-                        rule.gen_penalty_amount(&self.data.byzantine_id),
+                        self.data.custom_amount.unwrap_or_else(|| {
+                            rule.gen_penalty_amount(staking, &self.data.byzantine_id)
+                        }),
                     )
                     .c(d!())
             })
@@ -73,9 +73,11 @@ impl GovernanceOps {
         kps: &[&XfrKeyPair],
         byzantine_id: XfrPublicKey,
         kind: ByzantineKind,
+        custom_amount: Option<Amount>,
         nonce: NoReplayToken,
     ) -> Result<Self> {
-        let mut op = CoSigOp::create(Data::new(kind, byzantine_id), nonce);
+        let mut op =
+            CoSigOp::create(Data::new(kind, byzantine_id, custom_amount), nonce);
         op.batch_sign(kps).c(d!()).map(|_| op)
     }
 }
@@ -85,12 +87,21 @@ impl GovernanceOps {
 pub struct Data {
     kind: ByzantineKind,
     byzantine_id: XfrPublicKey,
+    custom_amount: Option<Amount>,
 }
 
 impl Data {
     #[inline(always)]
-    fn new(kind: ByzantineKind, byzantine_id: XfrPublicKey) -> Self {
-        Data { kind, byzantine_id }
+    fn new(
+        kind: ByzantineKind,
+        byzantine_id: XfrPublicKey,
+        custom_amount: Option<Amount>,
+    ) -> Self {
+        Data {
+            kind,
+            byzantine_id,
+            custom_amount,
+        }
     }
 }
 
@@ -110,24 +121,43 @@ pub enum ByzantineKind {
 }
 
 /// Punishment mechanism for each kind of byzantine behavior.
+#[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Rule {
-    // TODO
+    penalty_percent: [i64; 2],
 }
 
 impl Rule {
-    fn new() -> Self {
-        Rule {}
+    fn new(penalty_percent: [i64; 2]) -> Self {
+        Rule { penalty_percent }
     }
 
     /// Calculate punishment amount according to the corresponding rule.
-    ///
-    /// Currently We just set the amount to `i64::MAX` which means
-    /// all investment income of the byzantine node will be punished,
-    /// and its vote power will be decreased to zero which means
-    /// it can not become a formal on-line validator anymore.
-    pub fn gen_penalty_amount(&self, _byzantine_id: &XfrPublicKey) -> Amount {
-        // TODO
-        i64::MAX
+    pub fn gen_penalty_amount(
+        &self,
+        staking: &Staking,
+        byzantine_id: &XfrPublicKey,
+    ) -> Amount {
+        if let Some(d) = staking.delegation_get(byzantine_id) {
+            if 0 < d.amount {
+                return d.amount * self.penalty_percent[0] / self.penalty_percent[1];
+            }
+        }
+        0
     }
+}
+
+/// Penalize the FRAs by a specified address.
+#[inline(always)]
+pub fn governance_penalty_tendermint_auto(
+    staking: &mut Staking,
+    addr: TendermintAddrRef,
+    bz_kind: &ByzantineKind,
+) -> Result<()> {
+    let rule = RULES.get(bz_kind).ok_or(eg!())?;
+    staking.td_addr_to_app_pk(addr).c(d!()).and_then(|pk| {
+        staking
+            .governance_penalty_by_pubkey(&pk, rule.gen_penalty_amount(staking, &pk))
+            .c(d!())
+    })
 }

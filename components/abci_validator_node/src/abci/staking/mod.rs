@@ -9,7 +9,10 @@ use abci::{Evidence, Header, LastCommitInfo, PubKey, ValidatorUpdate};
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA},
-    staking::Staking,
+    staking::{
+        ops::governance::{governance_penalty_tendermint_auto, ByzantineKind},
+        Staking,
+    },
     store::{LedgerAccess, LedgerUpdate},
 };
 use rand_core::{CryptoRng, RngCore};
@@ -96,7 +99,7 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
         .for_each(|ev| {
             let v = ev.validator.as_ref().unwrap();
             let bz = ByzantineInfo {
-                addr: &v.address,
+                addr: &hex::encode(&v.address),
                 kind: ev.field_type.as_str(),
                 height: ev.height,
                 timestamp: ev.time.as_ref().map(|ts| ts.seconds).unwrap_or(0),
@@ -131,7 +134,7 @@ fn set_rewards(
 
 #[allow(dead_code)]
 struct ByzantineInfo<'a> {
-    addr: &'a [u8],
+    addr: &'a str,
     // - "UNKNOWN"
     // - "DUPLICATE_VOTE"
     // - "LIGHT_CLIENT_ATTACK"
@@ -144,9 +147,13 @@ struct ByzantineInfo<'a> {
 
 // Auto governance.
 fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
-    staking
-        .governance_penalty(&hex::encode(bz.addr), i64::MAX)
-        .c(d!())
+    let kind = match bz.kind {
+        "DUPLICATE_VOTE" => ByzantineKind::DuplicateVote,
+        "LIGHT_CLIENT_ATTACK" => ByzantineKind::LightClientAttack,
+        "UNKNOWN" => ByzantineKind::Unknown,
+        _ => return Err(eg!()),
+    };
+    governance_penalty_tendermint_auto(staking, bz.addr, &kind).c(d!())
 }
 
 // Pay for bond 'Delegations' and 'FraDistributions'.
