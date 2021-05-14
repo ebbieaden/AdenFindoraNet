@@ -869,9 +869,15 @@ impl BuildsTransactions for TransactionBuilder {
         kind: ByzantineKind,
         custom_amount: Option<[u64; 2]>,
     ) -> Result<&mut Self> {
-        GovernanceOps::new(kps, byzantine_id, kind, custom_amount, self.no_replay_token)
-            .c(d!())
-            .map(move |op| self.add_operation(Operation::Governance(op)))
+        GovernanceOps::new(
+            kps,
+            byzantine_id,
+            kind,
+            custom_amount,
+            self.txn.body.no_replay_token,
+        )
+        .c(d!())
+        .map(move |op| self.add_operation(Operation::Governance(op)))
     }
 
     fn add_operation_update_validator(

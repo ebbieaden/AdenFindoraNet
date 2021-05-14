@@ -171,7 +171,7 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
 
     // at most 256 items to pay per block
     let mut paylist = staking
-        .delegation_get_rewards()
+        .delegation_get_global_rewards()
         .into_iter()
         .chain(
             staking

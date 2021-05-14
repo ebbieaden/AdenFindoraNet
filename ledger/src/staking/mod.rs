@@ -304,6 +304,10 @@ impl Staking {
             return Err(eg!("invalid delegation amount"));
         }
 
+        if owner == *COINBASE_PK {
+            return Err(eg!("malicious behavior: attempting to delegate CoinBase"));
+        }
+
         if let Some(d) = self.delegation_get(&validator) {
             // check delegation deadline
             if BLOCK_HEIGHT_MAX != d.end_height {
@@ -458,26 +462,31 @@ impl Staking {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn delegation_get_rewards(&self) -> HashMap<XfrPublicKey, u64> {
-        self.delegation_get_rewards_before_height(self.cur_height)
+    pub fn delegation_get_global_rewards(&self) -> HashMap<XfrPublicKey, u64> {
+        self.delegation_get_global_rewards_before_height(self.cur_height)
     }
 
     /// Query delegation rewards before a specified height(included).
     #[inline(always)]
-    pub fn delegation_get_rewards_before_height(
+    pub fn delegation_get_global_rewards_before_height(
         &self,
         h: BlockHeight,
     ) -> HashMap<XfrPublicKey, u64> {
         self.delegation_get_bonds_before_height(h)
             .into_iter()
-            .filter(|d| d.rwd_amount > 0)
-            .map(|d| (d.rwd_pk, d.rwd_amount as u64))
+            .map(|(k, d)| (k, d.rwd_amount as u64))
             .collect()
+    }
+
+    /// Query delegation rewards.
+    #[inline(always)]
+    pub fn delegation_get_rewards(&self, pk: &XfrPublicKey) -> Result<i64> {
+        self.di.addr_map.get(pk).map(|d| d.rwd_amount).ok_or(eg!())
     }
 
     /// Query all bond delegations.
     #[inline(always)]
-    pub fn delegation_get_bonds(&self) -> Vec<&Delegation> {
+    pub fn delegation_get_bonds(&self) -> HashMap<XfrPublicKey, &Delegation> {
         self.delegation_get_bonds_before_height(self.cur_height)
     }
 
@@ -486,15 +495,15 @@ impl Staking {
     pub fn delegation_get_bonds_before_height(
         &self,
         h: BlockHeight,
-    ) -> Vec<&Delegation> {
+    ) -> HashMap<XfrPublicKey, &Delegation> {
         self.di
             .end_height_map
             .range(..=h)
             .flat_map(|(_, addrs)| {
                 addrs
                     .iter()
-                    .flat_map(|addr| self.di.addr_map.get(addr))
-                    .filter(|d| {
+                    .flat_map(|addr| self.di.addr_map.get(addr).map(|d| (*addr, d)))
+                    .filter(|(_, d)| {
                         0 < d.rwd_amount && matches!(d.state, DelegationState::Bond)
                     })
             })
@@ -599,8 +608,8 @@ impl Staking {
             .collect::<Vec<_>>()
             .into_iter()
         {
-            let p_am = if self.addr_is_validator(&pk) {
-                self.validator_change_power(&pk, i64::MAX).c(d!())?;
+            let p_am = if let Ok(cur_power) = self.validator_get_power(&pk) {
+                self.validator_change_power(&pk, -(cur_power / 2)).c(d!())?;
                 am * percent[0] / percent[1]
             } else {
                 am * percent[0] / percent[1] / 10
@@ -1001,9 +1010,10 @@ pub const FRA: u64 = 10_u64.pow(FRA_DECIMALS as u32);
 pub const FRA_TOTAL_AMOUNT: u64 = 210_0000_0000 * FRA;
 
 const MIN_DELEGATION_AMOUNT: u64 = 32 * FRA;
-const MAX_DELEGATION_AMOUNT: u64 = FRA_TOTAL_AMOUNT;
+const MAX_DELEGATION_AMOUNT: u64 = FRA_TOTAL_AMOUNT / 2;
 
-const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
+/// The highest height in the context of tendermint.
+pub const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
 
 /// The 24-words mnemonic of 'FRA CoinBase Address'.
 pub const COIN_BASE_MNEMONIC: &str = "load second west source excuse skin thought inside wool kick power tail universe brush kid butter bomb other mistake oven raw armed tree walk";
