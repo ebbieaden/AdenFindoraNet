@@ -13,7 +13,7 @@ use crate::{
             governance::GovernanceOps, undelegation::UnDelegationOps,
             update_validator::UpdateValidatorOps,
         },
-        COINBASE_PK,
+        TendermintAddr, COINBASE_PK, MAX_POWER_PERCENT_PER_VALIDATOR,
     },
 };
 
@@ -1079,6 +1079,62 @@ pub struct FinalizedTransaction {
     pub txo_ids: Vec<TxoSID>,
 
     pub merkle_id: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StakingList {
+    stakers: Vec<(TendermintAddr, i64)>,
+    threshold: [u128; 2],
+}
+
+impl StakingList {
+    pub fn new(stakers: Vec<(TendermintAddr, i64)>) -> Self {
+        StakingList {
+            stakers,
+            threshold: MAX_POWER_PERCENT_PER_VALIDATOR,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StakerAccountInfo {
+    total_staking: i64,
+    apy: [u64; 2],
+    reward: i64,
+    can_staking: bool,
+    total_delegation: i64,
+    current_delegation: i64,
+}
+impl Default for StakerAccountInfo {
+    fn default() -> Self {
+        StakerAccountInfo {
+            total_staking: 0i64,
+            apy: [0u64, 100u64],
+            reward: 0i64,
+            can_staking: false,
+            total_delegation: 0i64,
+            current_delegation: 0i64,
+        }
+    }
+}
+impl StakerAccountInfo {
+    pub fn new(
+        apy: [u64; 2],
+        total_staking: i64,
+        reward: i64,
+        can_staking: bool,
+        total_delegation: i64,
+        current_delegation: i64,
+    ) -> Self {
+        Self {
+            total_staking,
+            apy,
+            reward,
+            can_staking,
+            total_delegation,
+            current_delegation,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

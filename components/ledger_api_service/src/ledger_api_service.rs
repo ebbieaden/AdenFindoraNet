@@ -7,9 +7,14 @@ extern crate serde_json;
 
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, test, web, App, HttpResponse, HttpServer};
-use ledger::data_model::*;
-use ledger::store::{ArchiveAccess, LedgerAccess, LedgerState};
-use ledger::{inp_fail, ser_fail};
+use futures::executor;
+use ledger::{
+    data_model::*,
+    inp_fail, ser_fail,
+    staking::TendermintAddr,
+    store::{ArchiveAccess, LedgerAccess, LedgerState, StakingAccess},
+};
+use log::info;
 use log::warn;
 use parking_lot::RwLock;
 use ruc::*;
@@ -17,10 +22,8 @@ use serde::Serialize;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use utils::{http_get_request, HashOf, NetworkRoute, SignatureOf};
+use zei::serialization::ZeiFromToBytes;
 use zei::xfr::sig::XfrPublicKey;
-
-use futures::executor;
-use log::info;
 
 pub struct RestfulApiService {
     web_runtime: actix_rt::SystemRunner,
@@ -360,9 +363,93 @@ where
     // }
 }
 
-enum ServiceInterface {
-    LedgerAccess,
-    ArchiveAccess,
+//query current staker list
+#[allow(unused)]
+async fn query_stakers<SA>(
+    data: web::Data<Arc<RwLock<SA>>>,
+) -> actix_web::Result<web::Json<StakingList>>
+where
+    SA: StakingAccess,
+{
+    let read = data.read();
+    if let Some(validator_data) = read.get_stakers().validator_get_current() {
+        let validators = validator_data.get_validator_addr_map();
+        let validators_list = validators
+            .iter()
+            .map(|(tendermint_addr, xfr_public_key)| {
+                (
+                    tendermint_addr.clone(),
+                    match validator_data.get_validator_by_key(xfr_public_key) {
+                        Ok(validator) => validator.td_power,
+                        _ => 0i64,
+                    },
+                )
+            })
+            .collect::<Vec<(TendermintAddr, i64)>>();
+        return Ok(web::Json(StakingList::new(validators_list)));
+    };
+    Ok(web::Json(StakingList::new(vec![])))
+}
+
+async fn query_staker_account_info<SA>(
+    data: web::Data<Arc<RwLock<SA>>>,
+    _address: web::Path<String>,
+) -> actix_web::Result<web::Json<StakerAccountInfo>>
+where
+    SA: StakingAccess + LedgerAccess,
+{
+    let read = data.read();
+    let xfr_public_key: XfrPublicKey = XfrPublicKey::zei_from_bytes(
+        &b64dec(&*_address)
+            .c(d!())
+            .map_err(|e| error::ErrorBadRequest(e.generate_log()))?,
+    )
+    .c(d!())
+    .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let stakings = read.get_stakers();
+    let block_rewards_rate = stakings.get_block_rewards_rate();
+    let total_staking = stakings.validator_total_power();
+    let total_delegation = stakings.delegation_info_total_amount();
+
+    let mut can_staking: bool = true;
+    //Whether it is delegate or staking, an address can only be done
+    let (rwd_amount, amount): (i64, i64) = match stakings.delegation_get(&xfr_public_key)
+    {
+        Some(delegation) => {
+            can_staking = false;
+            (delegation.rwd_amount, delegation.amount)
+        }
+        _ => (0i64, 0i64),
+    };
+    Ok(web::Json(StakerAccountInfo::new(
+        block_rewards_rate,
+        total_staking,
+        rwd_amount,
+        can_staking,
+        total_delegation,
+        amount,
+    )))
+}
+
+enum AccessApi {
+    Ledger,
+    Archive,
+    Staking,
+}
+
+pub enum StakingAccessRoutes {
+    StakerList,
+    StakerAccountInfo,
+}
+
+impl NetworkRoute for StakingAccessRoutes {
+    fn route(&self) -> String {
+        let endpoint = match *self {
+            StakingAccessRoutes::StakerList => "staker_list",
+            StakingAccessRoutes::StakerAccountInfo => "staker_account_info",
+        };
+        "/".to_owned() + endpoint
+    }
 }
 
 pub enum LedgerAccessRoutes {
@@ -416,16 +503,26 @@ impl NetworkRoute for LedgerArchiveRoutes {
 }
 
 trait Route {
-    fn set_route<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
+    fn set_route<
+        LA: 'static + LedgerAccess + ArchiveAccess + StakingAccess + Sync + Send,
+    >(
         self,
-        service_interface: ServiceInterface,
+        service_interface: AccessApi,
     ) -> Self;
 
-    fn set_route_for_ledger_access<LA: 'static + LedgerAccess + Sync + Send>(
+    fn set_route_for_ledger_access<
+        LA: 'static + LedgerAccess + StakingAccess + Sync + Send,
+    >(
         self,
     ) -> Self;
 
     fn set_route_for_archive_access<AA: 'static + ArchiveAccess + Sync + Send>(
+        self,
+    ) -> Self;
+
+    fn set_route_for_staking_access<
+        AA: 'static + StakingAccess + LedgerAccess + Sync + Send,
+    >(
         self,
     ) -> Self;
 }
@@ -442,18 +539,23 @@ where
     >,
 {
     // Call the appropraite function depending on the interface
-    fn set_route<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
+    fn set_route<
+        LA: 'static + LedgerAccess + ArchiveAccess + StakingAccess + Sync + Send,
+    >(
         self,
-        service_interface: ServiceInterface,
+        service_interface: AccessApi,
     ) -> Self {
         match service_interface {
-            ServiceInterface::LedgerAccess => self.set_route_for_ledger_access::<LA>(),
-            ServiceInterface::ArchiveAccess => self.set_route_for_archive_access::<LA>(),
+            AccessApi::Ledger => self.set_route_for_ledger_access::<LA>(),
+            AccessApi::Archive => self.set_route_for_archive_access::<LA>(),
+            AccessApi::Staking => self.set_route_for_staking_access::<LA>(),
         }
     }
 
     // Set routes for the LedgerAccess interface
-    fn set_route_for_ledger_access<LA: 'static + LedgerAccess + Sync + Send>(
+    fn set_route_for_ledger_access<
+        LA: 'static + LedgerAccess + StakingAccess + Sync + Send,
+    >(
         self,
     ) -> Self {
         self.route(
@@ -515,10 +617,27 @@ where
             web::get().to(query_utxo_partial_map::<AA>),
         )
     }
+
+    fn set_route_for_staking_access<
+        SA: 'static + StakingAccess + LedgerAccess + Sync + Send,
+    >(
+        self,
+    ) -> Self {
+        self.route(
+            &StakingAccessRoutes::StakerList.route(),
+            web::get().to(query_stakers::<SA>),
+        )
+        .route(
+            &StakingAccessRoutes::StakerAccountInfo.with_arg_template("XfrPublicKey"),
+            web::get().to(query_staker_account_info::<SA>),
+        )
+    }
 }
 
 impl RestfulApiService {
-    pub fn create<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
+    pub fn create<
+        LA: 'static + LedgerAccess + ArchiveAccess + StakingAccess + Sync + Send,
+    >(
         ledger_access: Arc<RwLock<LA>>,
         host: &str,
         port: u16,
@@ -532,8 +651,9 @@ impl RestfulApiService {
                 .data(ledger_access.clone())
                 .route("/ping", web::get().to(ping))
                 .route("/version", web::get().to(version))
-                .set_route::<LA>(ServiceInterface::LedgerAccess)
-                .set_route::<LA>(ServiceInterface::ArchiveAccess)
+                .set_route::<LA>(AccessApi::Ledger)
+                .set_route::<LA>(AccessApi::Archive)
+                .set_route::<LA>(AccessApi::Staking)
         })
         .bind(&format!("{}:{}", host, port))
         .c(d!())?

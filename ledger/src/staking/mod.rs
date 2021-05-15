@@ -80,6 +80,11 @@ impl Staking {
         }
     }
 
+    ///get the delegationInfo
+    pub fn delegation_info_total_amount(&self) -> i64 {
+        self.di.total_amount
+    }
+
     /// Get the validators that exactly be setted at a specified height.
     #[inline(always)]
     pub fn validator_get_at_height(&self, h: BlockHeight) -> Option<Vec<&Validator>> {
@@ -264,9 +269,9 @@ impl Staking {
         Ok(())
     }
 
-    // calculate current total vote-power
+    /// calculate current total vote-power
     #[inline(always)]
-    fn validator_total_power(&self) -> i64 {
+    pub fn validator_total_power(&self) -> i64 {
         self.validator_get_effective_at_height(self.cur_height)
             .map(|vs| vs.body.values().map(|v| v.td_power).sum())
             .unwrap_or(0)
@@ -1151,6 +1156,23 @@ impl ValidatorData {
     #[allow(missing_docs)]
     pub fn get_validators(&self) -> &BTreeMap<XfrPublicKey, Validator> {
         &self.body
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_validator_by_key(
+        &self,
+        xfr_public_key: &XfrPublicKey,
+    ) -> Result<&Validator> {
+        self.body
+            .get(xfr_public_key)
+            .ok_or(eg!("invalid validator"))
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_validator_addr_map(&self) -> &BTreeMap<TendermintAddr, XfrPublicKey> {
+        &self.addr_td_to_app
     }
 }
 
