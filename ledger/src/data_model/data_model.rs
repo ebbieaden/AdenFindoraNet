@@ -9,9 +9,9 @@ use crate::{
     ser_fail,
     staking::{
         ops::{
-            delegation::DelegationOps, fra_distribution::FraDistributionOps,
-            governance::GovernanceOps, undelegation::UnDelegationOps,
-            update_validator::UpdateValidatorOps,
+            claim::ClaimOps, delegation::DelegationOps,
+            fra_distribution::FraDistributionOps, governance::GovernanceOps,
+            undelegation::UnDelegationOps, update_validator::UpdateValidatorOps,
         },
         TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
         MAX_POWER_PERCENT_PER_VALIDATOR,
@@ -1009,6 +1009,7 @@ pub enum Operation {
     UpdateMemo(UpdateMemo),
     Delegation(DelegationOps),
     UnDelegation(UnDelegationOps),
+    Claim(ClaimOps),
     UpdateValidator(UpdateValidatorOps),
     Governance(GovernanceOps),
     FraDistribution(FraDistributionOps),
@@ -1020,6 +1021,9 @@ fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
             i.set_nonce(no_replay_token);
         }
         Operation::UnDelegation(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::Claim(i) => {
             i.set_nonce(no_replay_token);
         }
         Operation::FraDistribution(i) => {

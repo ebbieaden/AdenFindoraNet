@@ -372,6 +372,7 @@ fn get_related_addresses(txn: &Transaction) -> HashSet<XfrAddress> {
         match op {
             Operation::Delegation(i) => staking_gen!(i),
             Operation::UnDelegation(i) => staking_gen!(i),
+            Operation::Claim(i) => staking_gen!(i),
             Operation::UpdateValidator(i) => staking_gen!(i),
             Operation::Governance(i) => staking_gen!(i),
             Operation::FraDistribution(i) => staking_gen!(i),

@@ -7,6 +7,7 @@
 //! In the current implementation, the first operation must be a `TransferAsset`.
 //!
 
+pub mod claim;
 pub mod delegation;
 pub mod fra_distribution;
 pub mod governance;

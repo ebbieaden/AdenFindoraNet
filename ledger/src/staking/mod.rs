@@ -1073,6 +1073,23 @@ impl Staking {
 
         unreachable!();
     }
+
+    /// Claim delegation rewards.
+    pub fn claim(&mut self, pk: XfrPublicKey, am: u64) -> Result<()> {
+        let am = self.delegation_get(&pk).ok_or(eg!()).and_then(|d| {
+            if am > d.rwd_amount as u64 {
+                return Err(eg!());
+            }
+            if DelegationState::Paid == d.state {
+                return Err(eg!());
+            }
+            Ok(am)
+        })?;
+
+        *self.coinbase.distribution_plan.entry(pk).or_insert(0) += am;
+
+        Ok(())
+    }
 }
 
 /// How many FRA units per FRA

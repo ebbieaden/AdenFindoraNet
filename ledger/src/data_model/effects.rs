@@ -5,9 +5,9 @@ use crate::policy_script::{run_txn_check, TxnCheckInputs, TxnPolicyData};
 use crate::staking::{
     self,
     ops::{
-        delegation::DelegationOps, fra_distribution::FraDistributionOps,
-        governance::GovernanceOps, undelegation::UnDelegationOps,
-        update_validator::UpdateValidatorOps,
+        claim::ClaimOps, delegation::DelegationOps,
+        fra_distribution::FraDistributionOps, governance::GovernanceOps,
+        undelegation::UnDelegationOps, update_validator::UpdateValidatorOps,
     },
 };
 use crate::{inp_fail, inv_fail, zei_fail};
@@ -64,6 +64,7 @@ pub struct TxnEffect {
 
     pub delegations: HashMap<XfrPublicKey, DelegationOps>,
     pub undelegations: HashMap<XfrPublicKey, UnDelegationOps>,
+    pub claims: Vec<ClaimOps>,
     pub update_validators: HashMap<staking::BlockHeight, UpdateValidatorOps>,
     pub governances: Vec<GovernanceOps>,
     pub fra_distributions: Vec<FraDistributionOps>,
@@ -94,6 +95,7 @@ impl TxnEffect {
         let mut confidential_transfer_inputs = HashSet::new();
         let mut delegations = map! {};
         let mut undelegations = map! {};
+        let mut claims = vec![];
         let mut update_validators = map! {};
         let mut governances = vec![];
         let mut fra_distributions = vec![];
@@ -153,6 +155,10 @@ impl TxnEffect {
                     if undelegations.insert(i.pubkey, i.clone()).is_some() {
                         return Err(eg!("dup entries"));
                     }
+                }
+                Operation::Claim(i) => {
+                    check_nonce!(i);
+                    claims.push(i.clone());
                 }
                 Operation::UpdateValidator(i) => {
                     check_nonce!(i);
@@ -611,6 +617,7 @@ impl TxnEffect {
             memo_updates,
             delegations,
             undelegations,
+            claims,
             update_validators,
             governances,
             fra_distributions,
@@ -819,6 +826,10 @@ impl BlockEffect {
         for i in txn_effect.undelegations.values() {
             i.check_run(&mut self.staking_simulator, &txn_effect.txn)
                 .c(d!())?;
+        }
+
+        for i in txn_effect.claims.iter() {
+            i.check_run(&mut self.staking_simulator).c(d!())?;
         }
 
         for i in txn_effect.update_validators.values() {

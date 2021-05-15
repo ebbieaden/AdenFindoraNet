@@ -12,13 +12,13 @@ use credentials::{
     CredUserPublicKey, CredUserSecretKey, Credential as PlatformCredential,
 };
 use cryptohash::sha256;
-use ledger::data_model::{
-    AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
-    ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
-};
 use ledger::{
+    data_model::{
+        AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
+        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
+    },
     policies::{DebtMemo, Fraction},
-    staking::TendermintAddr,
+    staking::{TendermintAddr, COINBASE_PRINCIPAL_PK},
 };
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
@@ -516,6 +516,16 @@ impl TransactionBuilder {
         keypair: &XfrKeyPair,
     ) -> Result<TransactionBuilder, JsValue> {
         self.get_builder_mut().add_operation_undelegation(keypair);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_claim(
+        mut self,
+        keypair: &XfrKeyPair,
+        am: u64,
+    ) -> Result<TransactionBuilder, JsValue> {
+        self.get_builder_mut().add_operation_claim(keypair, am);
         Ok(self)
     }
 
@@ -1400,6 +1410,12 @@ pub fn fra_get_minimal_fee() -> u64 {
 #[wasm_bindgen]
 pub fn fra_get_dest_pubkey() -> XfrPublicKey {
     *BLACK_HOLE_PUBKEY
+}
+
+/// The system address used to reveive delegation principals.
+#[wasm_bindgen]
+pub fn get_delegation_target_address() -> String {
+    wallet::public_key_to_base64(&COINBASE_PRINCIPAL_PK)
 }
 
 #[cfg(test)]
