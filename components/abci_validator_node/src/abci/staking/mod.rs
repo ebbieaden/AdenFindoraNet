@@ -17,13 +17,15 @@ use ledger::{
 };
 use rand_core::{CryptoRng, RngCore};
 use ruc::*;
-use std::{collections::HashMap, env};
+use std::collections::HashMap;
 use txn_builder::TransferOperationBuilder;
 use zei::xfr::asset_record::{open_blind_asset_record, AssetRecordType};
 use zei::xfr::{
     sig::XfrPublicKey,
     structs::{AssetRecordTemplate, XfrAmount, XfrAssetType},
 };
+
+mod whoami;
 
 type SignedPower = i64;
 
@@ -33,12 +35,7 @@ const VALIDATOR_LIMIT: usize = 50;
 
 lazy_static! {
     /// Tendermint node address, sha256(pubkey)[:20]
-    pub static ref TD_NODE_SELF_ADDR: Vec<u8> = {
-        let hex_addr = pnk!(env::var("TD_NODE_SELF_ADDR"));
-        let bytes_addr = pnk!(hex::decode(hex_addr));
-        assert_eq!(20, bytes_addr.len());
-        bytes_addr
-    };
+    pub static ref TD_NODE_SELF_ADDR: Vec<u8> = pnk!(whoami::get_self_addr());
 }
 
 /// Get the effective validators at current block height.
