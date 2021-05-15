@@ -4,20 +4,23 @@
 //! Business logic based on [**Ledger Staking**](ledger::staking).
 //!
 
-use crate::abci::server::forward_txn_with_mode;
+use crate::abci::server::{callback::TENDERMINT_BLOCK_HEIGHT, forward_txn_with_mode};
 use abci::{Evidence, Header, LastCommitInfo, PubKey, ValidatorUpdate};
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA},
     staking::{
         ops::governance::{governance_penalty_tendermint_auto, ByzantineKind},
-        Staking,
+        td_pubkey_to_td_addr_bytes, Staking,
     },
     store::{LedgerAccess, LedgerUpdate},
 };
 use rand_core::{CryptoRng, RngCore};
 use ruc::*;
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::atomic::Ordering,
+};
 use txn_builder::TransferOperationBuilder;
 use zei::xfr::asset_record::{open_blind_asset_record, AssetRecordType};
 use zei::xfr::{
@@ -103,14 +106,28 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
             let bz = ByzantineInfo {
                 addr: &hex::encode(&v.address),
                 kind: ev.field_type.as_str(),
-                height: ev.height,
-                timestamp: ev.time.as_ref().map(|ts| ts.seconds).unwrap_or(0),
-                power: v.power,
-                total_power: ev.total_voting_power,
             };
 
             ruc::info_omit!(system_governance(staking, &bz));
         });
+
+    if let Some(lci) = last_commit_info {
+        let offline_list = lci
+            .votes
+            .iter()
+            .filter(|v| !v.signed_last_block)
+            .flat_map(|info| info.validator.as_ref().map(|v| &v.address))
+            .collect::<HashSet<_>>();
+        if let Ok(olpl) = ruc::info!(gen_offline_punish_list(staking, &offline_list)) {
+            olpl.into_iter().for_each(|v| {
+                let bz = ByzantineInfo {
+                    addr: &hex::encode(v),
+                    kind: "OFF_LINE",
+                };
+                ruc::info_omit!(system_governance(staking, &bz));
+            });
+        }
+    }
 }
 
 // Get the actual total power of last block.
@@ -134,17 +151,12 @@ fn set_rewards(
         .c(d!())
 }
 
-#[allow(dead_code)]
 struct ByzantineInfo<'a> {
     addr: &'a str,
     // - "UNKNOWN"
     // - "DUPLICATE_VOTE"
     // - "LIGHT_CLIENT_ATTACK"
     kind: &'a str,
-    height: i64,
-    timestamp: i64,
-    power: i64,
-    total_power: i64,
 }
 
 // Auto governance.
@@ -152,6 +164,7 @@ fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
     let kind = match bz.kind {
         "DUPLICATE_VOTE" => ByzantineKind::DuplicateVote,
         "LIGHT_CLIENT_ATTACK" => ByzantineKind::LightClientAttack,
+        "OFF_LINE" => ByzantineKind::OffLine,
         "UNKNOWN" => ByzantineKind::Unknown,
         _ => return Err(eg!()),
     };
@@ -319,6 +332,32 @@ fn do_gen_transaction(
         .c(d!())?;
 
     Ok(Transaction::from_operation(op, seq_id))
+}
+
+fn gen_offline_punish_list(
+    staking: &Staking,
+    voted_list: &HashSet<&Vec<u8>>,
+) -> Result<Vec<Vec<u8>>> {
+    let last_height = TENDERMINT_BLOCK_HEIGHT
+        .load(Ordering::Relaxed)
+        .saturating_sub(1);
+    let mut vs = staking
+        .validator_get_effective_at_height(last_height as u64)
+        .c(d!())?
+        .body
+        .values()
+        .map(|v| (td_pubkey_to_td_addr_bytes(&v.td_pubkey), v.td_power))
+        .collect::<Vec<_>>();
+    vs.sort_by_key(|v| -v.1);
+    vs.iter_mut().skip(VALIDATOR_LIMIT).for_each(|(_, power)| {
+        *power = 0;
+    });
+
+    Ok(vs
+        .into_iter()
+        .filter(|v| 0 < v.1 && !voted_list.contains(&v.0))
+        .map(|(id, _)| id)
+        .collect())
 }
 
 #[cfg(test)]

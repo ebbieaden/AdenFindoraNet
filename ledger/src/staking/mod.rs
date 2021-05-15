@@ -171,7 +171,7 @@ impl Staking {
         self.validator_apply_at_height(h);
 
         // clean old data before current height
-        self.validator_clean_before_height(h);
+        self.validator_clean_before_height(h.saturating_sub(8));
     }
 
     /// Make the validators at a specified height to be effective.
@@ -1444,6 +1444,12 @@ impl CoinBase {
 #[inline(always)]
 pub fn td_pubkey_to_td_addr(pubkey: &[u8]) -> String {
     hex::encode_upper(&sha2::Sha256::digest(pubkey)[..20])
+}
+
+/// sha256(pubkey)[:20]
+#[inline(always)]
+pub fn td_pubkey_to_td_addr_bytes(pubkey: &[u8]) -> Vec<u8> {
+    sha2::Sha256::digest(pubkey)[..20].to_vec()
 }
 
 #[cfg(test)]

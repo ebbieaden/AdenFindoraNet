@@ -14,7 +14,8 @@ use submission_server::convert_tx;
 mod pulse_cache;
 mod utils;
 
-static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
+/// current block height
+pub static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
 
 lazy_static! {
     static ref REQ_BEGIN_BLOCK: Arc<Mutex<RequestBeginBlock>> =

@@ -24,7 +24,8 @@ lazy_static! {
     static ref RULES: HashMap<ByzantineKind, Rule> = {
         map! {
             ByzantineKind::DuplicateVote => Rule::new([5, 100]),
-            ByzantineKind::LightClientAttack => Rule::new([1, 1000]),
+            ByzantineKind::LightClientAttack => Rule::new([1, 100]),
+            ByzantineKind::OffLine => Rule::new([1, 100_0000]),
             ByzantineKind::Unknown => Rule::new([1, 1000]),
         }
     };
@@ -123,6 +124,7 @@ pub type RuleSet = HashMap<ByzantineKind, Rule>;
 pub enum ByzantineKind {
     DuplicateVote,
     LightClientAttack,
+    OffLine,
     Unknown,
 }
 
