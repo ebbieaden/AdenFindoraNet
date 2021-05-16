@@ -1514,7 +1514,7 @@ impl LedgerState {
     fn init_merkle_log(path: &str, create: bool) -> Result<AppendOnlyMerkle> {
         // Create a merkle tree or open an existing one.
         let tree = if create {
-            ruc::info_omit!(fs::remove_file(path));
+            ruc::omit!(fs::remove_file(path));
             AppendOnlyMerkle::create(path).c(d!())?
         } else {
             AppendOnlyMerkle::open(path).c(d!())?

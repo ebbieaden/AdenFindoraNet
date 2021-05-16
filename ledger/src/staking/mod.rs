@@ -81,7 +81,7 @@ impl Staking {
     }
 
     ///get the delegationInfo
-    pub fn delegation_info_total_amount(&self) -> i64 {
+    pub fn delegation_info_total_amount(&self) -> Amount {
         self.di.total_amount
     }
 
@@ -214,7 +214,8 @@ impl Staking {
     fn validator_change_power(
         &mut self,
         validator: &XfrPublicKey,
-        power: Amount,
+        power: Power,
+        is_slash: bool,
     ) -> Result<()> {
         self.validator_check_power(power, validator)
             .c(d!())
@@ -226,9 +227,11 @@ impl Staking {
                 cur.body
                     .get_mut(validator)
                     .map(|v| {
-                        let mut power = v.td_power.saturating_add(power);
-                        alt!(0 > power, power = 0);
-                        v.td_power = power;
+                        v.td_power = alt!(
+                            is_slash,
+                            v.td_power.saturating_sub(power),
+                            v.td_power.saturating_add(power)
+                        );
                     })
                     .ok_or(eg!())
             })
@@ -236,7 +239,7 @@ impl Staking {
 
     /// Get the power of a specified validator at current term.
     #[inline(always)]
-    pub fn validator_get_power(&self, vldtor: &XfrPublicKey) -> Result<i64> {
+    pub fn validator_get_power(&self, vldtor: &XfrPublicKey) -> Result<Power> {
         self.validator_get_current()
             .and_then(|vd| vd.body.get(vldtor))
             .map(|v| v.td_power)
@@ -271,7 +274,7 @@ impl Staking {
 
     /// calculate current total vote-power
     #[inline(always)]
-    pub fn validator_total_power(&self) -> i64 {
+    pub fn validator_total_power(&self) -> Power {
         self.validator_get_effective_at_height(self.cur_height)
             .map(|vs| vs.body.values().map(|v| v.td_power).sum())
             .unwrap_or(0)
@@ -301,7 +304,7 @@ impl Staking {
         let validator = self.td_addr_to_app_pk(validator).c(d!())?;
         let end_height = BLOCK_HEIGHT_MAX;
 
-        if !(MIN_DELEGATION_AMOUNT..=MAX_DELEGATION_AMOUNT).contains(&(am as u64)) {
+        if !(MIN_DELEGATION_AMOUNT..=MAX_DELEGATION_AMOUNT).contains(&am) {
             return Err(eg!("invalid delegation amount"));
         }
 
@@ -319,15 +322,8 @@ impl Staking {
             return Err(eg!("self-delegation has not been finished"));
         }
 
-        if let Some(d) = self.delegation_get(&owner) {
-            if validator != d.validator {
-                return Err(eg!("delegate to different validators is not allowed"));
-            }
-        }
-
-        let v = Delegation {
-            amount: 0,
-            validator,
+        let new = || Delegation {
+            entries: map! {B validator => 0},
             rwd_pk: owner,
             start_height,
             end_height,
@@ -335,8 +331,14 @@ impl Staking {
             rwd_amount: 0,
         };
 
-        let d = self.di.addr_map.entry(owner).or_insert(v);
-        d.amount = d.amount.saturating_add(am);
+        *self
+            .di
+            .addr_map
+            .entry(owner)
+            .or_insert_with(new)
+            .entries
+            .entry(validator)
+            .or_insert(0) += am;
 
         self.di
             .end_height_map
@@ -344,8 +346,7 @@ impl Staking {
             .or_insert_with(BTreeSet::new)
             .insert(owner);
 
-        self.validator_change_power(&validator, am as Amount)
-            .c(d!())?;
+        self.validator_change_power(&validator, am, false).c(d!())?;
 
         // total amount of all delegations
         self.di.total_amount += am;
@@ -365,12 +366,11 @@ impl Staking {
             return Err(eg!("validator self-undelegation is not permitted"));
         }
 
-        let (validator, am) = self
+        let entries = self
             .di
             .addr_map
             .get_mut(addr)
             .ok_or(eg!("not exists"))
-            .and_then(|d| alt!(0 > d.rwd_amount, Err(eg!()), Ok(d)))
             .map(|d| {
                 d.state = DelegationState::UnBond;
 
@@ -379,14 +379,15 @@ impl Staking {
                     d.end_height = h;
                 }
 
-                (d.validator, d.amount)
+                d.entries.clone()
             })?;
 
-        // total amount of all delegations
-        self.di.total_amount -= am;
-
-        // reduce the power of the target validator
-        ruc::info_omit!(self.validator_change_power(&validator, -am));
+        // - reduce the power of the target validator
+        // - reduce total amount of global delegations
+        entries.into_iter().for_each(|(v, am)| {
+            ruc::info_omit!(self.validator_change_power(&v, am, true));
+            self.di.total_amount -= am;
+        });
 
         if let Some(orig_h) = orig_h {
             self.di
@@ -478,7 +479,7 @@ impl Staking {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn delegation_get_global_principal(&self) -> HashMap<XfrPublicKey, u64> {
+    pub fn delegation_get_global_principal(&self) -> HashMap<XfrPublicKey, Amount> {
         self.delegation_get_global_principal_before_height(self.cur_height)
     }
 
@@ -487,16 +488,16 @@ impl Staking {
     pub fn delegation_get_global_principal_before_height(
         &self,
         h: BlockHeight,
-    ) -> HashMap<XfrPublicKey, u64> {
+    ) -> HashMap<XfrPublicKey, Amount> {
         self.delegation_get_freed_before_height(h)
             .into_iter()
-            .map(|(k, d)| (k, d.amount as u64))
+            .map(|(k, d)| (k, d.amount()))
             .collect()
     }
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn delegation_get_global_rewards(&self) -> HashMap<XfrPublicKey, u64> {
+    pub fn delegation_get_global_rewards(&self) -> HashMap<XfrPublicKey, Amount> {
         self.delegation_get_global_rewards_before_height(self.cur_height)
     }
 
@@ -505,24 +506,24 @@ impl Staking {
     pub fn delegation_get_global_rewards_before_height(
         &self,
         h: BlockHeight,
-    ) -> HashMap<XfrPublicKey, u64> {
+    ) -> HashMap<XfrPublicKey, Amount> {
         self.delegation_get_freed_before_height(h)
             .into_iter()
             .filter(|(_, d)| 0 < d.rwd_amount)
-            .map(|(k, d)| (k, d.rwd_amount as u64))
+            .map(|(k, d)| (k, d.rwd_amount))
             .collect()
     }
 
     /// Query delegation rewards.
     #[inline(always)]
-    pub fn delegation_get_rewards(&self, pk: &XfrPublicKey) -> Result<i64> {
+    pub fn delegation_get_rewards(&self, pk: &XfrPublicKey) -> Result<Amount> {
         self.di.addr_map.get(pk).map(|d| d.rwd_amount).ok_or(eg!())
     }
 
     /// Query delegation principal.
     #[inline(always)]
-    pub fn delegation_get_principal(&self, pk: &XfrPublicKey) -> Result<i64> {
-        self.di.addr_map.get(pk).map(|d| d.amount).ok_or(eg!())
+    pub fn delegation_get_principal(&self, pk: &XfrPublicKey) -> Result<Amount> {
+        self.di.addr_map.get(pk).map(|d| d.amount()).ok_or(eg!())
     }
 
     /// Query all freed delegations.
@@ -607,44 +608,50 @@ impl Staking {
             .and_then(|pk| self.governance_penalty_by_pubkey(&pk, percent).c(d!()))
     }
 
-    // Penalize the FRAs by a specified pubkey.
     fn governance_penalty_by_pubkey(
         &mut self,
         addr: &XfrPublicKey,
         percent: [u64; 2],
     ) -> Result<()> {
-        if 0 == percent[1] || percent[1] > i64::MAX as u64 || percent[0] > percent[1] {
+        if 0 == percent[1] || percent[1] > i64::MAX as Amount || percent[0] > percent[1]
+        {
             return Err(eg!());
         }
 
-        let percent = [percent[0] as i64, percent[1] as i64];
-        for (pk, am) in self
-            .di
-            .addr_map
-            .values()
-            .filter(|d| &d.validator == addr)
-            .map(|d| (d.rwd_pk, d.amount))
-            .collect::<Vec<_>>()
-            .into_iter()
-        {
-            let p_am = if let Ok(cur_power) = self.validator_get_power(&pk) {
-                self.validator_change_power(&pk, -(cur_power * 2 / 3))
-                    .c(d!())?;
-                am * percent[0] / percent[1]
-            } else {
-                am * percent[0] / percent[1] / 10
+        // punish itself
+        let am = self.delegation_get(addr).c(d!())?.amount();
+        self.governance_penalty_sub_amount(addr, am * percent[0] / percent[1])
+            .c(d!())?;
+
+        if self.addr_is_validator(addr) {
+            // punish vote power if if is a validator
+            self.validator_get_power(addr).c(d!()).and_then(|p| {
+                self.validator_change_power(addr, p * 2 / 3, true).c(d!())
+            })?;
+
+            // punish related delegators
+            let pl = || {
+                self.di
+                    .addr_map
+                    .values()
+                    .filter(|d| d.validator_entry_exists(addr))
+                    .map(|d| (d.rwd_pk, d.amount() * percent[0] / percent[1] / 10))
+                    .collect::<Vec<_>>()
             };
-            self.delegation_import_extern_amount(&pk, -p_am).c(d!())?;
+
+            pl().into_iter().for_each(|(pk, p_am)| {
+                ruc::info_omit!(self.governance_penalty_sub_amount(&pk, p_am));
+            });
         }
 
         Ok(())
     }
 
     #[inline(always)]
-    fn delegation_import_extern_amount(
+    fn governance_penalty_sub_amount(
         &mut self,
         addr: &XfrPublicKey,
-        am: Amount,
+        mut am: Amount,
     ) -> Result<()> {
         let d = if let Some(d) = self.di.addr_map.get_mut(addr) {
             d
@@ -656,7 +663,13 @@ impl Staking {
             return Err(eg!("delegation has been paid"));
         } else {
             // NOTE: use amount field, not rwd_amount
-            d.amount = d.amount.saturating_add(am);
+            d.entries.values_mut().for_each(|v| {
+                if 0 < am {
+                    let i = *v;
+                    *v = v.saturating_sub(am);
+                    am = am.saturating_sub(i);
+                }
+            });
         }
 
         Ok(())
@@ -870,7 +883,7 @@ impl Staking {
     fn coinbase_collect_payments(
         &self,
         tx: &Transaction,
-    ) -> Result<(HashMap<XfrPublicKey, u64>, HashMap<XfrPublicKey, u64>)> {
+    ) -> Result<(HashMap<XfrPublicKey, Amount>, HashMap<XfrPublicKey, Amount>)> {
         let mut v: &mut u64;
         let mut distribution = map! {};
         let mut delegation = map! {};
@@ -901,8 +914,7 @@ impl Staking {
         });
         let xb = delegation.iter().any(|(addr, am)| {
             let d = self.delegation_get(addr).unwrap();
-            let am = *am as Amount;
-            0 == am || (d.rwd_amount != am && d.amount != am)
+            0 == *am || (d.rwd_amount != *am && d.amount() != *am)
         });
 
         if xa || xb {
@@ -913,7 +925,10 @@ impl Staking {
     }
 
     // amounts have been checked in `coinbase_collect_payments`,
-    fn coinbase_pay_fra_distribution(&mut self, payments: &HashMap<XfrPublicKey, u64>) {
+    fn coinbase_pay_fra_distribution(
+        &mut self,
+        payments: &HashMap<XfrPublicKey, Amount>,
+    ) {
         self.coinbase
             .distribution_plan
             .iter_mut()
@@ -937,16 +952,16 @@ impl Staking {
     // - pubkey existances have been checked in `seems_valid_coinbase_ops`
     // - delegation states has been checked in `addr_is_in_freed_delegation`
     #[inline(always)]
-    fn coinbase_pay_delegation(&mut self, payments: &HashMap<XfrPublicKey, u64>) {
+    fn coinbase_pay_delegation(&mut self, payments: &HashMap<XfrPublicKey, Amount>) {
         payments.iter().for_each(|(pk, am)| {
             let d = self.delegation_get_mut(pk).unwrap();
             let am = *am as Amount;
             if am == d.rwd_amount {
                 d.rwd_amount = 0;
             } else {
-                d.amount = 0;
+                d.clean_amount();
             }
-            if 0 == d.rwd_amount && 0 == d.amount {
+            if 0 == d.rwd_amount && 0 == d.amount() {
                 d.state = DelegationState::Paid;
             }
         });
@@ -978,7 +993,7 @@ impl Staking {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn fra_distribution_get_plan(&self) -> &BTreeMap<XfrPublicKey, u64> {
+    pub fn fra_distribution_get_plan(&self) -> &BTreeMap<XfrPublicKey, Amount> {
         &self.coinbase.distribution_plan
     }
 
@@ -986,7 +1001,7 @@ impl Staking {
     pub fn set_last_block_rewards(
         &mut self,
         addr: TendermintAddrRef,
-        block_vote_power: Option<i64>,
+        block_vote_power: Option<Power>,
     ) -> Result<()> {
         let pk = self.td_addr_to_app_pk(addr).c(d!())?;
         if !self.addr_is_validator(&pk) {
@@ -999,9 +1014,9 @@ impl Staking {
         self.di
             .addr_map
             .values_mut()
-            .filter(|d| d.validator == pk)
+            .filter(|d| d.validator_entry_exists(&pk))
             .for_each(|d| {
-                ruc::info_omit!(d.set_delegation_rewards(h, return_rate));
+                ruc::info_omit!(d.set_delegation_rewards(&pk, h, return_rate));
             });
 
         if let Some(power) = block_vote_power {
@@ -1044,7 +1059,7 @@ impl Staking {
     fn set_proposer_rewards(
         &mut self,
         proposer: &XfrPublicKey,
-        vote_percent: [i64; 2],
+        vote_percent: [u64; 2],
     ) -> Result<()> {
         const RATE_RULE: [([u64; 2], u64); 6] = [
             ([0, 66_6667], 0),
@@ -1055,7 +1070,7 @@ impl Staking {
             ([100_0000, 100_0001], 5),
         ];
 
-        let p = [vote_percent[0] as u64, vote_percent[1] as u64];
+        let p = vote_percent;
 
         if p[0] > p[1] {
             return Err(eg!());
@@ -1067,7 +1082,9 @@ impl Staking {
                 return self
                     .delegation_get_mut(proposer)
                     .ok_or(eg!())
-                    .and_then(|d| d.set_delegation_rewards(h, [*rate, 100]).c(d!()));
+                    .and_then(|d| {
+                        d.set_delegation_rewards(proposer, h, [*rate, 100]).c(d!())
+                    });
             }
         }
 
@@ -1075,9 +1092,9 @@ impl Staking {
     }
 
     /// Claim delegation rewards.
-    pub fn claim(&mut self, pk: XfrPublicKey, am: u64) -> Result<()> {
+    pub fn claim(&mut self, pk: XfrPublicKey, am: Amount) -> Result<()> {
         let am = self.delegation_get(&pk).ok_or(eg!()).and_then(|d| {
-            if am > d.rwd_amount as u64 {
+            if am > d.rwd_amount {
                 return Err(eg!());
             }
             if DelegationState::Paid == d.state {
@@ -1093,13 +1110,13 @@ impl Staking {
 }
 
 /// How many FRA units per FRA
-pub const FRA: u64 = 10_u64.pow(FRA_DECIMALS as u32);
+pub const FRA: Amount = 10_u64.pow(FRA_DECIMALS as u32);
 
 /// Total amount of FRA-units issuance.
-pub const FRA_TOTAL_AMOUNT: u64 = 210_0000_0000 * FRA;
+pub const FRA_TOTAL_AMOUNT: Amount = 210_0000_0000 * FRA;
 
-const MIN_DELEGATION_AMOUNT: u64 = 32 * FRA;
-const MAX_DELEGATION_AMOUNT: u64 = FRA_TOTAL_AMOUNT / 10;
+const MIN_DELEGATION_AMOUNT: Amount = 32 * FRA;
+const MAX_DELEGATION_AMOUNT: Amount = FRA_TOTAL_AMOUNT / 10;
 
 /// The highest height in the context of tendermint.
 pub const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
@@ -1145,6 +1162,10 @@ pub const BLOCK_INTERVAL: u64 = 15 + 1;
 pub const UNBOND_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
 
 /// used in test env
+#[cfg(feature = "debug_env")]
+pub const UNBOND_BLOCK_CNT: u64 = 20;
+
+/// used in mock env
 #[cfg(feature = "abci_mock")]
 pub const UNBOND_BLOCK_CNT: u64 = 10;
 
@@ -1160,8 +1181,8 @@ type Memo = String;
 /// block height of tendermint
 pub type BlockHeight = u64;
 
-// use i64 to keep compatible with the logic of asset penalty
-type Amount = i64;
+type Amount = u64;
+type Power = u64;
 
 /// sha256(pubkey)[:20] in hex format
 pub type TendermintAddr = String;
@@ -1326,10 +1347,9 @@ impl Validator {
 /// - validator's self-delegation
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Delegation {
-    /// total `NonConfidential` FRAs in a staking address
-    pub amount: Amount,
-    /// the target validator to delegated to
-    pub validator: XfrPublicKey,
+    /// - the target validator
+    /// - `NonConfidential` FRAs amount
+    pub entries: BTreeMap<XfrPublicKey, Amount>,
     /// delegation rewards will be paid to this pk
     pub rwd_pk: XfrPublicKey,
     /// the height at which the delegation starts
@@ -1343,6 +1363,36 @@ pub struct Delegation {
     pub state: DelegationState,
     /// set this field when `Bond` state finished
     pub rwd_amount: Amount,
+}
+
+impl Delegation {
+    /// Total amout of a delegator.
+    #[inline(always)]
+    pub fn amount(&self) -> Amount {
+        self.entries.values().sum()
+    }
+
+    #[inline(always)]
+    fn validator_entry(&self, validator: &XfrPublicKey) -> Result<Amount> {
+        self.entries.get(validator).copied().ok_or(eg!())
+    }
+
+    #[inline(always)]
+    fn validator_entry_exists(&self, validator: &XfrPublicKey) -> bool {
+        self.entries.contains_key(validator)
+    }
+
+    // #[inline(always)]
+    // fn validator_entry_mut(&mut self, validator: &XfrPublicKey) -> Result<&mut Amount> {
+    //     self.entries.get_mut(validator).ok_or(eg!())
+    // }
+
+    #[inline(always)]
+    fn clean_amount(&mut self) {
+        self.entries.values_mut().for_each(|v| {
+            *v = 0;
+        });
+    }
 }
 
 #[allow(missing_docs)]
@@ -1370,6 +1420,7 @@ impl Delegation {
     /// > to keep compatible with the logic of governance penalty.
     pub fn set_delegation_rewards(
         &mut self,
+        validator: &XfrPublicKey,
         cur_height: BlockHeight,
         return_rate: [u64; 2],
     ) -> Result<()> {
@@ -1377,16 +1428,10 @@ impl Delegation {
             return Ok(());
         }
 
-        // APY
-        let am = self.amount.saturating_add(self.rwd_amount);
-
-        calculate_delegation_rewards(am, return_rate)
+        self.validator_entry(validator)
             .c(d!())
-            .and_then(|n| {
-                self.rwd_amount
-                    .checked_add(n as Amount)
-                    .ok_or(eg!("overflow"))
-            })
+            .and_then(|am| calculate_delegation_rewards(am, return_rate).c(d!()))
+            .and_then(|n| self.rwd_amount.checked_add(n).ok_or(eg!("overflow")))
             .map(|n| {
                 self.rwd_amount = n;
             })
@@ -1395,7 +1440,10 @@ impl Delegation {
 
 /// Calculate the amount(in FRA units) that
 /// should be paid to the owner of this delegation.
-pub fn calculate_delegation_rewards(amount: i64, return_rate: [u64; 2]) -> Result<u64> {
+pub fn calculate_delegation_rewards(
+    amount: Amount,
+    return_rate: [u64; 2],
+) -> Result<Amount> {
     let am = amount as u128;
     let block_itv = BLOCK_INTERVAL as u128;
     let return_rate = [return_rate[0] as u128, return_rate[1] as u128];
@@ -1423,7 +1471,7 @@ struct CoinBase {
     principal_bank: BTreeSet<TxoSID>,
 
     distribution_hist: BTreeSet<Digest>,
-    distribution_plan: BTreeMap<XfrPublicKey, u64>,
+    distribution_plan: BTreeMap<XfrPublicKey, Amount>,
 }
 
 impl Eq for CoinBase {}

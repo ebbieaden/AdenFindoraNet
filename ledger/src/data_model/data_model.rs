@@ -1088,12 +1088,12 @@ pub struct FinalizedTransaction {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StakingList {
-    stakers: Vec<(TendermintAddr, i64)>,
+    stakers: Vec<(TendermintAddr, u64)>,
     threshold: [u128; 2],
 }
 
 impl StakingList {
-    pub fn new(stakers: Vec<(TendermintAddr, i64)>) -> Self {
+    pub fn new(stakers: Vec<(TendermintAddr, u64)>) -> Self {
         StakingList {
             stakers,
             threshold: MAX_POWER_PERCENT_PER_VALIDATOR,
@@ -1103,30 +1103,30 @@ impl StakingList {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StakerAccountInfo {
-    total_staking: i64,
+    total_staking: u64,
     apy: [u64; 2],
-    reward: i64,
-    total_delegation: i64,
-    current_delegation: i64,
+    reward: u64,
+    total_delegation: u64,
+    current_delegation: u64,
 }
 impl Default for StakerAccountInfo {
     fn default() -> Self {
         StakerAccountInfo {
-            total_staking: 0i64,
-            apy: [0u64, 100u64],
-            reward: 0i64,
-            total_delegation: 0i64,
-            current_delegation: 0i64,
+            total_staking: 0,
+            apy: [0, 100],
+            reward: 0,
+            total_delegation: 0,
+            current_delegation: 0,
         }
     }
 }
 impl StakerAccountInfo {
     pub fn new(
         apy: [u64; 2],
-        total_staking: i64,
-        reward: i64,
-        total_delegation: i64,
-        current_delegation: i64,
+        total_staking: u64,
+        reward: u64,
+        total_delegation: u64,
+        current_delegation: u64,
     ) -> Self {
         Self {
             total_staking,

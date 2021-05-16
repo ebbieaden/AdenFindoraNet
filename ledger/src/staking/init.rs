@@ -2,12 +2,12 @@
 //! Initial Config
 //!
 
-use super::{BlockHeight, Validator, ValidatorData, FRA};
+use super::{BlockHeight, Power, Validator, ValidatorData, FRA};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fs};
 
-const DEFAULT_POWER: i64 = 32_0000 * FRA as i64;
+const DEFAULT_POWER: Power = 32_0000 * FRA;
 
 /// Generate config during compiling time.
 #[derive(Serialize, Deserialize)]
@@ -26,7 +26,7 @@ pub struct ValidatorStr {
     td_addr: String,
     // Tendermint PubKey, in base64 format
     td_pubkey: String,
-    td_power: Option<i64>,
+    td_power: Option<Power>,
     memo: Option<String>,
 }
 

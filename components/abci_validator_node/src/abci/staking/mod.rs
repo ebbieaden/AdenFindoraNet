@@ -30,8 +30,6 @@ use zei::xfr::{
 
 mod whoami;
 
-type SignedPower = i64;
-
 // The top 50 candidate validators
 // will become official validators.
 const VALIDATOR_LIMIT: usize = 50;
@@ -57,7 +55,7 @@ pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
     }
 
     // reverse sort
-    vs.sort_by_key(|v| -v.1);
+    vs.sort_by(|a, b| b.1.cmp(&a.1));
 
     // set the power of every extra validators to zero,
     // then tendermint can remove them from consensus logic.
@@ -72,7 +70,8 @@ pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
             let mut pk = PubKey::new();
             // pk.set_field_type("ed25519".to_owned());
             pk.set_data(pubkey.to_vec());
-            vu.set_power(*power);
+            // this conversion is safe in the context of tendermint
+            vu.set_power(*power as i64);
             vu.set_pub_key(pk);
             vu
         })
@@ -131,12 +130,12 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
 }
 
 // Get the actual total power of last block.
-fn get_last_vote_power(last_commit_info: &LastCommitInfo) -> SignedPower {
+fn get_last_vote_power(last_commit_info: &LastCommitInfo) -> u64 {
     last_commit_info
         .votes
         .iter()
         .filter(|v| v.signed_last_block)
-        .flat_map(|info| info.validator.as_ref().map(|v| v.power))
+        .flat_map(|info| info.validator.as_ref().map(|v| v.power as u64))
         .sum()
 }
 
@@ -144,7 +143,7 @@ fn get_last_vote_power(last_commit_info: &LastCommitInfo) -> SignedPower {
 fn set_rewards(
     staking: &mut Staking,
     proposer: &[u8],
-    last_vote_power: Option<i64>,
+    last_vote_power: Option<u64>,
 ) -> Result<()> {
     staking
         .set_last_block_rewards(&hex::encode_upper(proposer), last_vote_power)
@@ -348,7 +347,7 @@ fn gen_offline_punish_list(
         .values()
         .map(|v| (td_pubkey_to_td_addr_bytes(&v.td_pubkey), v.td_power))
         .collect::<Vec<_>>();
-    vs.sort_by_key(|v| -v.1);
+    vs.sort_by(|a, b| b.1.cmp(&a.1));
     vs.iter_mut().skip(VALIDATOR_LIMIT).for_each(|(_, power)| {
         *power = 0;
     });

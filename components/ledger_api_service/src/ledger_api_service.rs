@@ -379,13 +379,13 @@ where
             .map(|(tendermint_addr, xfr_public_key)| {
                 (
                     tendermint_addr.clone(),
-                    match validator_data.get_validator_by_key(xfr_public_key) {
-                        Ok(validator) => validator.td_power,
-                        _ => 0i64,
-                    },
+                    validator_data
+                        .get_validator_by_key(xfr_public_key)
+                        .map(|v| v.td_power)
+                        .unwrap_or(0),
                 )
             })
-            .collect::<Vec<(TendermintAddr, i64)>>();
+            .collect::<Vec<(TendermintAddr, u64)>>();
         return Ok(web::Json(StakingList::new(validators_list)));
     };
     Ok(web::Json(StakingList::new(vec![])))
@@ -411,12 +411,11 @@ where
     let total_staking = stakings.validator_total_power();
     let total_delegation = stakings.delegation_info_total_amount();
 
-    //Whether it is delegate or staking, an address can only be done
-    let (rwd_amount, amount): (i64, i64) = match stakings.delegation_get(&xfr_public_key)
-    {
-        Some(delegation) => (delegation.rwd_amount, delegation.amount),
-        _ => (0i64, 0i64),
-    };
+    let (rwd_amount, amount) = stakings
+        .delegation_get(&xfr_public_key)
+        .map(|d| (d.rwd_amount, d.amount()))
+        .unwrap_or((0, 0));
+
     Ok(web::Json(StakerAccountInfo::new(
         block_rewards_rate,
         total_staking,

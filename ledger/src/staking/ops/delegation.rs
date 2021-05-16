@@ -12,7 +12,7 @@ use crate::{
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, convert::TryFrom};
+use std::collections::HashSet;
 use zei::xfr::{
     sig::{XfrKeyPair, XfrPublicKey, XfrSignature},
     structs::{XfrAmount, XfrAssetType},
@@ -253,7 +253,7 @@ fn check_delegation_context_principal(
                 if ty == ASSET_TYPE_FRA && target_pk == o.record.public_key {
                     if let XfrAmount::NonConfidential(i_am) = o.record.amount {
                         check_balance!(x, {
-                            am = Amount::try_from(i_am).ok();
+                            am = Some(i_am);
                             break;
                         });
                     }

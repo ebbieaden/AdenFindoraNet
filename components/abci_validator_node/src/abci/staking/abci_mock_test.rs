@@ -87,7 +87,7 @@ type ChanPair = (
 static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
 
 const ITV: u64 = 10;
-const INITIAL_POWER: i64 = 1_0000 * FRA as i64;
+const INITIAL_POWER: u64 = 1_0000 * FRA;
 
 struct AbciMocker(ABCISubmissionServer);
 
@@ -138,7 +138,7 @@ impl AbciMocker {
                 .filter_map(|v| {
                     v.pub_key
                         .as_ref()
-                        .map(|pk| (td_pubkey_to_td_addr(pk.get_data()), v.power))
+                        .map(|pk| (td_pubkey_to_td_addr(pk.get_data()), v.power as u64))
                 })
                 .collect();
         }
@@ -171,7 +171,7 @@ impl AbciMocker {
 }
 
 pub struct TendermintMocker {
-    validators: BTreeMap<String, i64>,
+    validators: BTreeMap<String, u64>,
 }
 
 impl TendermintMocker {
@@ -530,7 +530,7 @@ fn env_refresh(validator_num: u8) {
 //
 // 6. use `x` to propose a delegation
 // 7. make sure `x` can continue to propose new delegations
-// 8. delegate to different validators is not allowed
+// 8. delegate to different validators
 // 9. make sure `x` can do transfer
 // 10. make sure the power of co-responding validator is increased
 // 11. undelegate
@@ -669,12 +669,12 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    // 8. delegate to different validators is not allowed
+    // 8. delegate to different validators
 
     let tx_hash =
         delegate(&x_kp, td_pubkey_to_td_addr(&v_set[1].td_pubkey), 64 * FRA).c(d!())?;
     wait_one_block();
-    assert!(is_failed(&tx_hash));
+    assert!(is_successful(&tx_hash));
 
     // 9. make sure `x` can do transfer
 
@@ -695,7 +695,7 @@ fn staking_scene_1() -> Result<()> {
         .validator_get_power(&v_set[0].id)
         .c(d!())?;
 
-    assert_eq!((32 + 64 + 100) * FRA as i64 + INITIAL_POWER, power);
+    assert_eq!((32 + 64 + 100) * FRA + INITIAL_POWER, power);
 
     // 11. undelegate
 
@@ -716,7 +716,7 @@ fn staking_scene_1() -> Result<()> {
         .validator_get_power(&v_set[0].id)
         .c(d!())?;
 
-    assert_eq!(100 * FRA as i64 + INITIAL_POWER, power);
+    assert_eq!(100 * FRA + INITIAL_POWER, power);
 
     // 13. make sure delegation reward is calculated and paid correctly
 
@@ -730,8 +730,7 @@ fn staking_scene_1() -> Result<()> {
         .get_staking()
         .get_block_rewards_rate();
 
-    let rewards =
-        calculate_delegation_rewards(32 * FRA as i64, return_rate).c(d!())? * 10;
+    let rewards = calculate_delegation_rewards(32 * FRA, return_rate).c(d!())? * 10;
 
     // UnBond time: 10 blocks
     for _ in 0..12 {
@@ -740,12 +739,12 @@ fn staking_scene_1() -> Result<()> {
     }
 
     assert!(
-        10000 * FRA - 4 * TX_FEE_MIN
+        10000 * FRA - 5 * TX_FEE_MIN
             < ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
     );
 
     assert!(
-        10000 * FRA + rewards - 4 * TX_FEE_MIN
+        10000 * FRA + rewards - 5 * TX_FEE_MIN
             >= ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
     );
 
@@ -863,7 +862,7 @@ fn staking_scene_1() -> Result<()> {
             .validator_get_power(&v.id)
             .c(d!())?;
 
-        assert_eq!((32 + 100) * FRA as i64 + INITIAL_POWER, power);
+        assert_eq!((32 + 100) * FRA + INITIAL_POWER, power);
     }
 
     // 26. wait for the end of unbond state
@@ -893,7 +892,7 @@ fn staking_scene_1() -> Result<()> {
             .get_staking()
             .validator_get_power(&v.id)
             .c(d!())?;
-        assert_eq!(100 * FRA as i64 + INITIAL_POWER, power);
+        assert_eq!(100 * FRA + INITIAL_POWER, power);
     }
 
     // 28. re-delegate those multi addrs one by one
@@ -1096,7 +1095,7 @@ fn staking_scene_2() -> Result<()> {
         .delegation_get_principal(&v_set[0].id)
         .c(d!())?;
 
-    assert_eq!(100 * FRA * 95 / 100, principal as u64);
+    assert_eq!(100 * FRA * 95 / 100 * (950 + 45) / 1000, principal as u64);
 
     // 8. make sure the delegation rewards of regular delegator is punished(1/10)
 
