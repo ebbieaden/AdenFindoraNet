@@ -66,9 +66,15 @@ pub fn get_cfg_data() -> Result<InitialValidatorInfo> {
 }
 
 #[allow(missing_docs)]
-#[cfg(not(feature = "abci_mock"))]
+#[cfg(not(any(feature = "debug_env", feature = "abci_mock")))]
 pub fn get_cfg_path() -> Option<&'static str> {
     option_env!("STAKING_INITIAL_VALIDATOR_CONFIG")
+}
+
+#[allow(missing_docs)]
+#[cfg(feature = "debug_env")]
+pub fn get_cfg_path() -> Option<&'static str> {
+    option_env!("STAKING_INITIAL_VALIDATOR_CONFIG_DEBUG_ENV")
 }
 
 #[allow(missing_docs)]

@@ -14,8 +14,12 @@ all: build_release
 export CARGO_NET_GIT_FETCH_WITH_CLI = true
 export PROTOC = $(shell which protoc)
 
-# export STAKING_INITIAL_VALIDATOR_CONFIG = $(shell pwd)/tools/staking_config.json
+export STAKING_INITIAL_VALIDATOR_CONFIG = $(shell pwd)/tools/staking_config.json
+export STAKING_INITIAL_VALIDATOR_CONFIG_DEBUG_ENV = $(shell pwd)/tools/staking_config_debug_env.json
 export STAKING_INITIAL_VALIDATOR_CONFIG_ABCI_MOCK = $(shell pwd)/tools/staking_config_abci_mock.json
+
+export LEDGER_DIR=/tmp/findora
+export ENABLE_LEDGER_SERVICE = true
 
 ifdef DBG
 target_dir = debug
@@ -38,6 +42,7 @@ bin_files_musl_debug = \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/findora \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/query_server \
+		./target/x86_64-unknown-linux-musl/$(target_dir)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
 
 WASM_PKG = wasm.tar.gz
@@ -49,6 +54,7 @@ define pack
 	cd $(target_dir); for i in $(release_subdirs); do mkdir $$i; done
 	cp $(bin_files) $(target_dir)/$(bin_dir)
 	cp $(lib_files) $(target_dir)/$(lib_dir)
+	cp $(target_dir)/$(bin_dir)/* ~/.cargo/bin/
 endef
 
 define pack_musl_debug
@@ -57,6 +63,7 @@ define pack_musl_debug
 	cd $(target_dir); for i in $(release_subdirs); do mkdir $$i; done
 	cp $(bin_files_musl_debug) $(target_dir)/$(bin_dir)
 	cp $(lib_files) $(target_dir)/$(lib_dir)
+	cp $(target_dir)/$(bin_dir)/* ~/.cargo/bin/
 endef
 
 build: tendermint wasm
@@ -77,24 +84,39 @@ else
 	$(call pack,$(target_dir))
 endif
 
+build_release_debug: tendermint wasm
+ifdef DBG
+	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
+	@ exit 1
+else
+	cargo build --features="debug_env" --frozen --release --bins \
+		-p abci_validator_node -p query_api -p cli2
+	$(call pack,$(target_dir))
+endif
+
 build_release_musl_debug: tendermint wasm
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --target=x86_64-unknown-linux-musl --frozen --release --bins -p abci_validator_node -p query_api -p cli2
+	cargo build --features="debug_env" --frozen --release --bins \
+		-p abci_validator_node -p query_api -p cli2 \
+		--target=x86_64-unknown-linux-musl
 	$(call pack_musl_debug,$(target_dir))
 endif
 
-test: staking_test
+test: staking_release_test
 	cargo test --release --workspace -- --test-threads=1
 	cargo test --release --workspace -- --ignored
 
 staking_test:
-	# cargo test staking --release -- --test-threads=1 --nocapture
-	# cargo test staking --release --features="abci_mock" -- --test-threads=1 --nocapture
 	cargo test staking -- --test-threads=1 --nocapture
 	cargo test staking --features="abci_mock" -- --test-threads=1 --nocapture
+
+staking_release_test:
+	unset LEDGER_DIR
+	cargo test staking --release -- --test-threads=1 --nocapture
+	cargo test staking --release --features="abci_mock" -- --test-threads=1 --nocapture
 
 staking_cfg:
 	cargo run --bin staking_cfg_generator
@@ -130,7 +152,7 @@ tendermint:
 		if [ -d "tools/tendermint" ]; then rm -rf tools/tendermint; fi; \
 		git clone -b v0.33.5 --depth=1 https://github.com/tendermint/tendermint.git tools/tendermint; \
 	fi
-	cd tools/tendermint && make build TENDERMINT_BUILD_OPTIONS=cleveldb && cp build/tendermint ~/go/bin/
+	cd tools/tendermint && make install
 
 wasm:
 	cd components/wasm && wasm-pack build
@@ -143,8 +165,18 @@ single:
 
 devnet:
 	@./scripts/devnet/stopnodes.sh
-	@./scripts/devnet/resetnodes.sh 3 1
+	@./scripts/devnet/resetnodes.sh 20 1
 	@./scripts/devnet/startnodes.sh
+
+debug_env: stop_debug_env build_release_debug
+	- rm -rf $(LEDGER_DIR)
+	mkdir $(LEDGER_DIR)
+	cp tools/debug_env.tar.gz $(LEDGER_DIR)/
+	cd $(LEDGER_DIR) && tar -xpf debug_env.tar.gz && mv debug_env devnet
+	./scripts/devnet/startnodes.sh
+
+stop_debug_env:
+	@./scripts/devnet/stopnodes.sh
 
 ci_build_image:
 	@if [ ! -d "release/bin/" ] && [ -d "debug/bin" ]; then \

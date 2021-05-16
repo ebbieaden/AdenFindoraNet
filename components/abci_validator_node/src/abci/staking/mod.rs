@@ -68,7 +68,7 @@ pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
         .map(|(pubkey, power)| {
             let mut vu = ValidatorUpdate::new();
             let mut pk = PubKey::new();
-            // pk.set_field_type("ed25519".to_owned());
+            pk.set_field_type("ed25519".to_owned());
             pk.set_data(pubkey.to_vec());
             // this conversion is safe in the context of tendermint
             vu.set_power(*power as i64);

@@ -21,4 +21,4 @@ Cargo.lock
 *.tar.gz
 nohup.out
 
-*.secret_info
+*.keys

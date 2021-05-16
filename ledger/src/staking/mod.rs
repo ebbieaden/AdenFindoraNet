@@ -1163,7 +1163,7 @@ pub const MAX_POWER_PERCENT_PER_VALIDATOR: [u128; 2] = [1, 5];
 pub const BLOCK_INTERVAL: u64 = 15 + 1;
 
 /// The lock time after the delegation expires, about 21 days.
-#[cfg(not(feature = "abci_mock"))]
+#[cfg(not(any(feature = "debug_env", feature = "abci_mock")))]
 pub const UNBOND_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
 
 /// used in test env

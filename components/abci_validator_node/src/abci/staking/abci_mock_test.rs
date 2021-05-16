@@ -16,8 +16,8 @@ use ledger::{
     staking::{
         calculate_delegation_rewards, ops::governance::ByzantineKind,
         td_pubkey_to_td_addr, TendermintAddr, Validator as StakingValidator,
-        BLOCK_HEIGHT_MAX, COINBASE_KP, COINBASE_PK, COINBASE_PRINCIPAL_PK, FRA,
-        FRA_TOTAL_AMOUNT,
+        BLOCK_HEIGHT_MAX, COINBASE_KP, COINBASE_PK, COINBASE_PRINCIPAL_KP,
+        COINBASE_PRINCIPAL_PK, FRA, FRA_TOTAL_AMOUNT,
     },
     store::{fra_gen_initial_tx, LedgerAccess},
 };
@@ -672,7 +672,7 @@ fn staking_scene_1() -> Result<()> {
     // 8. delegate to different validators
 
     let tx_hash =
-        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[1].td_pubkey), 64 * FRA).c(d!())?;
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[1].td_pubkey), 84 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -697,6 +697,19 @@ fn staking_scene_1() -> Result<()> {
 
     assert_eq!((32 + 64 + 100) * FRA + INITIAL_POWER, power);
 
+    let power = ABCI_MOCKER
+        .read()
+        .0
+        .la
+        .read()
+        .get_committed_state()
+        .read()
+        .get_staking()
+        .validator_get_power(&v_set[1].id)
+        .c(d!())?;
+
+    assert_eq!((84 + 100) * FRA + INITIAL_POWER, power);
+
     // 11. undelegate
 
     let tx_hash = undelegate(&x_kp).c(d!())?;
@@ -718,6 +731,19 @@ fn staking_scene_1() -> Result<()> {
 
     assert_eq!(100 * FRA + INITIAL_POWER, power);
 
+    let power = ABCI_MOCKER
+        .read()
+        .0
+        .la
+        .read()
+        .get_committed_state()
+        .read()
+        .get_staking()
+        .validator_get_power(&v_set[1].id)
+        .c(d!())?;
+
+    assert_eq!(100 * FRA + INITIAL_POWER, power);
+
     // 13. make sure delegation reward is calculated and paid correctly
 
     let return_rate = ABCI_MOCKER
@@ -730,7 +756,8 @@ fn staking_scene_1() -> Result<()> {
         .get_staking()
         .get_block_rewards_rate();
 
-    let rewards = calculate_delegation_rewards(32 * FRA, return_rate).c(d!())? * 10;
+    let rewards =
+        calculate_delegation_rewards((32 + 64 + 85) * FRA, return_rate).c(d!())? * 10;
 
     // UnBond time: 10 blocks
     for _ in 0..12 {
@@ -753,6 +780,10 @@ fn staking_scene_1() -> Result<()> {
     // 21. transfer FRAs from CoinBase to out-plan addr, and make sure it will fail
 
     let tx_hash = transfer(&COINBASE_KP, keypair.get_pk_ref(), 1).c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
+
+    let tx_hash = transfer(&COINBASE_PRINCIPAL_KP, keypair.get_pk_ref(), 1).c(d!())?;
     wait_one_block();
     assert!(is_failed(&tx_hash));
 
@@ -916,6 +947,15 @@ fn staking_scene_1() -> Result<()> {
 
     let tx_hash = delegate(
         &COINBASE_KP,
+        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
+        32 * FRA,
+    )
+    .c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
+
+    let tx_hash = delegate(
+        &COINBASE_PRINCIPAL_KP,
         td_pubkey_to_td_addr(&v_set[0].td_pubkey),
         32 * FRA,
     )

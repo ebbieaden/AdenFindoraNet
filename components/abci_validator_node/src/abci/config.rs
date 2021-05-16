@@ -1,8 +1,7 @@
 use ruc::*;
 use serde_derive::Deserialize;
-use std::{env, fs, path::Path};
+use std::{convert::TryFrom, env, fs, path::Path};
 
-#[derive(Deserialize)]
 pub struct ABCIConfig {
     pub abci_host: String,
     pub abci_port: u16,
@@ -12,8 +11,34 @@ pub struct ABCIConfig {
     pub submission_port: u16,
     pub ledger_host: String,
     pub ledger_port: u16,
-    pub query_host: String,
-    pub query_port: u16,
+}
+
+#[derive(Deserialize)]
+pub struct ABCIConfigStr {
+    pub abci_host: String,
+    pub abci_port: String,
+    pub tendermint_host: String,
+    pub tendermint_port: String,
+    pub submission_host: String,
+    pub submission_port: String,
+    pub ledger_host: String,
+    pub ledger_port: String,
+}
+
+impl TryFrom<ABCIConfigStr> for ABCIConfig {
+    type Error = Box<dyn RucError>;
+    fn try_from(cfg: ABCIConfigStr) -> Result<Self> {
+        Ok(ABCIConfig {
+            abci_host: cfg.abci_host,
+            abci_port: cfg.abci_port.parse::<u16>().c(d!())?,
+            tendermint_host: cfg.tendermint_host,
+            tendermint_port: cfg.tendermint_port.parse::<u16>().c(d!())?,
+            submission_host: cfg.submission_host,
+            submission_port: cfg.submission_port.parse::<u16>().c(d!())?,
+            ledger_host: cfg.ledger_host,
+            ledger_port: cfg.ledger_port.parse::<u16>().c(d!())?,
+        })
+    }
 }
 
 impl ABCIConfig {
@@ -49,13 +74,6 @@ impl ABCIConfig {
             .parse::<u16>()
             .c(d!())?;
 
-        // client ------> query_server
-        let query_host = submission_host.clone();
-        let query_port = std::env::var("QUERY_PORT")
-            .unwrap_or_else(|_| "8667".to_owned())
-            .parse::<u16>()
-            .c(d!())?;
-
         Ok(ABCIConfig {
             abci_host,
             abci_port,
@@ -65,8 +83,6 @@ impl ABCIConfig {
             submission_port,
             ledger_host,
             ledger_port,
-            query_host,
-            query_port,
         })
     }
 
@@ -76,6 +92,7 @@ impl ABCIConfig {
             .map(|p| Path::new(&p).join("abci").join("abci.toml"))
             .ok_or_else(|| eg!())
             .and_then(|p| fs::read_to_string(p).c(d!()))
-            .and_then(|contents| toml::from_str(&contents).c(d!()))
+            .and_then(|contents| toml::from_str::<ABCIConfigStr>(&contents).c(d!()))
+            .and_then(|cfg_str| ABCIConfig::try_from(cfg_str).c(d!()))
     }
 }

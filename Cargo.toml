@@ -27,7 +27,6 @@ incremental = false
 overflow-checks = true
 
 [profile.release]
-codegen-units = 1
 incremental = false
 overflow-checks = false
 
