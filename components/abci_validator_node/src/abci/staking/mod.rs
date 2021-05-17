@@ -117,14 +117,17 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
             .filter(|v| !v.signed_last_block)
             .flat_map(|info| info.validator.as_ref().map(|v| &v.address))
             .collect::<HashSet<_>>();
-        if let Ok(olpl) = ruc::info!(gen_offline_punish_list(staking, &offline_list)) {
-            olpl.into_iter().for_each(|v| {
-                let bz = ByzantineInfo {
-                    addr: &hex::encode(v),
-                    kind: "OFF_LINE",
-                };
-                ruc::info_omit!(system_governance(staking, &bz));
-            });
+        if !offline_list.is_empty() {
+            if let Ok(olpl) = ruc::info!(gen_offline_punish_list(staking, &offline_list))
+            {
+                olpl.into_iter().for_each(|v| {
+                    let bz = ByzantineInfo {
+                        addr: &hex::encode(v),
+                        kind: "OFF_LINE",
+                    };
+                    ruc::info_omit!(system_governance(staking, &bz));
+                });
+            }
         }
     }
 }
@@ -335,7 +338,7 @@ fn do_gen_transaction(
 
 fn gen_offline_punish_list(
     staking: &Staking,
-    voted_list: &HashSet<&Vec<u8>>,
+    offline_list: &HashSet<&Vec<u8>>,
 ) -> Result<Vec<Vec<u8>>> {
     let last_height = TENDERMINT_BLOCK_HEIGHT
         .load(Ordering::Relaxed)
@@ -354,7 +357,7 @@ fn gen_offline_punish_list(
 
     Ok(vs
         .into_iter()
-        .filter(|v| 0 < v.1 && !voted_list.contains(&v.0))
+        .filter(|v| 0 < v.1 && offline_list.contains(&v.0))
         .map(|(id, _)| id)
         .collect())
 }
