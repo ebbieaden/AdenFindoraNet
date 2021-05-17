@@ -448,6 +448,19 @@ fn undelegate(owner_kp: &XfrKeyPair) -> Result<Digest> {
     send_tx(tx).c(d!()).map(|_| h)
 }
 
+fn claim(owner_kp: &XfrKeyPair, am: u64) -> Result<Digest> {
+    let mut builder = new_tx_builder();
+    builder.add_operation_claim(owner_kp, am);
+
+    gen_fee_op(owner_kp)
+        .c(d!())
+        .map(|op| builder.add_operation(op))?;
+
+    let tx = builder.take_transaction();
+    let h = gen_tx_hash(&tx);
+    send_tx(tx).c(d!()).map(|_| h)
+}
+
 fn gen_final_tx_auto_fee(
     owner_kp: &XfrKeyPair,
     ops: Vec<Operation>,
@@ -546,6 +559,10 @@ macro_rules! trigger_next_block {
 // 11. undelegate
 // 12. make sure the power of co-responding validator is decreased
 // 13. make sure delegation reward is calculated and paid correctly
+//
+// 14. use `x` to propose a new delegation
+// 15. make sure it can do claim at any time
+// 16. make sure it will fail if the claim amount is bigger than total rewards
 //
 // ...........................................................................
 //
@@ -778,6 +795,44 @@ fn staking_scene_1() -> Result<()> {
         10000 * FRA + rewards - 5 * TX_FEE_MIN
             >= ABCI_MOCKER.read().get_owned_balance(x_kp.get_pk_ref())
     );
+
+    // 14. use `x` to propose a new delegation
+
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 91 * FRA).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // 15. make sure it can do claim at any time
+
+    trigger_next_block!();
+    wait_one_block();
+
+    for i in 0..10 {
+        let old_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
+        let tx_hash = claim(&x_kp, i).c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+
+        // waiting to be paid
+        for _ in 0..2 {
+            trigger_next_block!();
+            wait_one_block();
+        }
+
+        let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
+        assert_eq!(old_balance - TX_FEE_MIN + i, new_balance);
+    }
+
+    // 16. make sure it will fail if the claim amount is bigger than total rewards
+
+    let tx_hash = claim(&x_kp, 10 * FRA).c(d!())?;
+    wait_one_block();
+    assert!(is_failed(&tx_hash));
+
+    let tx_hash = undelegate(&x_kp).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
 
     // ...........................................................................
 

@@ -331,14 +331,16 @@ impl Staking {
             rwd_amount: 0,
         };
 
-        *self
-            .di
-            .addr_map
-            .entry(owner)
-            .or_insert_with(new)
-            .entries
-            .entry(validator)
-            .or_insert(0) += am;
+        let d = self.di.addr_map.entry(owner).or_insert_with(new);
+
+        if DelegationState::Paid == d.state {
+            *d = new();
+            self.di.end_height_map.values_mut().for_each(|set| {
+                set.remove(&owner);
+            });
+        }
+
+        *d.entries.entry(validator).or_insert(0) += am;
 
         self.di
             .end_height_map
@@ -885,8 +887,8 @@ impl Staking {
         tx: &Transaction,
     ) -> Result<(HashMap<XfrPublicKey, Amount>, HashMap<XfrPublicKey, Amount>)> {
         let mut v: &mut u64;
-        let mut distribution = map! {};
         let mut delegation = map! {};
+        let mut distribution = map! {};
 
         for o in tx.body.operations.iter() {
             if let Operation::TransferAsset(ref ops) = o {
@@ -894,12 +896,12 @@ impl Staking {
                     if let XfrAssetType::NonConfidential(t) = u.asset_type {
                         if t == ASSET_TYPE_FRA {
                             if let XfrAmount::NonConfidential(am) = u.amount {
-                                if self.addr_is_in_distribution_plan(&u.public_key) {
-                                    v = distribution.entry(u.public_key).or_insert(0);
-                                    *v = v.checked_add(am).ok_or(eg!("overflow"))?;
-                                }
                                 if self.addr_is_in_freed_delegation(&u.public_key) {
                                     v = delegation.entry(u.public_key).or_insert(0);
+                                    *v = v.checked_add(am).ok_or(eg!("overflow"))?;
+                                }
+                                if self.addr_is_in_distribution_plan(&u.public_key) {
+                                    v = distribution.entry(u.public_key).or_insert(0);
                                     *v = v.checked_add(am).ok_or(eg!("overflow"))?;
                                 }
                             }
@@ -909,17 +911,22 @@ impl Staking {
             }
         }
 
-        let xa = distribution.iter().any(|(addr, am)| {
-            0 == *am || self.coinbase.distribution_plan.get(addr).unwrap() != am
-        });
-        let xb = delegation.iter().any(|(addr, am)| {
-            let d = self.delegation_get(addr).unwrap();
-            0 == *am || (d.rwd_amount != *am && d.amount() != *am)
-        });
+        let delegation = delegation
+            .into_iter()
+            .filter(|(addr, am)| {
+                let d = self.delegation_get(addr).unwrap();
+                0 < *am && (d.rwd_amount == *am || d.amount() == *am)
+            })
+            .collect::<HashMap<_, _>>();
 
-        if xa || xb {
-            return Err(eg!("amount not match"));
-        }
+        let distribution = distribution
+            .into_iter()
+            .filter(|(addr, am)| {
+                0 < *am
+                    && self.coinbase.distribution_plan.get(addr).unwrap() == am
+                    && !delegation.contains_key(addr)
+            })
+            .collect();
 
         Ok((distribution, delegation))
     }
@@ -967,12 +974,9 @@ impl Staking {
         });
     }
 
-    // For addresses in delegation state,
-    // postpone the distribution until the delegation ends.
     #[inline(always)]
     fn addr_is_in_distribution_plan(&self, pk: &XfrPublicKey) -> bool {
         self.coinbase.distribution_plan.contains_key(pk)
-            && !self.di.addr_map.contains_key(pk)
     }
 
     #[inline(always)]

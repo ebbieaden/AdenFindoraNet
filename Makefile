@@ -105,7 +105,7 @@ else
 	$(call pack_musl_debug,$(target_dir))
 endif
 
-test: staking_test staking_release_test
+test: staking_release_test
 	cargo test --release --workspace -- --test-threads=1
 	cargo test --release --workspace -- --ignored
 
