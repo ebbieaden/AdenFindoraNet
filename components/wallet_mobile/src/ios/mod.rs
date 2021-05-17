@@ -184,8 +184,11 @@ pub extern "C" fn findora_ffi_encryption_pbkdf2_aes256gcm(
         c_char_to_string(password),
     );
 
-    let c_str = CString::new(res).expect("CString::new failed");
-    c_str.into_raw()
+    if let Ok(s) = String::from_utf8(res) {
+        string_to_c_char(s)
+    } else {
+        ptr::null_mut()
+    }
 }
 
 #[no_mangle]
@@ -219,6 +222,16 @@ pub unsafe extern "C" fn findora_ffi_get_pub_key_str(
     assert!(!key.is_null());
 
     string_to_c_char(get_pub_key_str(&*key))
+}
+
+#[no_mangle]
+/// Extracts the private key as a string from a transfer key pair.
+pub unsafe extern "C" fn findora_ffi_get_priv_key_str(
+    key: *const types::XfrKeyPair,
+) -> *mut c_char {
+    assert!(!key.is_null());
+
+    string_to_c_char(get_priv_key_str(&*key))
 }
 
 #[no_mangle]

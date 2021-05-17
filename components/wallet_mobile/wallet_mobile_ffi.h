@@ -101,6 +101,11 @@ char *findora_ffi_public_key_to_bech32(const struct XfrPublicKey *key);
 char *findora_ffi_get_pub_key_str(const struct XfrKeyPair *key);
 
 /**
+ * Extracts the private key as a string from a transfer key pair.
+ */
+char *findora_ffi_get_priv_key_str(const struct XfrKeyPair *key);
+
+/**
  * Restore the XfrKeyPair from a mnemonic with a default bip44-path,
  * that is "m/44'/917'/0'/0/0" ("m/44'/coin'/account'/change/address").
  */

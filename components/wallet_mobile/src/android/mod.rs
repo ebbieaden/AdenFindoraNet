@@ -200,6 +200,21 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_getPubKeyStr(
 }
 
 #[no_mangle]
+/// Extracts the private key as a string from a transfer key pair.
+pub unsafe extern "system" fn Java_com_findora_JniApi_getPrivKeyStr(
+    env: JNIEnv,
+    _: JClass,
+    xfr_keypair_ptr: jlong,
+) -> jstring {
+    let key = &*(xfr_keypair_ptr as *mut types::XfrKeyPair);
+    let prikey = get_priv_key_str(key);
+    let output = env
+        .new_string(prikey)
+        .expect("Couldn't create java string!");
+    output.into_inner()
+}
+
+#[no_mangle]
 /// Restore the XfrKeyPair from a mnemonic with a default bip44-path,
 /// that is "m/44'/917'/0'/0/0" ("m/44'/coin'/account'/change/address").
 pub extern "system" fn Java_com_findora_JniApi_restoreKeypairFromMnemonicDefault(
@@ -211,8 +226,11 @@ pub extern "system" fn Java_com_findora_JniApi_restoreKeypairFromMnemonicDefault
         .get_string(phrase)
         .expect("Couldn't get java string!")
         .into();
-    let keypair = rs_restore_keypair_from_mnemonic_default(phrase.as_str()).unwrap();
-    Box::into_raw(Box::new(types::XfrKeyPair::from(keypair))) as jlong
+    if let Ok(keypair) = rs_restore_keypair_from_mnemonic_default(phrase.as_str()) {
+        Box::into_raw(Box::new(types::XfrKeyPair::from(keypair))) as jlong
+    } else {
+        ::std::ptr::null_mut::<()>() as jlong
+    }
 }
 
 #[no_mangle]
@@ -239,8 +257,11 @@ pub extern "system" fn Java_com_findora_JniApi_createKeypairFromSecret(
         .get_string(sk_str)
         .expect("Couldn't get java string!")
         .into();
-    let keypair = create_keypair_from_secret(sk).unwrap();
-    Box::into_raw(Box::new(types::XfrKeyPair::from(keypair))) as jlong
+    if let Some(keypair) = create_keypair_from_secret(sk) {
+        Box::into_raw(Box::new(types::XfrKeyPair::from(keypair))) as jlong
+    } else {
+        ::std::ptr::null_mut::<()>() as jlong
+    }
 }
 
 #[no_mangle]
