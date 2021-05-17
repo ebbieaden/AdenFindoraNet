@@ -117,14 +117,16 @@ pub fn end_block(
     }
 
     let mut resp = ResponseEndBlock::new();
-    if let Ok(vs) = ruc::info!(staking::get_validators(
-        la.get_committed_state().read().get_staking()
+    let begin_block_req = REQ_BEGIN_BLOCK.lock();
+    let header = pnk!(begin_block_req.header.as_ref());
+
+    if let Ok(Some(vs)) = ruc::info!(staking::get_validators(
+        la.get_committed_state().read().get_staking(),
+        begin_block_req.last_commit_info.as_ref()
     )) {
         resp.set_validator_updates(RepeatedField::from_vec(vs));
     }
 
-    let begin_block_req = REQ_BEGIN_BLOCK.lock();
-    let header = pnk!(begin_block_req.header.as_ref());
     staking::system_ops(
         &mut *la.get_committed_state().write(),
         &header,

@@ -40,12 +40,70 @@ lazy_static! {
 }
 
 /// Get the effective validators at current block height.
-pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
+///
+/// > #### Tendermint Rules
+/// >
+/// > Validator updates returned by block H impact blocks H+1, H+2, and H+3,
+/// > but only effects changes on the validator set of H+2:
+/// > - H+1: NextValidatorsHash
+/// > - H+2: ValidatorsHash (and thus the validator set)
+/// > - H+3: LastCommitInfo (ie. the last validator set)
+/// > - Consensus params returned for block H apply for block H+1
+/// >
+/// > The pub_key currently supports only one type:
+/// > - type = "ed25519"
+/// >
+/// > The power is the new voting power for the validator, with the following rules:
+/// > - power must be non-negative
+/// >   - if power is 0, the validator must already exist, and will be removed from the validator set
+/// >   - if power is non-0:
+/// >     - if the validator does not already exist, it will be added to the validator set with the given power
+/// >     - if the validator does already exist, its power will be adjusted to the given power
+/// > - the total power of the new validator set must not exceed MaxTotalVotingPower
+pub fn get_validators(
+    staking: &Staking,
+    last_commit_info: Option<&LastCommitInfo>,
+) -> Result<Option<Vec<ValidatorUpdate>>> {
+    // Update the validator list every 4 blocks to ensure that
+    // the validator list obtained from `LastCommitInfo` is exactly
+    // the same as the current block.
+    // So we can use it to filter out non-existing entries.
+    if 0 != TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed) % 4 {
+        return Ok(None);
+    }
+
+    // Get existing entries in the last block.
+    let last_entries = if let Some(lci) = last_commit_info {
+        lci.votes
+            .as_slice()
+            .iter()
+            .flat_map(|v| v.validator.as_ref().map(|v| (&v.address, v.power)))
+            .collect::<HashMap<_, _>>()
+    } else {
+        map! {}
+    };
+
+    // The logic of the context guarantees:
+    // - current entries == last entries
+    let cur_entries = last_entries;
+
     let mut vs = staking
         .validator_get_current()
         .c(d!())?
         .body
         .values()
+        .filter(|v| {
+            if let Some(power) = cur_entries.get(&v.td_addr) {
+                // - new power > 0: change existing entries
+                // - new power = 0: remove existing entries
+                // - the power returned by `LastCommitInfo` is impossible
+                // to be zero in the context of tendermint
+                *power as u64 != v.td_power
+            } else {
+                // try to remove non-existing entries is not allowed
+                0 < v.td_power
+            }
+        })
         .map(|v| (&v.td_pubkey, v.td_power))
         .collect::<Vec<_>>();
 
@@ -63,19 +121,20 @@ pub fn get_validators(staking: &Staking) -> Result<Vec<ValidatorUpdate>> {
         *power = 0;
     });
 
-    Ok(vs
-        .iter()
-        .map(|(pubkey, power)| {
-            let mut vu = ValidatorUpdate::new();
-            let mut pk = PubKey::new();
-            pk.set_field_type("ed25519".to_owned());
-            pk.set_data(pubkey.to_vec());
-            // this conversion is safe in the context of tendermint
-            vu.set_power(*power as i64);
-            vu.set_pub_key(pk);
-            vu
-        })
-        .collect())
+    Ok(Some(
+        vs.iter()
+            .map(|(pubkey, power)| {
+                let mut vu = ValidatorUpdate::new();
+                let mut pk = PubKey::new();
+                pk.set_field_type("ed25519".to_owned());
+                pk.set_data(pubkey.to_vec());
+                // this conversion is safe in the context of tendermint
+                vu.set_power(*power as i64);
+                vu.set_pub_key(pk);
+                vu
+            })
+            .collect(),
+    ))
 }
 
 // Call this function in `BeginBlock`,

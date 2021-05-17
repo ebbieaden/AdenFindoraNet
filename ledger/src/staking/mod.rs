@@ -1318,6 +1318,8 @@ impl DelegationInfo {
 pub struct Validator {
     /// pubkey in the context of tendermint
     pub td_pubkey: Vec<u8>,
+    /// node address in the context of tendermint
+    pub td_addr: Vec<u8>,
     /// vote power in the context of Staking
     pub td_power: Amount,
     /// public key of validator, aka 'Validator ID'.
@@ -1338,8 +1340,10 @@ impl Validator {
         id: XfrPublicKey,
         memo: Option<Memo>,
     ) -> Self {
+        let td_addr = td_pubkey_to_td_addr_bytes(&td_pubkey);
         Validator {
             td_pubkey,
+            td_addr,
             td_power,
             id,
             memo,

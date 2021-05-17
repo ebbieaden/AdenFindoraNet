@@ -49,6 +49,7 @@ lazy_static! {
     static ref TD_MOCKER: Arc<RwLock<TendermintMocker>> = Arc::new(RwLock::new(TendermintMocker::new()));
     static ref FAILED_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {B}));
     static ref SUCCESS_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {B}));
+    static ref ROOT_KEYPAIR: XfrKeyPair = gen_keypair();
     /// will be used in [tx_sender](super::server::tx_sender)
     pub static ref CHAN: ChanPair = {
         let (s, r) = channel();
@@ -516,6 +517,15 @@ fn env_refresh(validator_num: u8) {
     TD_MOCKER.write().clean();
 }
 
+// mid-util:
+// send a tx to trigger next block
+macro_rules! trigger_next_block {
+    () => {
+        let _ = transfer(&ROOT_KEYPAIR, &COINBASE_PK, 1).c(d!())?;
+        wait_one_block();
+    };
+}
+
 // Basic Scene Without Governance
 //
 // 0. issue FRA
@@ -561,20 +571,9 @@ fn staking_scene_1() -> Result<()> {
 
     env_refresh(VALIDATORS_NUM);
 
-    let keypair = gen_keypair();
-
-    // mid-util:
-    // send a tx to trigger next block
-    macro_rules! trigger_next_block {
-        () => {
-            let _ = transfer(&keypair, &COINBASE_PK, 1).c(d!())?;
-            wait_one_block();
-        };
-    }
-
     // 0. issue FRA
 
-    let tx = fra_gen_initial_tx(&keypair);
+    let tx = fra_gen_initial_tx(&ROOT_KEYPAIR);
     let tx_hash = gen_tx_hash(&tx);
     send_tx(tx).c(d!())?;
     wait_one_block();
@@ -588,11 +587,16 @@ fn staking_scene_1() -> Result<()> {
     // update validators at height 2
     let initial_keypairs = INITIAL_KEYPAIR_LIST.iter().collect::<Vec<_>>();
     let tx_hash =
-        update_validator(&keypair, &initial_keypairs, 2, v_set.clone()).c(d!())?;
+        update_validator(&ROOT_KEYPAIR, &initial_keypairs, 2, v_set.clone()).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    wait_one_block();
+    // validators will be updated every 4 blocks
+    for _ in 0..3 {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
     let td_mocker = TD_MOCKER.read();
     let td_v_set = &td_mocker.validators;
     assert_eq!(v_set.len(), td_v_set.len());
@@ -607,7 +611,7 @@ fn staking_scene_1() -> Result<()> {
 
     // 2. paid 400m FRAs to CoinBase
 
-    let tx_hash = transfer(&keypair, &COINBASE_PK, 400 * 1_0000 * FRA).c(d!())?;
+    let tx_hash = transfer(&ROOT_KEYPAIR, &COINBASE_PK, 400 * 1_0000 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -615,7 +619,7 @@ fn staking_scene_1() -> Result<()> {
 
     let x_kp = gen_keypair();
 
-    let tx_hash = transfer(&keypair, x_kp.get_pk_ref(), 1_0000 * FRA).c(d!())?;
+    let tx_hash = transfer(&ROOT_KEYPAIR, x_kp.get_pk_ref(), 1_0000 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -634,11 +638,11 @@ fn staking_scene_1() -> Result<()> {
     // 5. make validators to finish their self-delegations
 
     for (i, kp) in kps.iter().enumerate() {
-        let tx_hash = transfer(&keypair, &v_set[i].id, 100 * FRA).c(d!())?;
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
 
-        let tx_hash = transfer(&keypair, &v_set[i].id, 100 * FRA).c(d!())?;
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
 
@@ -779,11 +783,12 @@ fn staking_scene_1() -> Result<()> {
 
     // 21. transfer FRAs from CoinBase to out-plan addr, and make sure it will fail
 
-    let tx_hash = transfer(&COINBASE_KP, keypair.get_pk_ref(), 1).c(d!())?;
+    let tx_hash = transfer(&COINBASE_KP, ROOT_KEYPAIR.get_pk_ref(), 1).c(d!())?;
     wait_one_block();
     assert!(is_failed(&tx_hash));
 
-    let tx_hash = transfer(&COINBASE_PRINCIPAL_KP, keypair.get_pk_ref(), 1).c(d!())?;
+    let tx_hash =
+        transfer(&COINBASE_PRINCIPAL_KP, ROOT_KEYPAIR.get_pk_ref(), 1).c(d!())?;
     wait_one_block();
     assert!(is_failed(&tx_hash));
 
@@ -809,7 +814,8 @@ fn staking_scene_1() -> Result<()> {
     let (i_kp, i_am) = (gen_keypair(), 9 + FRA_TOTAL_AMOUNT * 12 / 100); // 12%, total 80%
 
     // Transfer 80% of total FRAs to CoinBase.
-    let tx_hash = transfer(&keypair, &COINBASE_PK, FRA_TOTAL_AMOUNT * 9 / 10).c(d!())?;
+    let tx_hash =
+        transfer(&ROOT_KEYPAIR, &COINBASE_PK, FRA_TOTAL_AMOUNT * 9 / 10).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -837,7 +843,8 @@ fn staking_scene_1() -> Result<()> {
 
     let coinbase_balance = ABCI_MOCKER.read().get_owned_balance(&COINBASE_PK);
 
-    let tx_hash = distribute_fra(&keypair, &cosig_kps, alloc_table.clone()).c(d!())?;
+    let tx_hash =
+        distribute_fra(&ROOT_KEYPAIR, &cosig_kps, alloc_table.clone()).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -935,7 +942,7 @@ fn staking_scene_1() -> Result<()> {
     // 29. make sure the vote power of any vallidator can not exceed 20% of total power
 
     let tx_hash = delegate(
-        &keypair,
+        &ROOT_KEYPAIR,
         td_pubkey_to_td_addr(&v_set[0].td_pubkey),
         32_0000 * FRA,
     )
@@ -996,11 +1003,9 @@ fn staking_scene_2() -> Result<()> {
 
     env_refresh(VALIDATORS_NUM);
 
-    let keypair = gen_keypair();
-
     // 0. issue FRA
 
-    let tx = fra_gen_initial_tx(&keypair);
+    let tx = fra_gen_initial_tx(&ROOT_KEYPAIR);
     let tx_hash = gen_tx_hash(&tx);
     send_tx(tx).c(d!())?;
     wait_one_block();
@@ -1014,11 +1019,16 @@ fn staking_scene_2() -> Result<()> {
     // update validators at height 2
     let initial_keypairs = INITIAL_KEYPAIR_LIST.iter().collect::<Vec<_>>();
     let tx_hash =
-        update_validator(&keypair, &initial_keypairs, 2, v_set.clone()).c(d!())?;
+        update_validator(&ROOT_KEYPAIR, &initial_keypairs, 2, v_set.clone()).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    wait_one_block();
+    // validators will be updated every 4 blocks
+    for _ in 0..3 {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
     let td_mocker = TD_MOCKER.read();
     let td_v_set = &td_mocker.validators;
     assert_eq!(v_set.len(), td_v_set.len());
@@ -1033,18 +1043,18 @@ fn staking_scene_2() -> Result<()> {
 
     // 2. paid 400m FRAs to CoinBase
 
-    let tx_hash = transfer(&keypair, &COINBASE_PK, 400 * 1_0000 * FRA).c(d!())?;
+    let tx_hash = transfer(&ROOT_KEYPAIR, &COINBASE_PK, 400 * 1_0000 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
     // 3. do self-delegations
 
     for (i, kp) in kps.iter().enumerate() {
-        let tx_hash = transfer(&keypair, &v_set[i].id, 100 * FRA).c(d!())?;
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
 
-        let tx_hash = transfer(&keypair, &v_set[i].id, 100 * FRA).c(d!())?;
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
 
@@ -1058,7 +1068,7 @@ fn staking_scene_2() -> Result<()> {
 
     let x_kp = gen_keypair();
 
-    let tx_hash = transfer(&keypair, &x_kp.get_pk(), 100 * FRA).c(d!())?;
+    let tx_hash = transfer(&ROOT_KEYPAIR, &x_kp.get_pk(), 100 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -1099,7 +1109,7 @@ fn staking_scene_2() -> Result<()> {
         .c(d!())?;
 
     let tx_hash = governance(
-        &keypair,
+        &ROOT_KEYPAIR,
         &kps.iter().collect::<Vec<_>>(),
         v_set[0].id,
         ByzantineKind::DuplicateVote,
@@ -1156,9 +1166,13 @@ fn staking_scene_2() -> Result<()> {
 
     let v_set_new = v_set.split_off(1);
     let kps_new = kps.split_off(1);
-    let tx_hash =
-        update_validator(&keypair, &kps_new.iter().collect::<Vec<_>>(), 6, v_set_new)
-            .c(d!())?;
+    let tx_hash = update_validator(
+        &ROOT_KEYPAIR,
+        &kps_new.iter().collect::<Vec<_>>(),
+        6,
+        v_set_new,
+    )
+    .c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
