@@ -24,8 +24,7 @@ do
 done
 
 # start a query_server node
-
-cd /tmp && LEDGER_PORT=8668 nohup query_server &
+cd /tmp && QUERY_SERVER_HOST=0.0.0.0 LEDGER_PORT=8668 nohup query_server &
 
 # show abcis and nodes
 for node in $nodes

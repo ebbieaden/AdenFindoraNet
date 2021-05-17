@@ -1087,53 +1087,57 @@ pub struct FinalizedTransaction {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct StakingList {
-    stakers: Vec<(TendermintAddr, u64)>,
+pub struct ValidatorList {
+    validators: Vec<(TendermintAddr, u64)>,
     threshold: [u128; 2],
 }
 
-impl StakingList {
-    pub fn new(stakers: Vec<(TendermintAddr, u64)>) -> Self {
-        StakingList {
-            stakers,
+impl ValidatorList {
+    pub fn new(validators: Vec<(TendermintAddr, u64)>) -> Self {
+        ValidatorList {
+            validators,
             threshold: MAX_POWER_PERCENT_PER_VALIDATOR,
         }
     }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct StakerAccountInfo {
-    total_staking: u64,
-    apy: [u64; 2],
-    reward: u64,
-    total_delegation: u64,
-    current_delegation: u64,
+pub struct DelegationInfo {
+    bond: u64,
+    unbond: u64,
+    rewards: u64,
+    return_rate: [u64; 2],
+    global_delegation: u64,
+    global_staking: u64,
 }
-impl Default for StakerAccountInfo {
+impl Default for DelegationInfo {
     fn default() -> Self {
-        StakerAccountInfo {
-            total_staking: 0,
-            apy: [0, 100],
-            reward: 0,
-            total_delegation: 0,
-            current_delegation: 0,
+        DelegationInfo {
+            bond: 0,
+            unbond: 0,
+            rewards: 0,
+            return_rate: [0, 100],
+            global_delegation: 0,
+            global_staking: 0,
         }
     }
 }
-impl StakerAccountInfo {
+impl DelegationInfo {
     pub fn new(
-        apy: [u64; 2],
-        total_staking: u64,
-        reward: u64,
-        total_delegation: u64,
-        current_delegation: u64,
+        bond: u64,
+        unbond: u64,
+        rewards: u64,
+        return_rate: [u64; 2],
+        global_delegation: u64,
+        global_staking: u64,
     ) -> Self {
         Self {
-            total_staking,
-            apy,
-            reward,
-            total_delegation,
-            current_delegation,
+            bond,
+            unbond,
+            rewards,
+            return_rate,
+            global_delegation,
+            global_staking,
         }
     }
 }

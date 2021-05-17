@@ -40,9 +40,6 @@ pub struct SnapshotId {
     pub id: u64,
 }
 
-pub trait StakingAccess {
-    fn get_stakers(&self) -> &Staking;
-}
 pub trait LedgerAccess {
     // Look up a currently unspent TXO
     fn get_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
@@ -2004,11 +2001,7 @@ impl LedgerStatus {
         self.asset_types.get(code)
     }
 }
-impl StakingAccess for LedgerState {
-    fn get_stakers(&self) -> &Staking {
-        &self.status.staking
-    }
-}
+
 impl LedgerAccess for LedgerState {
     fn get_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo> {
         let utxo = self.status.get_utxo(addr);

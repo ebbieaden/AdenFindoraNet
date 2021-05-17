@@ -31,7 +31,13 @@ use std::{convert::TryInto, fs};
 lazy_static! {
     static ref PATH: String = format!(
         "{}/.__tendermint_height__",
-        crate::abci::LEDGER_DIR.as_deref().unwrap_or("/tmp")
+        crate::abci::LEDGER_DIR
+            .as_deref()
+            .map(|ld| {
+                pnk!(fs::create_dir_all(ld));
+                ld
+            })
+            .unwrap_or("/tmp")
     );
 }
 

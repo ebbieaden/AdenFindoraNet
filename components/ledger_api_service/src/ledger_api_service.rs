@@ -11,16 +11,15 @@ use futures::executor;
 use ledger::{
     data_model::*,
     inp_fail, ser_fail,
-    staking::TendermintAddr,
-    store::{ArchiveAccess, LedgerAccess, LedgerState, StakingAccess},
+    staking::{DelegationState, TendermintAddr, UNBOND_BLOCK_CNT},
+    store::{ArchiveAccess, LedgerAccess, LedgerState},
 };
 use log::info;
 use log::warn;
 use parking_lot::RwLock;
 use ruc::*;
 use serde::Serialize;
-use std::marker::{Send, Sync};
-use std::sync::Arc;
+use std::{mem, sync::Arc};
 use utils::{http_get_request, HashOf, NetworkRoute, SignatureOf};
 use zei::serialization::ZeiFromToBytes;
 use zei::xfr::sig::XfrPublicKey;
@@ -363,16 +362,17 @@ where
     // }
 }
 
-//query current staker list
+//query current validator list
 #[allow(unused)]
-async fn query_stakers<SA>(
-    data: web::Data<Arc<RwLock<SA>>>,
-) -> actix_web::Result<web::Json<StakingList>>
+async fn query_validators<LA>(
+    data: web::Data<Arc<RwLock<LA>>>,
+) -> actix_web::Result<web::Json<ValidatorList>>
 where
-    SA: StakingAccess,
+    LA: LedgerAccess,
 {
     let read = data.read();
-    if let Some(validator_data) = read.get_stakers().validator_get_current() {
+
+    if let Some(validator_data) = read.get_staking().validator_get_current() {
         let validators = validator_data.get_validator_addr_map();
         let validators_list = validators
             .iter()
@@ -386,42 +386,61 @@ where
                 )
             })
             .collect::<Vec<(TendermintAddr, u64)>>();
-        return Ok(web::Json(StakingList::new(validators_list)));
+        return Ok(web::Json(ValidatorList::new(validators_list)));
     };
-    Ok(web::Json(StakingList::new(vec![])))
+    Ok(web::Json(ValidatorList::new(vec![])))
 }
 
-async fn query_staker_account_info<SA>(
+async fn query_delegation_info<SA>(
     data: web::Data<Arc<RwLock<SA>>>,
-    _address: web::Path<String>,
-) -> actix_web::Result<web::Json<StakerAccountInfo>>
+    address: web::Path<String>,
+) -> actix_web::Result<web::Json<DelegationInfo>>
 where
-    SA: StakingAccess + LedgerAccess,
+    SA: LedgerAccess,
 {
-    let read = data.read();
     let xfr_public_key: XfrPublicKey = XfrPublicKey::zei_from_bytes(
-        &b64dec(&*_address)
+        &b64dec(&*address)
             .c(d!())
             .map_err(|e| error::ErrorBadRequest(e.generate_log()))?,
     )
     .c(d!())
     .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    let stakings = read.get_stakers();
-    let block_rewards_rate = stakings.get_block_rewards_rate();
-    let total_staking = stakings.validator_total_power();
-    let total_delegation = stakings.delegation_info_total_amount();
 
-    let (rwd_amount, amount) = stakings
+    let read = data.read();
+    let staking = read.get_staking();
+
+    let block_rewards_rate = staking.get_block_rewards_rate();
+    let global_staking = staking.validator_global_power();
+    let global_delegation = staking.delegation_info_global_amount();
+
+    let (bond_amount, unbond_amount, rwd_amount) = staking
         .delegation_get(&xfr_public_key)
-        .map(|d| (d.rwd_amount, d.amount()))
-        .unwrap_or((0, 0));
+        .map(|d| {
+            let mut bond_amount = d.amount();
+            let mut unbond_amount = 0;
+            match d.state {
+                DelegationState::Paid | DelegationState::Free => {
+                    bond_amount = 0;
+                }
+                DelegationState::Bond => {
+                    if d.end_height.saturating_sub(UNBOND_BLOCK_CNT)
+                        > staking.cur_height()
+                    {
+                        mem::swap(&mut bond_amount, &mut unbond_amount);
+                    }
+                }
+            }
+            (bond_amount, unbond_amount, d.rwd_amount)
+        })
+        .unwrap_or((0, 0, 0));
 
-    Ok(web::Json(StakerAccountInfo::new(
-        block_rewards_rate,
-        total_staking,
+    Ok(web::Json(DelegationInfo::new(
+        bond_amount,
+        unbond_amount,
         rwd_amount,
-        total_delegation,
-        amount,
+        block_rewards_rate,
+        global_delegation,
+        global_staking,
     )))
 }
 
@@ -432,15 +451,15 @@ enum AccessApi {
 }
 
 pub enum StakingAccessRoutes {
-    StakerList,
-    StakerAccountInfo,
+    ValidatorList,
+    DelegationInfo,
 }
 
 impl NetworkRoute for StakingAccessRoutes {
     fn route(&self) -> String {
         let endpoint = match *self {
-            StakingAccessRoutes::StakerList => "staker_list",
-            StakingAccessRoutes::StakerAccountInfo => "staker_account_info",
+            StakingAccessRoutes::ValidatorList => "validator_list",
+            StakingAccessRoutes::DelegationInfo => "delegation_info",
         };
         "/".to_owned() + endpoint
     }
@@ -497,16 +516,12 @@ impl NetworkRoute for LedgerArchiveRoutes {
 }
 
 trait Route {
-    fn set_route<
-        LA: 'static + LedgerAccess + ArchiveAccess + StakingAccess + Sync + Send,
-    >(
+    fn set_route<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
         self,
         service_interface: AccessApi,
     ) -> Self;
 
-    fn set_route_for_ledger_access<
-        LA: 'static + LedgerAccess + StakingAccess + Sync + Send,
-    >(
+    fn set_route_for_ledger_access<LA: 'static + LedgerAccess + Sync + Send>(
         self,
     ) -> Self;
 
@@ -514,9 +529,7 @@ trait Route {
         self,
     ) -> Self;
 
-    fn set_route_for_staking_access<
-        AA: 'static + StakingAccess + LedgerAccess + Sync + Send,
-    >(
+    fn set_route_for_staking_access<AA: 'static + LedgerAccess + Sync + Send>(
         self,
     ) -> Self;
 }
@@ -533,9 +546,7 @@ where
     >,
 {
     // Call the appropraite function depending on the interface
-    fn set_route<
-        LA: 'static + LedgerAccess + ArchiveAccess + StakingAccess + Sync + Send,
-    >(
+    fn set_route<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
         self,
         service_interface: AccessApi,
     ) -> Self {
@@ -547,9 +558,7 @@ where
     }
 
     // Set routes for the LedgerAccess interface
-    fn set_route_for_ledger_access<
-        LA: 'static + LedgerAccess + StakingAccess + Sync + Send,
-    >(
+    fn set_route_for_ledger_access<LA: 'static + LedgerAccess + Sync + Send>(
         self,
     ) -> Self {
         self.route(
@@ -612,26 +621,22 @@ where
         )
     }
 
-    fn set_route_for_staking_access<
-        SA: 'static + StakingAccess + LedgerAccess + Sync + Send,
-    >(
+    fn set_route_for_staking_access<SA: 'static + LedgerAccess + Sync + Send>(
         self,
     ) -> Self {
         self.route(
-            &StakingAccessRoutes::StakerList.route(),
-            web::get().to(query_stakers::<SA>),
+            &StakingAccessRoutes::ValidatorList.route(),
+            web::get().to(query_validators::<SA>),
         )
         .route(
-            &StakingAccessRoutes::StakerAccountInfo.with_arg_template("XfrPublicKey"),
-            web::get().to(query_staker_account_info::<SA>),
+            &StakingAccessRoutes::DelegationInfo.with_arg_template("XfrPublicKey"),
+            web::get().to(query_delegation_info::<SA>),
         )
     }
 }
 
 impl RestfulApiService {
-    pub fn create<
-        LA: 'static + LedgerAccess + ArchiveAccess + StakingAccess + Sync + Send,
-    >(
+    pub fn create<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
         ledger_access: Arc<RwLock<LA>>,
         host: &str,
         port: u16,

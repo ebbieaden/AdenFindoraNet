@@ -500,7 +500,7 @@ impl TransactionBuilder {
     }
 
     #[allow(missing_docs)]
-    pub fn add_operation_delegation(
+    pub fn add_operation_delegate(
         mut self,
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
@@ -511,7 +511,7 @@ impl TransactionBuilder {
     }
 
     #[allow(missing_docs)]
-    pub fn add_operation_undelegation(
+    pub fn add_operation_undelegate(
         mut self,
         keypair: &XfrKeyPair,
     ) -> Result<TransactionBuilder, JsValue> {
