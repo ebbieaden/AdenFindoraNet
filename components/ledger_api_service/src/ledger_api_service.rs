@@ -425,8 +425,8 @@ where
                     bond_amount = 0;
                 }
                 DelegationState::Bond => {
-                    if d.end_height.saturating_sub(UNBOND_BLOCK_CNT)
-                        > staking.cur_height()
+                    if staking.cur_height()
+                        > d.end_height.saturating_sub(UNBOND_BLOCK_CNT)
                     {
                         mem::swap(&mut bond_amount, &mut unbond_amount);
                     }
