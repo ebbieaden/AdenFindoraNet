@@ -27,6 +27,7 @@ pub struct ValidatorStr {
     // Tendermint PubKey, in base64 format
     td_pubkey: String,
     td_power: Option<Power>,
+    commission_rate: Option<[u64; 2]>,
     memo: Option<String>,
 }
 
@@ -37,6 +38,7 @@ impl TryFrom<ValidatorStr> for Validator {
             td_pubkey: base64::decode(&v.td_pubkey).c(d!())?,
             td_addr: hex::decode(&v.td_addr).c(d!())?,
             td_power: v.td_power.unwrap_or(DEFAULT_POWER),
+            commission_rate: v.commission_rate.unwrap_or([1, 100]),
             id: wallet::public_key_from_base64(&v.id).c(d!())?,
             memo: v.memo,
         })

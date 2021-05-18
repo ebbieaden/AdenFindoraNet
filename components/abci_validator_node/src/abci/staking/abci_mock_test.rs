@@ -15,9 +15,10 @@ use ledger::{
     },
     staking::{
         calculate_delegation_rewards, ops::governance::ByzantineKind,
-        td_pubkey_to_td_addr, TendermintAddr, Validator as StakingValidator,
-        BLOCK_HEIGHT_MAX, COINBASE_KP, COINBASE_PK, COINBASE_PRINCIPAL_KP,
-        COINBASE_PRINCIPAL_PK, FRA, FRA_TOTAL_AMOUNT,
+        td_pubkey_to_td_addr, DelegationState, TendermintAddr,
+        Validator as StakingValidator, BLOCK_HEIGHT_MAX, COINBASE_KP, COINBASE_PK,
+        COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK, FRA, FRA_TOTAL_AMOUNT,
+        UNBOND_BLOCK_CNT,
     },
     store::{fra_gen_initial_tx, LedgerAccess},
 };
@@ -322,7 +323,13 @@ fn gen_new_validators(n: u8) -> (Vec<StakingValidator>, Vec<XfrKeyPair>) {
         .map(|(_, td_pk)| td_pk)
         .zip(kps.iter())
         .map(|(td_pk, kp)| {
-            StakingValidator::new(td_pk, INITIAL_POWER, kp.get_pk(), None)
+            pnk!(StakingValidator::new(
+                td_pk,
+                INITIAL_POWER,
+                kp.get_pk(),
+                [50, 100],
+                None
+            ))
         })
         .collect::<Vec<_>>();
 
@@ -564,7 +571,10 @@ macro_rules! trigger_next_block {
 // 15. make sure it can do claim at any time
 // 16. make sure it will fail if the claim amount is bigger than total rewards
 //
-// ...........................................................................
+// 17. undelegate
+// 18. re-delegate at once
+// 19. make sure the delegation state turn back to `Bond`
+// 20. make sure no rewards will be paid
 //
 // 21. transfer FRAs from CoinBase to out-plan addr, and make sure it will fail
 //
@@ -739,6 +749,11 @@ fn staking_scene_1() -> Result<()> {
 
     // 12. make sure the power of co-responding validator is decreased
 
+    for _ in 0..UNBOND_BLOCK_CNT {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
     let power = ABCI_MOCKER
         .read()
         .0
@@ -780,8 +795,7 @@ fn staking_scene_1() -> Result<()> {
     let rewards =
         calculate_delegation_rewards((32 + 64 + 85) * FRA, return_rate).c(d!())? * 10;
 
-    // UnBond time: 10 blocks
-    for _ in 0..12 {
+    for _ in 0..UNBOND_BLOCK_CNT {
         trigger_next_block!();
         wait_one_block();
     }
@@ -830,11 +844,70 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_failed(&tx_hash));
 
+    // 17. undelegate
+
     let tx_hash = undelegate(&x_kp).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    // ...........................................................................
+    {
+        let hdr = ABCI_MOCKER.read();
+        let hdr = hdr.0.la.read();
+        let hdr = hdr.get_committed_state().read();
+
+        let staking = hdr.get_staking();
+        let d = staking.delegation_get(&x_kp.get_pk()).c(d!())?;
+
+        assert_eq!(DelegationState::Bond, d.state);
+        assert!(d.end_height - staking.cur_height() < UNBOND_BLOCK_CNT);
+        assert!(d.end_height - staking.cur_height() > UNBOND_BLOCK_CNT / 2);
+    }
+
+    let old_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
+
+    // 18. re-delegate at once
+
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 41 * FRA).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // 19. make sure the delegation state turn back to `Bond`
+
+    {
+        let hdr = ABCI_MOCKER.read();
+        let hdr = hdr.0.la.read();
+        let hdr = hdr.get_committed_state().read();
+
+        let staking = hdr.get_staking();
+        let d = staking.delegation_get(&x_kp.get_pk()).c(d!())?;
+
+        assert_eq!(DelegationState::Bond, d.state);
+        assert_eq!(BLOCK_HEIGHT_MAX, d.end_height);
+    }
+
+    // 20. make sure no rewards will be paid
+
+    for _ in 0..UNBOND_BLOCK_CNT {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
+    let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
+    assert_eq!(old_balance - 41 * FRA - TX_FEE_MIN, new_balance);
+
+    // undelegate and wait to be paid
+    let tx_hash = undelegate(&x_kp).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    for _ in 0..UNBOND_BLOCK_CNT {
+        trigger_next_block!();
+        wait_one_block();
+    }
+
+    let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
+    assert!((old_balance - 2 * TX_FEE_MIN) < (41 * FRA + new_balance));
 
     // 21. transfer FRAs from CoinBase to out-plan addr, and make sure it will fail
 

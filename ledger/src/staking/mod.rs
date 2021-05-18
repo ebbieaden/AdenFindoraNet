@@ -305,7 +305,6 @@ impl Staking {
         owner: XfrPublicKey,
         validator: TendermintAddrRef,
         am: Amount,
-        start_height: BlockHeight,
     ) -> Result<()> {
         let validator = self.td_addr_to_app_pk(validator).c(d!())?;
         let end_height = BLOCK_HEIGHT_MAX;
@@ -331,7 +330,6 @@ impl Staking {
         let new = || Delegation {
             entries: map! {B validator => 0},
             rwd_pk: owner,
-            start_height,
             end_height,
             state: DelegationState::Bond,
             rwd_amount: 0,
@@ -343,12 +341,12 @@ impl Staking {
             *d = new();
         }
 
-        if DelegationState::Bond != d.state {
-            d.state = DelegationState::Bond;
-            self.di.end_height_map.values_mut().for_each(|set| {
-                set.remove(&owner);
-            });
+        if let Some(set) = self.di.end_height_map.get_mut(&d.end_height) {
+            set.remove(&owner);
         }
+
+        d.end_height = end_height;
+        d.state = DelegationState::Bond;
 
         *d.entries.entry(validator).or_insert(0) += am;
 
@@ -396,7 +394,7 @@ impl Staking {
                 .map(|set| set.remove(addr));
             self.di
                 .end_height_map
-                .entry(h)
+                .entry(h + UNBOND_BLOCK_CNT)
                 .or_insert_with(BTreeSet::new)
                 .insert(addr.to_owned());
         }
@@ -1021,20 +1019,30 @@ impl Staking {
         block_vote_power: Option<Power>,
     ) -> Result<()> {
         let pk = self.td_addr_to_app_pk(addr).c(d!())?;
-        if !self.addr_is_validator(&pk) {
+
+        let commission_rate = if let Some(Some(v)) =
+            self.validator_get_current().map(|vd| vd.body.get(&pk))
+        {
+            v.commission_rate
+        } else {
             return Err(eg!("not validator"));
-        }
+        };
 
         let h = self.cur_height;
         let return_rate = self.get_block_rewards_rate();
 
-        self.di
+        let commissions = self
+            .di
             .addr_map
             .values_mut()
             .filter(|d| d.validator_entry_exists(&pk))
-            .for_each(|d| {
-                ruc::info_omit!(d.set_delegation_rewards(&pk, h, return_rate));
-            });
+            .map(|d| d.set_delegation_rewards(&pk, h, return_rate, commission_rate))
+            .collect::<Result<Vec<_>>>()
+            .c(d!())?;
+
+        if let Some(v) = self.delegation_get_mut(&pk) {
+            v.rwd_amount = v.rwd_amount.saturating_add(commissions.into_iter().sum());
+        }
 
         if let Some(power) = block_vote_power {
             let global_power = self.validator_global_power();
@@ -1067,7 +1075,8 @@ impl Staking {
         let h = self.cur_height;
         self.delegation_get_mut(proposer)
             .ok_or(eg!())
-            .and_then(|d| d.set_delegation_rewards(proposer, h, p).c(d!()))
+            .and_then(|d| d.set_delegation_rewards(proposer, h, p, [0, 100]).c(d!()))
+            .map(|_| ())
     }
 
     fn get_proposer_rewards_rate(vote_percent: [u64; 2]) -> Result<[u64; 2]> {
@@ -1345,6 +1354,12 @@ pub struct Validator {
     /// - eg.. self-delegation rewards
     /// - eg.. block rewards
     pub id: XfrPublicKey,
+    // During registration the Validator,
+    // Candidate/Validator will specifiy a % commission which will be publicly recorded on the blockchain,
+    // so FRA owners can make an informed choice on which validator to use;
+    // % commision is the % of FRA incentives the validator will take out as a commission fee
+    // for helping FRA owners stake their tokens.
+    commission_rate: [u64; 2],
     /// optional descriptive information
     pub memo: Option<Memo>,
 }
@@ -1355,16 +1370,27 @@ impl Validator {
         td_pubkey: Vec<u8>,
         td_power: Amount,
         id: XfrPublicKey,
+        commission_rate: [u64; 2],
         memo: Option<Memo>,
-    ) -> Self {
+    ) -> Result<Self> {
+        if 0 == commission_rate[1] || commission_rate[0] > commission_rate[1] {
+            return Err(eg!());
+        }
         let td_addr = td_pubkey_to_td_addr_bytes(&td_pubkey);
-        Validator {
+        Ok(Validator {
             td_pubkey,
             td_addr,
             td_power,
             id,
+            commission_rate,
             memo,
-        }
+        })
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_commission_rate(&self) -> [u64; 2] {
+        self.commission_rate
     }
 }
 
@@ -1378,8 +1404,6 @@ pub struct Delegation {
     pub entries: BTreeMap<XfrPublicKey, Amount>,
     /// delegation rewards will be paid to this pk
     pub rwd_pk: XfrPublicKey,
-    /// the height at which the delegation starts
-    pub start_height: BlockHeight,
     /// the height at which the delegation ends
     ///
     /// **NOTE:** before users can actually get the rewards,
@@ -1419,26 +1443,7 @@ impl Delegation {
             *v = 0;
         });
     }
-}
 
-#[allow(missing_docs)]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq)]
-pub enum DelegationState {
-    /// during delegation, include extra 21 days
-    Bond,
-    /// it's time to pay principals and rewards
-    Free,
-    /// principals and rewards have been paid successfully
-    Paid,
-}
-
-impl Default for DelegationState {
-    fn default() -> Self {
-        DelegationState::Bond
-    }
-}
-
-impl Delegation {
     /// > **NOTE:**
     /// > use 'AssignAdd' instead of 'Assign'
     /// > to keep compatible with the logic of governance penalty.
@@ -1447,9 +1452,14 @@ impl Delegation {
         validator: &XfrPublicKey,
         cur_height: BlockHeight,
         return_rate: [u64; 2],
-    ) -> Result<()> {
+        commission_rate: [u64; 2],
+    ) -> Result<u64> {
         if self.end_height < cur_height || DelegationState::Bond != self.state {
-            return Ok(());
+            return Ok(0);
+        }
+
+        if 0 == commission_rate[1] || commission_rate[0] > commission_rate[1] {
+            return Err(eg!());
         }
 
         self.validator_entry(validator)
@@ -1463,7 +1473,10 @@ impl Delegation {
             })
             .and_then(|n| self.rwd_amount.checked_add(n).ok_or(eg!("overflow")))
             .map(|n| {
-                self.rwd_amount = n;
+                let commission =
+                    n.saturating_mul(commission_rate[0]) / commission_rate[1];
+                self.rwd_amount = n - commission;
+                commission
             })
     }
 }
@@ -1487,6 +1500,23 @@ pub fn calculate_delegation_rewards(
         })
         .ok_or(eg!("overflow"))
         .and_then(|n| u64::try_from(n).c(d!()))
+}
+
+#[allow(missing_docs)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq)]
+pub enum DelegationState {
+    /// during delegation, include extra 21 days
+    Bond,
+    /// it's time to pay principals and rewards
+    Free,
+    /// principals and rewards have been paid successfully
+    Paid,
+}
+
+impl Default for DelegationState {
+    fn default() -> Self {
+        DelegationState::Bond
+    }
 }
 
 // All transactions sent from CoinBase must support idempotence.
@@ -1610,7 +1640,6 @@ mod test {
         let delegation = Delegation {
             entries: map! {B validator_kp.get_pk() => delegation_amount},
             rwd_pk: delegator_kp.get_pk(),
-            start_height: 1,
             end_height: 200_0000,
             state: DelegationState::Bond,
             rwd_amount: 0,

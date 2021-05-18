@@ -44,7 +44,7 @@ impl DelegationOps {
             .and_then(|_| Self::check_context(tx).c(d!()))
             .and_then(|am| {
                 staking
-                    .delegate(self.pubkey, &self.body.validator, am, staking.cur_height)
+                    .delegate(self.pubkey, &self.body.validator, am)
                     .c(d!())
             })
     }
