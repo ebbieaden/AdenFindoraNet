@@ -19,9 +19,8 @@ use log::warn;
 use parking_lot::RwLock;
 use ruc::*;
 use serde::Serialize;
-use std::{mem, sync::Arc};
+use std::{collections::BTreeMap, mem, sync::Arc};
 use utils::{http_get_request, HashOf, NetworkRoute, SignatureOf};
-use zei::serialization::ZeiFromToBytes;
 use zei::xfr::sig::XfrPublicKey;
 
 pub struct RestfulApiService {
@@ -376,16 +375,14 @@ where
         let validators = validator_data.get_validator_addr_map();
         let validators_list = validators
             .iter()
-            .flat_map(|(tendermint_addr, xfr_public_key)| {
-                validator_data
-                    .get_validator_by_key(xfr_public_key)
-                    .map(|v| {
-                        Validator::new(
-                            tendermint_addr.clone(),
-                            v.td_power,
-                            v.get_commission_rate(),
-                        )
-                    })
+            .flat_map(|(tendermint_addr, pk)| {
+                validator_data.get_validator_by_key(pk).map(|v| {
+                    Validator::new(
+                        tendermint_addr.clone(),
+                        v.td_power,
+                        v.get_commission_rate(),
+                    )
+                })
             })
             .collect();
         return Ok(web::Json(ValidatorList::new(validators_list)));
@@ -400,13 +397,9 @@ async fn query_delegation_info<SA>(
 where
     SA: LedgerAccess,
 {
-    let xfr_public_key: XfrPublicKey = XfrPublicKey::zei_from_bytes(
-        &b64dec(&*address)
-            .c(d!())
-            .map_err(|e| error::ErrorBadRequest(e.generate_log()))?,
-    )
-    .c(d!())
-    .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let pk = wallet::public_key_from_base64(address.as_str())
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
 
     let read = data.read();
     let staking = read.get_staking();
@@ -415,11 +408,13 @@ where
     let global_staking = staking.validator_global_power();
     let global_delegation = staking.delegation_info_global_amount();
 
-    let (bond_amount, unbond_amount, rwd_amount) = staking
-        .delegation_get(&xfr_public_key)
+    let (bond_amount, unbond_amount, rwd_amount, start_height, end_height) = staking
+        .delegation_get(&pk)
         .map(|d| {
             let mut bond_amount = d.amount();
             let mut unbond_amount = 0;
+            let start_height = d.start_height();
+            let end_height = d.end_height();
             match d.state {
                 DelegationState::Paid | DelegationState::Free => {
                     bond_amount = 0;
@@ -432,18 +427,41 @@ where
                     }
                 }
             }
-            (bond_amount, unbond_amount, d.rwd_amount)
+            (
+                bond_amount,
+                unbond_amount,
+                d.rwd_amount,
+                start_height,
+                end_height,
+            )
         })
-        .unwrap_or((0, 0, 0));
+        .unwrap_or((0, 0, 0, None, 0));
 
-    Ok(web::Json(DelegationInfo::new(
+    let mut resp = DelegationInfo::new(
         bond_amount,
         unbond_amount,
         rwd_amount,
         block_rewards_rate,
         global_delegation,
         global_staking,
-    )))
+    );
+    resp.start_height = start_height;
+    resp.current_height = end_height;
+
+    Ok(web::Json(resp))
+}
+
+async fn query_owned_utxos<AA>(
+    data: web::Data<Arc<RwLock<AA>>>,
+    address: web::Path<String>,
+) -> actix_web::Result<web::Json<BTreeMap<TxoSID, Utxo>>>
+where
+    AA: ArchiveAccess,
+{
+    wallet::public_key_from_base64(address.as_str())
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))
+        .map(|pk| web::Json(data.read().get_status().get_owned_utxos(&pk)))
 }
 
 enum AccessApi {
@@ -499,6 +517,7 @@ pub enum LedgerArchiveRoutes {
     UtxoMap,
     UtxoMapChecksum,
     UtxoPartialMap,
+    OwnedUtxos,
 }
 
 impl NetworkRoute for LedgerArchiveRoutes {
@@ -512,6 +531,7 @@ impl NetworkRoute for LedgerArchiveRoutes {
             LedgerArchiveRoutes::UtxoMap => "utxo_map",
             LedgerArchiveRoutes::UtxoMapChecksum => "utxo_map_checksum",
             LedgerArchiveRoutes::UtxoPartialMap => "utxo_partial_map",
+            LedgerArchiveRoutes::OwnedUtxos => "owned_utxos",
         };
         "/".to_owned() + endpoint
     }
@@ -620,6 +640,10 @@ where
         .route(
             &LedgerArchiveRoutes::UtxoPartialMap.with_arg_template("sidlist"),
             web::get().to(query_utxo_partial_map::<AA>),
+        )
+        .route(
+            &LedgerArchiveRoutes::OwnedUtxos.route(),
+            web::get().to(query_owned_utxos::<AA>),
         )
     }
 

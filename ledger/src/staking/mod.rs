@@ -330,6 +330,7 @@ impl Staking {
         let new = || Delegation {
             entries: map! {B validator => 0},
             rwd_pk: owner,
+            start_height: None,
             end_height,
             state: DelegationState::Bond,
             rwd_amount: 0,
@@ -1404,6 +1405,8 @@ pub struct Delegation {
     pub entries: BTreeMap<XfrPublicKey, Amount>,
     /// delegation rewards will be paid to this pk
     pub rwd_pk: XfrPublicKey,
+    /// set this field when rewards appear first time
+    pub start_height: Option<BlockHeight>,
     /// the height at which the delegation ends
     ///
     /// **NOTE:** before users can actually get the rewards,
@@ -1420,6 +1423,18 @@ impl Delegation {
     #[inline(always)]
     pub fn amount(&self) -> Amount {
         self.entries.values().sum()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn start_height(&self) -> Option<BlockHeight> {
+        self.start_height
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn end_height(&self) -> BlockHeight {
+        self.end_height
     }
 
     #[inline(always)]
@@ -1460,6 +1475,10 @@ impl Delegation {
 
         if 0 == commission_rate[1] || commission_rate[0] > commission_rate[1] {
             return Err(eg!());
+        }
+
+        if self.start_height.is_none() {
+            self.start_height = Some(cur_height);
         }
 
         self.validator_entry(validator)
@@ -1640,6 +1659,7 @@ mod test {
         let delegation = Delegation {
             entries: map! {B validator_kp.get_pk() => delegation_amount},
             rwd_pk: delegator_kp.get_pk(),
+            start_height: None,
             end_height: 200_0000,
             state: DelegationState::Bond,
             rwd_amount: 0,

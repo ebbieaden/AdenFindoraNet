@@ -148,6 +148,7 @@ pub trait LedgerUpdate<RNG: RngCore + CryptoRng> {
 
 // TODO(joe/keyao): which of these methods should be in `LedgerAccess`?
 pub trait ArchiveAccess {
+    fn get_status(&self) -> &LedgerStatus;
     // Number of blocks committed
     fn get_block_count(&self) -> usize;
     // Number of transactions available
@@ -1980,7 +1981,6 @@ impl LedgerState {
 
 impl LedgerStatus {
     #[allow(missing_docs)]
-    #[cfg(feature = "abci_mock")]
     pub fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo> {
         self.utxos
             .iter()
@@ -2119,6 +2119,10 @@ impl LedgerAccess for LedgerState {
 }
 
 impl ArchiveAccess for LedgerState {
+    fn get_status(&self) -> &LedgerStatus {
+        &self.status
+    }
+
     fn get_transaction(&self, addr: TxnSID) -> Option<AuthenticatedTransaction> {
         let mut ix: usize = addr.0;
         for b in self.blocks.iter() {

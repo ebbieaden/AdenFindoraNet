@@ -1122,12 +1122,14 @@ impl Validator {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DelegationInfo {
-    bond: u64,
-    unbond: u64,
-    rewards: u64,
-    return_rate: [u64; 2],
-    global_delegation: u64,
-    global_staking: u64,
+    pub bond: u64,
+    pub unbond: u64,
+    pub rewards: u64,
+    pub return_rate: [u64; 2],
+    pub global_delegation: u64,
+    pub global_staking: u64,
+    pub start_height: Option<u64>,
+    pub current_height: u64,
 }
 impl Default for DelegationInfo {
     fn default() -> Self {
@@ -1138,6 +1140,8 @@ impl Default for DelegationInfo {
             return_rate: [0, 100],
             global_delegation: 0,
             global_staking: 0,
+            start_height: None,
+            current_height: 0,
         }
     }
 }
@@ -1157,6 +1161,7 @@ impl DelegationInfo {
             return_rate,
             global_delegation,
             global_staking,
+            ..Default::default()
         }
     }
 }
