@@ -11,7 +11,7 @@ use futures::executor;
 use ledger::{
     data_model::*,
     inp_fail, ser_fail,
-    staking::{DelegationState, TendermintAddr, UNBOND_BLOCK_CNT},
+    staking::{DelegationState, UNBOND_BLOCK_CNT},
     store::{ArchiveAccess, LedgerAccess, LedgerState},
 };
 use log::info;
@@ -376,16 +376,18 @@ where
         let validators = validator_data.get_validator_addr_map();
         let validators_list = validators
             .iter()
-            .map(|(tendermint_addr, xfr_public_key)| {
-                (
-                    tendermint_addr.clone(),
-                    validator_data
-                        .get_validator_by_key(xfr_public_key)
-                        .map(|v| v.td_power)
-                        .unwrap_or(0),
-                )
+            .flat_map(|(tendermint_addr, xfr_public_key)| {
+                validator_data
+                    .get_validator_by_key(xfr_public_key)
+                    .map(|v| {
+                        Validator::new(
+                            tendermint_addr.clone(),
+                            v.td_power,
+                            v.get_commission_rate(),
+                        )
+                    })
             })
-            .collect::<Vec<(TendermintAddr, u64)>>();
+            .collect();
         return Ok(web::Json(ValidatorList::new(validators_list)));
     };
     Ok(web::Json(ValidatorList::new(vec![])))

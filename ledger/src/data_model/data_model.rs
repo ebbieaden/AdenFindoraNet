@@ -1088,15 +1088,34 @@ pub struct FinalizedTransaction {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ValidatorList {
-    validators: Vec<(TendermintAddr, u64)>,
+    validators: Vec<Validator>,
     threshold: [u128; 2],
 }
 
 impl ValidatorList {
-    pub fn new(validators: Vec<(TendermintAddr, u64)>) -> Self {
+    pub fn new(validators: Vec<Validator>) -> Self {
         ValidatorList {
             validators,
             threshold: MAX_POWER_PERCENT_PER_VALIDATOR,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Validator {
+    addr: TendermintAddr,
+    power: u64,
+    commission_rate: [u64; 2],
+}
+
+impl Validator {
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn new(addr: TendermintAddr, power: u64, commission_rate: [u64; 2]) -> Self {
+        Validator {
+            addr,
+            power,
+            commission_rate,
         }
     }
 }

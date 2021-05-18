@@ -83,27 +83,16 @@ impl Data {
     }
 }
 
-// Check tx and return the amount of delegation.
-// - total amount of operations is 2
-// - one of them is a `TransferAsset` to pay fee
-// - one of them is a `FraDistribution`
+#[inline(always)]
 fn check_fra_distribution_context(tx: &Transaction) -> Result<()> {
-    if 2 != tx.body.operations.len() {
-        return Err(eg!("incorrect number of operations"));
-    }
-
-    // 1. check FEE operation
-    check_fra_distribution_context_fee(tx).c(d!("invalid fee operation"))?;
-
-    // 2. check `FraDistribution` operation
-    if (0..2).any(|i| matches!(tx.body.operations[i], Operation::FraDistribution(_))) {
+    if tx
+        .body
+        .operations
+        .iter()
+        .any(|op| matches!(op, Operation::FraDistribution(_)))
+    {
         Ok(())
     } else {
         Err(eg!())
     }
-}
-
-#[inline(always)]
-fn check_fra_distribution_context_fee(tx: &Transaction) -> Result<()> {
-    super::delegation::check_delegation_context_fee(tx, 2).c(d!())
 }

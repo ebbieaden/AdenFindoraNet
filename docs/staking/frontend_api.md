@@ -50,34 +50,62 @@ params:
 - none
 
 return:
-- validators: validator addresses and co-responding power
-- threshold: power limit for any validator
+- validators: validator addresses, powers, commission rates
+- threshold: power limit for every validator
 
 return sample:
 
 ```json
 {
   "validators": [
-    [
-      "0F64C8259BFCD1A9F6E21958D0A60D9E370D9C13",
-      320000000000
-    ],
-    [
-      "A9534BB329FE980838EC0FEB7550AD66228D581B",
-      320000000000
-    ],
-    [
-      "CF7D19D604FF5EFE7EC90583D5700D7FF1CF63BA",
-      320000000000
-    ],
-    [
-      "D88C6FE77A7F3F84578D6D9AA2718BB034743902",
-      320000000000
-    ],
-    [
-      "EC046D54F2FA16AE7126343425C1E91A96ED18BD",
-      320000000000
-    ]
+    {
+      "addr": "0F64C8259BFCD1A9F6E21958D0A60D9E370D9C13",
+      "power": 320000000000,
+      "commission_rate": [
+        1,
+        100
+      ]
+    },
+    {
+      "addr": "30E07994969FFE8007481914335521CE665BEEFE",
+      "power": 320000000000,
+      "commission_rate": [
+        1,
+        100
+      ]
+    },
+    {
+      "addr": "325EC027285ABAA2A755286E1982E8F66633C05B",
+      "power": 320000000000,
+      "commission_rate": [
+        1,
+        100
+      ]
+    },
+    {
+      "addr": "4C2582DC314575DE73AD1EAA06726E555786900E",
+      "power": 320000000000,
+      "commission_rate": [
+        1,
+        100
+      ]
+    },
+    {
+      "addr": "55B8CF069F6F6C75935F8EB5FAC6B8C8138BC954",
+      "power": 320000000000,
+      "commission_rate": [
+        1,
+        100
+      ]
+    },
+    {
+      "addr": "EC046D54F2FA16AE7126343425C1E91A96ED18BD",
+      "power": 320000000000,
+      "commission_rate": [
+        1,
+        100
+      ]
+    }
   ],
   "threshold": [
     1,

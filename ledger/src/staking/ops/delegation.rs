@@ -5,9 +5,7 @@
 //!
 
 use crate::{
-    data_model::{
-        NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY,
-    },
+    data_model::{NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA},
     staking::{Amount, Staking, TendermintAddr, COINBASE_PRINCIPAL_PK},
 };
 use ruc::*;
@@ -130,137 +128,83 @@ impl Data {
     }
 }
 
-// Check tx and return the amount of delegation.
-// - total amount of operations is 3
-// - one of them is a `TransferAsset` to pay fee
-// - one of them  is a `Delegation`
-// - one of them  is a `TransferAsset` to pay to CoinBasePrincipal
-//     - all inputs must be owned by a same address
-//     - number of its outputs must be 1,
-//     - and this output must be `NonConfidential`
-//     - and this output will be used as the amount of delegation
 fn check_delegation_context(tx: &Transaction) -> Result<Amount> {
-    if 3 != tx.body.operations.len() {
-        return Err(eg!("incorrect number of operations"));
-    }
-
-    // 1. check FEE operation
-    check_delegation_context_fee(tx, 3).c(d!("invalid fee operation"))?;
-
-    // 2. check `Delegation` operation
-    let owner = (0..3)
-        .filter_map(|i| {
-            if let Operation::Delegation(ref x) = tx.body.operations[i] {
+    let owner = tx
+        .body
+        .operations
+        .iter()
+        .flat_map(|op| {
+            if let Operation::Delegation(ref x) = op {
                 Some(x.pubkey)
             } else {
                 None
             }
         })
-        .next()
-        .ok_or(eg!("delegation ops not found"))?;
+        .collect::<Vec<_>>();
 
-    // 3. check non-confidential self-`TransferAsset`
-    check_delegation_context_principal(tx, owner, 3)
+    // only one delegation operation is allowed per transaction
+    if 1 != owner.len() {
+        return Err(eg!());
+    }
+
+    check_delegation_context_principal(tx, owner[0])
         .c(d!("delegation amount is not paid correctly"))
-}
-
-// if balance output exists,
-// target addr must be same as the inputs
-macro_rules! check_balance {
-    ($op: expr, $action: block) => {
-        if let Some(o) = $op.body.outputs.get(1) {
-            if 1 == $op
-                .body
-                .transfer
-                .inputs
-                .iter()
-                .map(|i| i.public_key)
-                .collect::<HashSet<_>>()
-                .len()
-                && o.record.public_key == $op.body.transfer.inputs[0].public_key
-            {
-                $action
-            }
-        } else {
-            $action
-        }
-    };
-}
-
-pub(crate) fn check_delegation_context_fee(
-    tx: &Transaction,
-    total: usize,
-) -> Result<()> {
-    let valid = (0..total).any(|i| {
-        if let Some(Operation::TransferAsset(ref x)) = tx.body.operations.get(i) {
-            // more than 2 outputs is not allowed
-            if 2 < x.body.outputs.len() {
-                return false;
-            }
-
-            let o = &x.body.outputs[0];
-            if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                if ty == ASSET_TYPE_FRA && *BLACK_HOLE_PUBKEY == o.record.public_key {
-                    if let XfrAmount::NonConfidential(_) = o.record.amount {
-                        check_balance!(x, {
-                            return true;
-                        });
-                    }
-                }
-            }
-        }
-        false
-    });
-
-    alt!(valid, Ok(()), Err(eg!()))
 }
 
 fn check_delegation_context_principal(
     tx: &Transaction,
     owner: XfrPublicKey,
-    total: usize,
 ) -> Result<Amount> {
-    let mut am = None;
     let target_pk = *COINBASE_PRINCIPAL_PK;
 
-    for i in 0..total {
-        if let Some(Operation::TransferAsset(ref x)) = tx.body.operations.get(i) {
-            // ensure all inputs are owned by a same address.
-            if 1 != x
-                .body
-                .transfer
-                .inputs
-                .iter()
-                .map(|i| i.public_key)
-                .collect::<HashSet<_>>()
-                .len()
-            {
-                continue;
-            }
+    let am = tx
+        .body
+        .operations
+        .iter()
+        .flat_map(|op| {
+            if let Operation::TransferAsset(ref x) = op {
+                let keynum = x
+                    .body
+                    .transfer
+                    .inputs
+                    .iter()
+                    .map(|i| i.public_key)
+                    .collect::<HashSet<_>>()
+                    .len();
 
-            // ensure the owner of all inputs is same as the delegater.
-            if owner != x.body.transfer.inputs[0].public_key {
-                continue;
-            }
+                // make sure:
+                //
+                // - all inputs are owned by a same address
+                // - the owner of all inputs is same as the delegator
+                if 1 == keynum && owner == x.body.transfer.inputs[0].public_key {
+                    let am = x
+                        .body
+                        .outputs
+                        .iter()
+                        .flat_map(|o| {
+                            if let XfrAssetType::NonConfidential(ty) =
+                                o.record.asset_type
+                            {
+                                if ty == ASSET_TYPE_FRA
+                                    && target_pk == o.record.public_key
+                                {
+                                    if let XfrAmount::NonConfidential(i_am) =
+                                        o.record.amount
+                                    {
+                                        return Some(i_am);
+                                    }
+                                }
+                            }
+                            None
+                        })
+                        .sum::<u64>();
 
-            // more than 2 outputs is not allowed
-            if 2 < x.body.outputs.len() {
-                continue;
-            }
-
-            let o = &x.body.outputs[0];
-            if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                if ty == ASSET_TYPE_FRA && target_pk == o.record.public_key {
-                    if let XfrAmount::NonConfidential(i_am) = o.record.amount {
-                        check_balance!(x, {
-                            am = Some(i_am);
-                            break;
-                        });
-                    }
+                    return Some(am);
                 }
             }
-        }
-    }
+            None
+        })
+        .sum();
 
-    am.ok_or(eg!())
+    alt!(0 < am, Ok(am), Err(eg!()))
 }
