@@ -47,7 +47,7 @@ impl ClaimOps {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn new(keypair: &XfrKeyPair, amount: u64, nonce: NoReplayToken) -> Self {
+    pub fn new(keypair: &XfrKeyPair, amount: Option<u64>, nonce: NoReplayToken) -> Self {
         let body = Data::new(amount, nonce);
         let signature = keypair.sign(&body.to_bytes());
         ClaimOps {
@@ -74,13 +74,13 @@ impl ClaimOps {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Data {
     /// how much to claim
-    pub amount: u64,
+    pub amount: Option<u64>,
     nonce: NoReplayToken,
 }
 
 impl Data {
     #[inline(always)]
-    fn new(amount: u64, nonce: NoReplayToken) -> Self {
+    fn new(amount: Option<u64>, nonce: NoReplayToken) -> Self {
         Data { amount, nonce }
     }
 

@@ -523,9 +523,22 @@ impl TransactionBuilder {
     pub fn add_operation_claim(
         mut self,
         keypair: &XfrKeyPair,
+    ) -> Result<TransactionBuilder, JsValue> {
+        self.get_builder_mut().add_operation_claim(keypair, None);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_claim_custom(
+        mut self,
+        keypair: &XfrKeyPair,
         am: u64,
     ) -> Result<TransactionBuilder, JsValue> {
-        self.get_builder_mut().add_operation_claim(keypair, am);
+        if 0 == am {
+            return Err(error_to_jsvalue("Amount can not be zero"));
+        }
+        self.get_builder_mut()
+            .add_operation_claim(keypair, Some(am));
         Ok(self)
     }
 

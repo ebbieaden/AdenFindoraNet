@@ -316,7 +316,11 @@ pub trait BuildsTransactions {
         validator: TendermintAddr,
     ) -> &mut Self;
     fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self;
-    fn add_operation_claim(&mut self, keypair: &XfrKeyPair, am: u64) -> &mut Self;
+    fn add_operation_claim(
+        &mut self,
+        keypair: &XfrKeyPair,
+        am: Option<u64>,
+    ) -> &mut Self;
     fn add_operation_fra_distribution(
         &mut self,
         kps: &[&XfrKeyPair],
@@ -847,7 +851,11 @@ impl BuildsTransactions for TransactionBuilder {
         self.add_operation(Operation::UnDelegation(op))
     }
 
-    fn add_operation_claim(&mut self, keypair: &XfrKeyPair, am: u64) -> &mut Self {
+    fn add_operation_claim(
+        &mut self,
+        keypair: &XfrKeyPair,
+        am: Option<u64>,
+    ) -> &mut Self {
         let op = ClaimOps::new(keypair, am, self.txn.body.no_replay_token);
         self.add_operation(Operation::Claim(op))
     }

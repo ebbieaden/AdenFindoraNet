@@ -102,12 +102,15 @@ fn run() -> Result<()> {
         }
     } else if let Some(m) = matches.subcommand_matches("claim") {
         let user = m.value_of("user");
-        let amount = m.value_of("amount");
 
-        if user.is_none() || amount.is_none() {
+        if user.is_none() {
             println!("{}", m.usage());
         } else {
-            let amount = amount.unwrap().parse::<u64>().c(d!())?;
+            let amount = if let Some(am) = m.value_of("amount") {
+                Some(am.parse::<u64>().c(d!())?)
+            } else {
+                None
+            };
             claim::gen_tx(user.unwrap(), amount)
                 .c(d!())
                 .and_then(|tx| send_tx(&tx).c(d!()))?;
@@ -218,7 +221,7 @@ mod undelegate {
 mod claim {
     use super::*;
 
-    pub fn gen_tx(user: NameRef, amount: u64) -> Result<Transaction> {
+    pub fn gen_tx(user: NameRef, amount: Option<u64>) -> Result<Transaction> {
         let owner_kp = &USER_LIST.get(user).c(d!())?.keypair;
 
         let mut builder = new_tx_builder().c(d!())?;

@@ -256,12 +256,22 @@ impl Staking {
         new_power: Amount,
         vldtor: &XfrPublicKey,
     ) -> Result<()> {
+        self.validator_get_power(vldtor)
+            .c(d!())
+            .and_then(|power| self.validator_check_power_x(new_power, power).c(d!()))
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn validator_check_power_x(
+        &self,
+        new_power: Amount,
+        power: Amount,
+    ) -> Result<()> {
         let global_power = self.validator_global_power() + new_power;
         if MAX_TOTAL_POWER < global_power {
             return Err(eg!("global power overflow"));
         }
-
-        let power = self.validator_get_power(vldtor).c(d!())?;
 
         if ((power + new_power) as u128)
             .checked_mul(MAX_POWER_PERCENT_PER_VALIDATOR[1])
@@ -315,7 +325,7 @@ impl Staking {
 
         check_delegation_amount(am).c(d!())?;
 
-        if owner == *COINBASE_PK {
+        if *COINBASE_PK == owner {
             return Err(eg!("malicious behavior: attempting to delegate CoinBase"));
         }
 
@@ -378,8 +388,14 @@ impl Staking {
         let h = self.cur_height;
         let mut orig_h = None;
 
-        if self.addr_is_validator(addr) {
-            return Err(eg!("validator self-undelegation is not permitted"));
+        if let Some(vd) = self.validator_get_current() {
+            if let Some(v) = vd.body.get(addr) {
+                if ValidatorKind::Initor == v.kind {
+                    return Err(eg!(
+                        "initial validator is not permitted to do self-undelegation"
+                    ));
+                }
+            }
         }
 
         if let Some(d) = self.di.addr_map.get_mut(addr) {
@@ -1065,19 +1081,42 @@ impl Staking {
     }
 
     /// Claim delegation rewards.
-    pub fn claim(&mut self, pk: XfrPublicKey, am: Amount) -> Result<()> {
+    pub fn claim(&mut self, pk: XfrPublicKey, am: Option<Amount>) -> Result<()> {
         let am = self.delegation_get_mut(&pk).ok_or(eg!()).and_then(|d| {
-            if am > d.rwd_amount {
-                return Err(eg!());
-            }
             if DelegationState::Paid == d.state {
-                return Err(eg!());
+                return Err(eg!("try to claim paid rewards"));
             }
+            let am = if let Some(am) = am {
+                if am > d.rwd_amount {
+                    return Err(eg!("claim amount exceed total rewards"));
+                }
+                am
+            } else {
+                d.rwd_amount
+            };
             d.rwd_amount -= am;
             Ok(am)
         })?;
 
         *self.coinbase.distribution_plan.entry(pk).or_insert(0) += am;
+
+        Ok(())
+    }
+
+    /// new validators from public staking operations
+    pub fn validator_add_staker(&mut self, h: BlockHeight, v: Validator) -> Result<()> {
+        if let Some(vd) = self.validator_get_effective_at_height(h) {
+            if vd.body.contains_key(&v.id) {
+                return Err(eg!("already exists"));
+            }
+
+            let mut vd = vd.clone();
+            vd.body.insert(v.id, v);
+
+            self.validator_set_at_height_force(h, vd);
+        } else {
+            return Err(eg!("system error: no initial settings"));
+        }
 
         Ok(())
     }
@@ -1129,6 +1168,9 @@ pub const FRA_TOTAL_AMOUNT: Amount = 210_0000_0000 * FRA;
 
 const MIN_DELEGATION_AMOUNT: Amount = 32 * FRA;
 const MAX_DELEGATION_AMOUNT: Amount = FRA_TOTAL_AMOUNT / 10;
+
+/// The minimum investment to become a validator through staking.
+pub const STAKING_VALIDATOR_MIN_POWER: Power = FRA_TOTAL_AMOUNT / 1000;
 
 /// The highest height in the context of tendermint.
 pub const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
@@ -1320,6 +1362,13 @@ impl DelegationInfo {
     }
 }
 
+#[allow(missing_docs)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ValidatorKind {
+    Staker,
+    Initor,
+}
+
 /// Validator info
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Validator {
@@ -1343,6 +1392,7 @@ pub struct Validator {
     commission_rate: [u64; 2],
     /// optional descriptive information
     pub memo: Option<Memo>,
+    kind: ValidatorKind,
 }
 
 impl Validator {
@@ -1353,6 +1403,7 @@ impl Validator {
         id: XfrPublicKey,
         commission_rate: [u64; 2],
         memo: Option<Memo>,
+        kind: ValidatorKind,
     ) -> Result<Self> {
         if 0 == commission_rate[1] || commission_rate[0] > commission_rate[1] {
             return Err(eg!());
@@ -1365,6 +1416,7 @@ impl Validator {
             id,
             commission_rate,
             memo,
+            kind,
         })
     }
 
@@ -1372,6 +1424,14 @@ impl Validator {
     #[allow(missing_docs)]
     pub fn get_commission_rate(&self) -> [u64; 2] {
         self.commission_rate
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn staking_is_basic_valid(&self) -> bool {
+        self.td_power == 0
+            && self.td_addr == td_pubkey_to_td_addr_bytes(&self.td_pubkey)
+            && self.commission_rate[0] < self.commission_rate[1]
     }
 }
 

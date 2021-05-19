@@ -16,9 +16,9 @@ use ledger::{
     staking::{
         calculate_delegation_rewards, ops::governance::ByzantineKind,
         td_pubkey_to_td_addr, DelegationState, TendermintAddr,
-        Validator as StakingValidator, BLOCK_HEIGHT_MAX, COINBASE_KP, COINBASE_PK,
-        COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK, FRA, FRA_TOTAL_AMOUNT,
-        UNBOND_BLOCK_CNT,
+        Validator as StakingValidator, ValidatorKind, BLOCK_HEIGHT_MAX, COINBASE_KP,
+        COINBASE_PK, COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK, FRA,
+        FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
     },
     store::{fra_gen_initial_tx, LedgerAccess},
 };
@@ -328,7 +328,8 @@ fn gen_new_validators(n: u8) -> (Vec<StakingValidator>, Vec<XfrKeyPair>) {
                 INITIAL_POWER,
                 kp.get_pk(),
                 [50, 100],
-                None
+                None,
+                ValidatorKind::Initor
             ))
         })
         .collect::<Vec<_>>();
@@ -457,7 +458,7 @@ fn undelegate(owner_kp: &XfrKeyPair) -> Result<Digest> {
 
 fn claim(owner_kp: &XfrKeyPair, am: u64) -> Result<Digest> {
     let mut builder = new_tx_builder();
-    builder.add_operation_claim(owner_kp, am);
+    builder.add_operation_claim(owner_kp, Some(am));
 
     gen_fee_op(owner_kp)
         .c(d!())

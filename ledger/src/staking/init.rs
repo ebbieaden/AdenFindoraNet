@@ -2,12 +2,15 @@
 //! Initial Config
 //!
 
-use super::{BlockHeight, Power, Validator, ValidatorData, FRA};
+use super::{
+    BlockHeight, Power, Validator, ValidatorData, ValidatorKind,
+    STAKING_VALIDATOR_MIN_POWER,
+};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fs};
 
-const DEFAULT_POWER: Power = 32_0000 * FRA;
+const DEFAULT_POWER: Power = 10 * STAKING_VALIDATOR_MIN_POWER;
 
 /// Generate config during compiling time.
 #[derive(Serialize, Deserialize)]
@@ -41,6 +44,7 @@ impl TryFrom<ValidatorStr> for Validator {
             commission_rate: v.commission_rate.unwrap_or([1, 100]),
             id: wallet::public_key_from_base64(&v.id).c(d!())?,
             memo: v.memo,
+            kind: ValidatorKind::Initor,
         })
     }
 }

@@ -6,7 +6,10 @@
 
 use crate::{
     data_model::{NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA},
-    staking::{Amount, Staking, TendermintAddr, COINBASE_PRINCIPAL_PK},
+    staking::{
+        Amount, Staking, TendermintAddr, Validator, COINBASE_PRINCIPAL_PK,
+        STAKING_VALIDATOR_MIN_POWER,
+    },
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -19,7 +22,7 @@ use zei::xfr::{
 /// Used as the inner object of a `Delegation Operation`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DelegationOps {
-    pub(crate) body: Data,
+    pub(crate) body: Box<Data>,
     pub(crate) pubkey: XfrPublicKey,
     signature: XfrSignature,
 }
@@ -39,7 +42,7 @@ impl DelegationOps {
     pub fn apply(&self, staking: &mut Staking, tx: &Transaction) -> Result<()> {
         self.verify()
             .c(d!())
-            .and_then(|_| Self::check_context(tx).c(d!()))
+            .and_then(|_| self.check_set_context(staking, tx).c(d!()))
             .and_then(|am| {
                 staking
                     .delegate(self.pubkey, &self.body.validator, am)
@@ -56,8 +59,33 @@ impl DelegationOps {
     }
 
     #[inline(always)]
-    fn check_context(tx: &Transaction) -> Result<Amount> {
-        check_delegation_context(tx).c(d!())
+    fn check_set_context(
+        &self,
+        staking: &mut Staking,
+        tx: &Transaction,
+    ) -> Result<Amount> {
+        let am = check_delegation_context(tx).c(d!())?;
+
+        if let Some(v) = self.body.validator_staking.as_ref() {
+            let h = staking.cur_height;
+
+            if !v.staking_is_basic_valid()
+                || am < STAKING_VALIDATOR_MIN_POWER
+                || self.body.validator != hex::encode_upper(&v.td_addr)
+            {
+                return Err(eg!("invalid"));
+            }
+
+            let mut v = v.clone();
+            v.td_power = am;
+
+            staking
+                .validator_check_power_x(am, 0)
+                .c(d!())
+                .and_then(|_| staking.validator_add_staker(h, v).c(d!()))?;
+        }
+
+        Ok(am)
     }
 
     #[inline(always)]
@@ -73,7 +101,7 @@ impl DelegationOps {
         validator: TendermintAddr,
         nonce: NoReplayToken,
     ) -> Self {
-        let body = Data::new(validator, nonce);
+        let body = Box::new(Data::new(validator, nonce));
         let signature = keypair.sign(&body.to_bytes());
         DelegationOps {
             body,
@@ -100,6 +128,8 @@ impl DelegationOps {
 pub struct Data {
     /// the target validator to delegated to
     pub validator: TendermintAddr,
+    /// if set this field, then enter staking flow
+    pub validator_staking: Option<Validator>,
     nonce: NoReplayToken,
 }
 
@@ -108,6 +138,7 @@ impl Data {
     fn new(v: TendermintAddr, nonce: NoReplayToken) -> Self {
         Data {
             validator: v,
+            validator_staking: None,
             nonce,
         }
     }
