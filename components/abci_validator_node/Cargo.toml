@@ -1,7 +1,7 @@
 [package]
 name = "abci_validator_node"
 version = "0.1.0"
-authors = ["Engineering <engineering@findora.org>"]
+authors = ["FindoraNetwork"]
 edition = "2018"
 build = "build.rs"
 
@@ -10,7 +10,7 @@ name = "abci_validator_node"
 path = "src/main.rs"
 
 [[bin]]
-name = "staking_tester"
+name = "stt"
 path = "src/abci/staking/bin/tester.rs"
 
 [dependencies]

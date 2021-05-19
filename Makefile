@@ -36,7 +36,7 @@ bin_files = \
 		./$(pick)/findora \
 		./$(pick)/abci_validator_node \
 		./$(pick)/query_server \
-		./$(pick)/staking_tester \
+		./$(pick)/stt \
 		./$(pick)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
 
@@ -44,7 +44,7 @@ bin_files_musl_debug = \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/findora \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/query_server \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/staking_tester \
+		./target/x86_64-unknown-linux-musl/$(target_dir)/stt\
 		./target/x86_64-unknown-linux-musl/$(target_dir)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
 
@@ -104,7 +104,7 @@ ifdef DBG
 	@ exit 1
 else
 	cargo build --features="debug_env" --frozen --release --bins \
-		-p abci_validator_node -p query_api -p cli2 \
+		-p abci_validator_node -p query_api -p cli2 -p ledger \
 		--target=x86_64-unknown-linux-musl
 	$(call pack_musl_debug,$(target_dir))
 endif

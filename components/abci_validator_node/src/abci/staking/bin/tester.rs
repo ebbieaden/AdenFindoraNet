@@ -9,16 +9,14 @@
 
 #![deny(warnings)]
 
-use clap::{
-    crate_authors, crate_description, crate_name, crate_version, App, SubCommand,
-};
+use clap::{crate_authors, crate_version, App, SubCommand};
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{
         DelegationInfo, Operation, StateCommitmentData, Transaction, TransferType,
         TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
     },
-    staking::{COINBASE_PK, COINBASE_PRINCIPAL_PK},
+    staking::{check_delegation_amount, COINBASE_PK, COINBASE_PRINCIPAL_PK},
     store::fra_gen_initial_tx,
 };
 use ruc::*;
@@ -59,53 +57,73 @@ fn run() -> Result<()> {
     let subcmd_claim = SubCommand::with_name("claim")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to delegate'");
-    let subcmd_info = SubCommand::with_name("info")
-        .arg_from_usage("-R, --root-mnemonic 'show the pre-defined root mnemonic'")
+    let subcmd_show = SubCommand::with_name("show")
+        .arg_from_usage("-b, --coinbase 'show the infomation about coinbase'")
+        .arg_from_usage("-r, --root-mnemonic 'show the pre-defined root mnemonic'")
         .arg_from_usage("-U, --user-list 'show the pre-defined user list'")
-        .arg_from_usage("-V, --validator_list 'show the pre-defined validator list'")
+        .arg_from_usage("-v, --validator-list 'show the pre-defined validator list'")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'");
 
-    let matches = App::new(crate_name!())
+    let matches = App::new("stt")
         .version(crate_version!())
         .author(crate_authors!())
-        .about(crate_description!())
+        .about("A manual test tool for the staking function.")
         .subcommand(subcmd_init)
         .subcommand(subcmd_delegate)
         .subcommand(subcmd_undelegate)
         .subcommand(subcmd_claim)
-        .subcommand(subcmd_info)
+        .subcommand(subcmd_show)
         .get_matches();
 
     if matches.subcommand_matches("init").is_some() {
         init::init().c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("delegate") {
-        let user = m.value_of("user").c(d!())?;
-        let amount = m.value_of("amount").c(d!())?;
-        let amount = amount.parse::<u64>().c(d!())?;
-        let validator = m.value_of("validator").c(d!())?;
-        delegate::gen_tx(user, amount, validator)
-            .c(d!())
-            .and_then(|tx| send_tx(&tx).c(d!()))?;
+        let user = m.value_of("user");
+        let amount = m.value_of("amount");
+        let validator = m.value_of("validator");
+
+        if user.is_none() || amount.is_none() || validator.is_none() {
+            println!("{}", m.usage());
+        } else {
+            let amount = amount.unwrap().parse::<u64>().c(d!())?;
+            delegate::gen_tx(user.unwrap(), amount, validator.unwrap())
+                .c(d!())
+                .and_then(|tx| send_tx(&tx).c(d!()))?;
+        }
     } else if let Some(m) = matches.subcommand_matches("undelegate") {
-        let user = m.value_of("user").c(d!())?;
-        undelegate::gen_tx(user)
-            .c(d!())
-            .and_then(|tx| send_tx(&tx).c(d!()))?;
+        let user = m.value_of("user");
+
+        if user.is_none() {
+            println!("{}", m.usage());
+        } else {
+            undelegate::gen_tx(user.unwrap())
+                .c(d!())
+                .and_then(|tx| send_tx(&tx).c(d!()))?;
+        }
     } else if let Some(m) = matches.subcommand_matches("claim") {
-        let user = m.value_of("user").c(d!())?;
-        let amount = m.value_of("amount").c(d!())?;
-        let amount = amount.parse::<u64>().c(d!())?;
-        claim::gen_tx(user, amount)
-            .c(d!())
-            .and_then(|tx| send_tx(&tx).c(d!()))?;
-    } else if let Some(m) = matches.subcommand_matches("info") {
-        print_info(
-            m.is_present("root-mnemonic"),
-            m.is_present("user-list"),
-            m.is_present("validator_list"),
-            m.value_of("user"),
-        )
-        .c(d!())?;
+        let user = m.value_of("user");
+        let amount = m.value_of("amount");
+
+        if user.is_none() || amount.is_none() {
+            println!("{}", m.usage());
+        } else {
+            let amount = amount.unwrap().parse::<u64>().c(d!())?;
+            claim::gen_tx(user.unwrap(), amount)
+                .c(d!())
+                .and_then(|tx| send_tx(&tx).c(d!()))?;
+        }
+    } else if let Some(m) = matches.subcommand_matches("show") {
+        let cb = m.is_present("coinbase");
+        let rm = m.is_present("root-mnemonic");
+        let ul = m.is_present("user-list");
+        let vl = m.is_present("validator-list");
+        let u = m.value_of("user");
+
+        if cb || rm || ul || vl || u.is_some() {
+            print_info(cb, rm, ul, vl, u).c(d!())?;
+        } else {
+            println!("{}", m.usage());
+        }
     } else {
         println!("{}", matches.usage());
     }
@@ -122,7 +140,7 @@ mod init {
 
         send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
 
-        sleep_ms!(20 * 1000);
+        sleep_ms!(10 * 1000);
 
         let mut target_list = USER_LIST
             .values()
@@ -134,6 +152,8 @@ mod init {
         target_list.push((&*COINBASE_PK, 4_000_000_000_000));
 
         transfer(&root_kp, target_list).c(d!())?;
+
+        sleep_ms!(10 * 1000);
 
         for v in VALIDATOR_LIST.values() {
             delegate::gen_tx(&v.name, 1_000_000_000_000, &v.name)
@@ -153,6 +173,8 @@ mod delegate {
         amount: u64,
         validator: NameRef,
     ) -> Result<Transaction> {
+        check_delegation_amount(amount).c(d!())?;
+
         let owner_kp = USER_LIST
             .get(user)
             .map(|u| &u.keypair)
@@ -211,11 +233,26 @@ mod claim {
 }
 
 fn print_info(
+    show_coinbse: bool,
     show_root_mnemonic: bool,
     show_user_list: bool,
     show_validator_list: bool,
     user: Option<NameRef>,
 ) -> Result<()> {
+    if show_coinbse {
+        let cb_balance = get_balance_x(&COINBASE_PK).c(d!())?;
+        let cb_principal_balance = get_balance_x(&COINBASE_PRINCIPAL_PK).c(d!())?;
+
+        println!(
+            "\x1b[31;01mCOINBASE BALANCE:\x1b[00m\n{} FRA units\n",
+            cb_balance
+        );
+        println!(
+            "\x1b[31;01mCOINBASE PRINCIPAL BALANCE:\x1b[00m\n{} FRA units\n",
+            cb_principal_balance
+        );
+    }
+
     if show_root_mnemonic {
         println!("\x1b[31;01mROOT MNEMONIC:\x1b[00m\n{}\n", ROOT_MNEMONIC);
     }
@@ -231,8 +268,11 @@ fn print_info(
     }
 
     if let Some(u) = user {
+        let balance = get_balance(u).c(d!())?;
+        println!("\x1b[31;01mUSER BALANCE:\x1b[00m\n{} FRA units\n", balance);
+
         let user_info = get_delegation_info(u).c(d!())?;
-        println!("\x1b[31;01mUSER INFO:\x1b[00m\n{}\n", user_info);
+        println!("\x1b[31;01mUSER DELEGATION:\x1b[00m\n{}\n", user_info);
     }
 
     Ok(())
@@ -259,7 +299,7 @@ fn get_seq_id() -> Result<u64> {
         SignatureOf<(HashOf<Option<StateCommitmentData>>, u64)>,
     );
 
-    let url = format!("{}:8668/global_state", &*SERV_ADDR);
+    let url = format!("http://{}:8668/global_state", &*SERV_ADDR);
 
     attohttpc::get(&url)
         .send()
@@ -273,10 +313,14 @@ fn get_seq_id() -> Result<u64> {
 }
 
 fn get_delegation_info(user: NameRef) -> Result<String> {
-    let pk = &USER_LIST.get(user).c(d!())?.pubkey;
+    let pk = USER_LIST
+        .get(user)
+        .map(|u| &u.pubkey)
+        .or_else(|| VALIDATOR_LIST.get(user).map(|v| &v.pubkey))
+        .c(d!())?;
 
     let url = format!(
-        "{}:8668/delegation_info/{}",
+        "http://{}:8668/delegation_info/{}",
         &*SERV_ADDR,
         wallet::public_key_to_base64(pk)
     );
@@ -292,9 +336,35 @@ fn get_delegation_info(user: NameRef) -> Result<String> {
         .and_then(|resp| serde_json::to_string_pretty(&resp).c(d!()))
 }
 
+fn get_balance(user: NameRef) -> Result<u64> {
+    let pk = USER_LIST
+        .get(user)
+        .map(|u| &u.pubkey)
+        .or_else(|| VALIDATOR_LIST.get(user).map(|v| &v.pubkey))
+        .c(d!())?;
+
+    get_balance_x(pk).c(d!())
+}
+
+fn get_balance_x(pk: &XfrPublicKey) -> Result<u64> {
+    let balance = get_owned_utxos(pk)
+        .c(d!())?
+        .values()
+        .map(|utxo| {
+            if let XfrAmount::NonConfidential(am) = utxo.0.record.amount {
+                am
+            } else {
+                0
+            }
+        })
+        .sum();
+
+    Ok(balance)
+}
+
 fn get_owned_utxos(addr: &XfrPublicKey) -> Result<BTreeMap<TxoSID, Utxo>> {
     let url = format!(
-        "{}:8668/owned_utxos/{}",
+        "http://{}:8668/owned_utxos/{}",
         &*SERV_ADDR,
         wallet::public_key_to_base64(addr)
     );
@@ -332,7 +402,7 @@ fn gen_user_list() -> BTreeMap<Name, User> {
             ));
             let pubkey = keypair.get_pk();
             User {
-                name: format!("user-{}", 1 + i),
+                name: format!("u{}", 1 + i),
                 mnemonic: MNEMONIC_LIST[i].to_owned(),
                 pubkey,
                 keypair,
@@ -405,7 +475,7 @@ fn gen_valiator_list() -> BTreeMap<Name, Validator> {
             ));
             let pubkey = keypair.get_pk();
             Validator {
-                name: format!("validator-{}", 1 + i),
+                name: format!("v{}", 1 + i),
                 td_addr,
                 pubkey,
                 keypair,

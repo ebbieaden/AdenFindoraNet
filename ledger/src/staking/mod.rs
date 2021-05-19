@@ -15,11 +15,8 @@ pub mod cosig;
 pub mod init;
 pub mod ops;
 
-use crate::{
-    data_model::{
-        Operation, Transaction, TransferAsset, TxoSID, ASSET_TYPE_FRA, FRA_DECIMALS,
-    },
-    store::LedgerStatus,
+use crate::data_model::{
+    Operation, Transaction, TransferAsset, ASSET_TYPE_FRA, FRA_DECIMALS,
 };
 use cosig::CoSigRule;
 use cryptohash::sha256::{self, Digest};
@@ -183,9 +180,9 @@ impl Staking {
     /// Make the validators at a specified height to be effective.
     pub fn validator_apply_at_height(&mut self, h: BlockHeight) {
         if let Some(mut prev) = self.validator_get_effective_at_height(h - 1).cloned() {
+            // inherit the powers of previous settings
+            // if new settings were found
             if let Some(vs) = self.validator_get_at_height_mut(h) {
-                // inherit the powers of previous settings
-                // if new settings were found
                 vs.body.iter_mut().for_each(|(k, v)| {
                     if let Some(pv) = prev.body.remove(k) {
                         v.td_power = pv.td_power;
@@ -202,9 +199,10 @@ impl Staking {
                     vs.addr_td_to_app.insert(pnk!(addr_map.remove(&k)), k);
                     vs.body.insert(k, v);
                 });
-            } else {
-                // copy previous settings
-                // if new settings were not found.
+            }
+            // copy previous settings
+            // if new settings were not found.
+            else {
                 self.validator_set_at_height_force(h, prev);
             }
         }
@@ -223,12 +221,12 @@ impl Staking {
         power: Power,
         decrease: bool,
     ) -> Result<()> {
-        self.validator_check_power(power, validator)
-            .c(d!())
-            .and_then(|_| {
-                self.validator_get_effective_at_height_mut(self.cur_height)
-                    .ok_or(eg!())
-            })
+        if !decrease {
+            self.validator_check_power(power, validator).c(d!())?;
+        }
+
+        self.validator_get_effective_at_height_mut(self.cur_height)
+            .ok_or(eg!())
             .and_then(|cur| {
                 cur.body
                     .get_mut(validator)
@@ -281,7 +279,13 @@ impl Staking {
     /// calculate current global vote-power
     #[inline(always)]
     pub fn validator_global_power(&self) -> Power {
-        self.validator_get_effective_at_height(self.cur_height)
+        self.validator_global_power_at_height(self.cur_height)
+    }
+
+    /// calculate current global vote-power
+    #[inline(always)]
+    pub fn validator_global_power_at_height(&self, h: BlockHeight) -> Power {
+        self.validator_get_effective_at_height(h)
             .map(|vs| vs.body.values().map(|v| v.td_power).sum())
             .unwrap_or(0)
     }
@@ -309,9 +313,7 @@ impl Staking {
         let validator = self.td_addr_to_app_pk(validator).c(d!())?;
         let end_height = BLOCK_HEIGHT_MAX;
 
-        if !(MIN_DELEGATION_AMOUNT..=MAX_DELEGATION_AMOUNT).contains(&am) {
-            return Err(eg!("invalid delegation amount"));
-        }
+        check_delegation_amount(am).c(d!())?;
 
         if owner == *COINBASE_PK {
             return Err(eg!("malicious behavior: attempting to delegate CoinBase"));
@@ -327,13 +329,16 @@ impl Staking {
             return Err(eg!("self-delegation has not been finished"));
         }
 
+        let h = self.cur_height;
         let new = || Delegation {
             entries: map! {B validator => 0},
             rwd_pk: owner,
-            start_height: None,
+            start_height: h,
             end_height,
             state: DelegationState::Bond,
             rwd_amount: 0,
+            delegation_rwd_cnt: 0,
+            proposer_rwd_cnt: 0,
         };
 
         let d = self.di.addr_map.entry(owner).or_insert_with(new);
@@ -377,16 +382,18 @@ impl Staking {
             return Err(eg!("validator self-undelegation is not permitted"));
         }
 
-        self.di
-            .addr_map
-            .get_mut(addr)
-            .ok_or(eg!("not exists"))
-            .map(|d| {
+        if let Some(d) = self.di.addr_map.get_mut(addr) {
+            if BLOCK_HEIGHT_MAX == d.end_height {
                 if d.end_height != h {
                     orig_h = Some(d.end_height);
                     d.end_height = h + UNBOND_BLOCK_CNT;
                 }
-            })?;
+            } else {
+                return Err(eg!("delegator is not bonded"));
+            }
+        } else {
+            return Err(eg!("delegator not found"));
+        }
 
         if let Some(orig_h) = orig_h {
             self.di
@@ -730,50 +737,6 @@ impl Staking {
         &self.coinbase.principal_keypair
     }
 
-    /// Add new FRA utxo to CoinBase.
-    #[inline(always)]
-    pub fn coinbase_recharge(&mut self, txo_sid: TxoSID) {
-        self.coinbase.bank.insert(txo_sid);
-    }
-
-    /// Get all avaliable utos owned by CoinBase.
-    #[inline(always)]
-    pub fn coinbase_txos(&self) -> BTreeSet<TxoSID> {
-        self.coinbase.bank.clone()
-    }
-
-    #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn coinbase_clean_spent_txos(&mut self, ls: &LedgerStatus) {
-        self.coinbase.bank.clone().into_iter().for_each(|sid| {
-            if !ls.is_unspent_txo(sid) {
-                self.coinbase.bank.remove(&sid);
-            }
-        });
-    }
-
-    /// Add new FRA utxo to CoinBase.
-    #[inline(always)]
-    pub fn coinbase_principal_recharge(&mut self, txo_sid: TxoSID) {
-        self.coinbase.principal_bank.insert(txo_sid);
-    }
-
-    /// Get all avaliable utos owned by CoinBase.
-    #[inline(always)]
-    pub fn coinbase_principal_txos(&self) -> BTreeSet<TxoSID> {
-        self.coinbase.principal_bank.clone()
-    }
-
-    #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn coinbase_principal_clean_spent_txos(&mut self, ls: &LedgerStatus) {
-        self.coinbase.bank.clone().into_iter().for_each(|sid| {
-            if !ls.is_unspent_txo(sid) {
-                self.coinbase.principal_bank.remove(&sid);
-            }
-        });
-    }
-
     /// Add new fra distribution plan.
     pub fn coinbase_config_fra_distribution(
         &mut self,
@@ -811,7 +774,8 @@ impl Staking {
         if !self.seems_valid_coinbase_ops(tx, false)
             && !self.seems_valid_coinbase_ops(tx, true)
         {
-            return Err(eg!());
+            let msg = serde_json::to_string_pretty(&tx.body.operations).c(d!())?;
+            return Err(eg!(msg));
         }
 
         self.coinbase_collect_payments(tx)
@@ -1037,7 +1001,9 @@ impl Staking {
             .addr_map
             .values_mut()
             .filter(|d| d.validator_entry_exists(&pk))
-            .map(|d| d.set_delegation_rewards(&pk, h, return_rate, commission_rate))
+            .map(|d| {
+                d.set_delegation_rewards(&pk, h, return_rate, commission_rate, true)
+            })
             .collect::<Result<Vec<_>>>()
             .c(d!())?;
 
@@ -1046,7 +1012,8 @@ impl Staking {
         }
 
         if let Some(power) = block_vote_power {
-            let global_power = self.validator_global_power();
+            let global_power =
+                self.validator_global_power_at_height(self.cur_height.saturating_sub(1));
             if 0 < global_power {
                 self.set_proposer_rewards(&pk, [power, global_power])
                     .c(d!())?;
@@ -1076,14 +1043,18 @@ impl Staking {
         let h = self.cur_height;
         self.delegation_get_mut(proposer)
             .ok_or(eg!())
-            .and_then(|d| d.set_delegation_rewards(proposer, h, p, [0, 100]).c(d!()))
+            .and_then(|d| {
+                d.set_delegation_rewards(proposer, h, p, [0, 100], false)
+                    .c(d!())
+            })
             .map(|_| ())
     }
 
     fn get_proposer_rewards_rate(vote_percent: [u64; 2]) -> Result<[u64; 2]> {
         let p = vote_percent;
         if p[0] > p[1] {
-            return Err(eg!());
+            let msg = format!("Invalid power percent: {}/{}", p[0], p[1]);
+            return Err(eg!(msg));
         }
         for ([low, high], rate) in PROPOSER_REWARDS_RATE_RULE.iter() {
             if p[0] * 100_0000 < p[1] * high && p[0] * 100_0000 >= p[1] * low {
@@ -1095,13 +1066,14 @@ impl Staking {
 
     /// Claim delegation rewards.
     pub fn claim(&mut self, pk: XfrPublicKey, am: Amount) -> Result<()> {
-        let am = self.delegation_get(&pk).ok_or(eg!()).and_then(|d| {
+        let am = self.delegation_get_mut(&pk).ok_or(eg!()).and_then(|d| {
             if am > d.rwd_amount {
                 return Err(eg!());
             }
             if DelegationState::Paid == d.state {
                 return Err(eg!());
             }
+            d.rwd_amount -= am;
             Ok(am)
         })?;
 
@@ -1140,6 +1112,14 @@ const PROPOSER_REWARDS_RATE_RULE: [([u64; 2], u64); 6] = [
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Apply new validator config every N blocks.
+///
+/// Update the validator list every 4 blocks to ensure that
+/// the validator list obtained from `abci::LastCommitInfo` is exactly
+/// the same as the current block.
+/// So we can use it to filter out non-existing entries.
+pub const VALIDATOR_UPDATE_BLOCK_ITV: i64 = 4;
 
 /// How many FRA units per FRA
 pub const FRA: Amount = 10_u64.pow(FRA_DECIMALS as u32);
@@ -1405,8 +1385,8 @@ pub struct Delegation {
     pub entries: BTreeMap<XfrPublicKey, Amount>,
     /// delegation rewards will be paid to this pk
     pub rwd_pk: XfrPublicKey,
-    /// set this field when rewards appear first time
-    pub start_height: Option<BlockHeight>,
+    /// the height when new delegation is proposed successfully
+    pub start_height: BlockHeight,
     /// the height at which the delegation ends
     ///
     /// **NOTE:** before users can actually get the rewards,
@@ -1416,6 +1396,10 @@ pub struct Delegation {
     pub state: DelegationState,
     /// set this field when `Bond` state finished
     pub rwd_amount: Amount,
+    /// how many times you get proposer rewards
+    pub proposer_rwd_cnt: u64,
+    /// how many times you get delegation rewards
+    pub delegation_rwd_cnt: u64,
 }
 
 impl Delegation {
@@ -1427,7 +1411,7 @@ impl Delegation {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn start_height(&self) -> Option<BlockHeight> {
+    pub fn start_height(&self) -> BlockHeight {
         self.start_height
     }
 
@@ -1468,6 +1452,7 @@ impl Delegation {
         cur_height: BlockHeight,
         return_rate: [u64; 2],
         commission_rate: [u64; 2],
+        is_delegation_rwd: bool,
     ) -> Result<u64> {
         if self.end_height < cur_height || DelegationState::Bond != self.state {
             return Ok(0);
@@ -1477,8 +1462,10 @@ impl Delegation {
             return Err(eg!());
         }
 
-        if self.start_height.is_none() {
-            self.start_height = Some(cur_height);
+        if is_delegation_rwd {
+            self.delegation_rwd_cnt += 1;
+        } else {
+            self.proposer_rwd_cnt += 1;
         }
 
         self.validator_entry(validator)
@@ -1487,8 +1474,10 @@ impl Delegation {
                 if 0 < am {
                     // APY
                     am += self.rwd_amount.saturating_mul(am) / self.amount();
+                    calculate_delegation_rewards(am, return_rate).c(d!())
+                } else {
+                    Err(eg!())
                 }
-                calculate_delegation_rewards(am, return_rate).c(d!())
             })
             .and_then(|n| self.rwd_amount.checked_add(n).ok_or(eg!("overflow")))
             .map(|n| {
@@ -1543,11 +1532,9 @@ impl Default for DelegationState {
 struct CoinBase {
     pubkey: XfrPublicKey,
     keypair: XfrKeyPair,
-    bank: BTreeSet<TxoSID>,
 
     principal_pubkey: XfrPublicKey,
     principal_keypair: XfrKeyPair,
-    principal_bank: BTreeSet<TxoSID>,
 
     distribution_hist: BTreeSet<Digest>,
     distribution_plan: BTreeMap<XfrPublicKey, Amount>,
@@ -1572,11 +1559,9 @@ impl CoinBase {
         CoinBase {
             pubkey: *COINBASE_PK,
             keypair: COINBASE_KP.clone(),
-            bank: BTreeSet::new(),
 
             principal_pubkey: *COINBASE_PRINCIPAL_PK,
             principal_keypair: COINBASE_PRINCIPAL_KP.clone(),
-            principal_bank: BTreeSet::new(),
 
             distribution_hist: BTreeSet::new(),
             distribution_plan: BTreeMap::new(),
@@ -1590,10 +1575,24 @@ pub fn td_pubkey_to_td_addr(pubkey: &[u8]) -> String {
     hex::encode_upper(&sha2::Sha256::digest(pubkey)[..20])
 }
 
-/// sha256(pubkey)[:20]
 #[inline(always)]
+#[allow(missing_docs)]
 pub fn td_pubkey_to_td_addr_bytes(pubkey: &[u8]) -> Vec<u8> {
     sha2::Sha256::digest(pubkey)[..20].to_vec()
+}
+
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn check_delegation_amount(am: Amount) -> Result<()> {
+    if (MIN_DELEGATION_AMOUNT..=MAX_DELEGATION_AMOUNT).contains(&am) {
+        Ok(())
+    } else {
+        let msg = format!(
+            "Invalid delegation amount: {} (min: {}, max: {})",
+            am, MIN_DELEGATION_AMOUNT, MAX_DELEGATION_AMOUNT
+        );
+        Err(eg!(msg))
+    }
 }
 
 #[cfg(test)]
@@ -1659,10 +1658,12 @@ mod test {
         let delegation = Delegation {
             entries: map! {B validator_kp.get_pk() => delegation_amount},
             rwd_pk: delegator_kp.get_pk(),
-            start_height: None,
+            start_height: 0,
             end_height: 200_0000,
             state: DelegationState::Bond,
             rwd_amount: 0,
+            delegation_rwd_cnt: 0,
+            proposer_rwd_cnt: 0,
         };
 
         staking.di.global_amount = delegation_amount;

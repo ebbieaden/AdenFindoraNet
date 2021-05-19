@@ -13,7 +13,7 @@ use crate::{
             fra_distribution::FraDistributionOps, governance::GovernanceOps,
             undelegation::UnDelegationOps, update_validator::UpdateValidatorOps,
         },
-        TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
+        Staking, TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
         MAX_POWER_PERCENT_PER_VALIDATOR,
     },
 };
@@ -1120,7 +1120,7 @@ impl Validator {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DelegationInfo {
     pub bond: u64,
     pub unbond: u64,
@@ -1128,24 +1128,21 @@ pub struct DelegationInfo {
     pub return_rate: [u64; 2],
     pub global_delegation: u64,
     pub global_staking: u64,
-    pub start_height: Option<u64>,
+    pub start_height: u64,
+    pub end_height: u64,
     pub current_height: u64,
+    pub delegation_rwd_cnt: u64,
+    pub proposer_rwd_cnt: u64,
 }
-impl Default for DelegationInfo {
-    fn default() -> Self {
-        DelegationInfo {
-            bond: 0,
-            unbond: 0,
-            rewards: 0,
+
+impl DelegationInfo {
+    fn default_x() -> Self {
+        Self {
             return_rate: [0, 100],
-            global_delegation: 0,
-            global_staking: 0,
-            start_height: None,
-            current_height: 0,
+            ..Self::default()
         }
     }
-}
-impl DelegationInfo {
+
     pub fn new(
         bond: u64,
         unbond: u64,
@@ -1161,7 +1158,7 @@ impl DelegationInfo {
             return_rate,
             global_delegation,
             global_staking,
-            ..Default::default()
+            ..Self::default_x()
         }
     }
 }
@@ -1717,6 +1714,10 @@ pub struct Account {
     pub id: AccountID,
     pub access_control_list: Vec<AccountAddress>,
     pub key_value: HashMap<String, String>, //key value storage...
+}
+
+pub trait StakingUpdate {
+    fn get_staking_simulator_mut(&mut self) -> &mut Staking;
 }
 
 #[cfg(test)]

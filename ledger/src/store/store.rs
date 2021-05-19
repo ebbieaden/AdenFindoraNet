@@ -3,7 +3,7 @@ extern crate byteorder;
 extern crate tempdir;
 
 use crate::data_model::errors::PlatformError;
-use crate::data_model::*;
+use crate::data_model::{StakingUpdate, *};
 use crate::policies::{calculate_fee, DebtMemo};
 use crate::policy_script::policy_check_txn;
 use crate::staking::Staking;
@@ -45,6 +45,8 @@ pub trait LedgerAccess {
     fn get_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
     fn get_utxos(&self, address_list: TxoSIDList) -> Vec<Option<AuthenticatedUtxo>>;
 
+    fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo>;
+
     // The most recently-issued sequence number for the `code`-labelled asset
     // type
     fn get_issuance_num(&self, code: &AssetTypeCode) -> Option<u64>;
@@ -83,7 +85,7 @@ pub trait LedgerUpdate<RNG: RngCore + CryptoRng> {
     // Each Block represents a collection of transactions which have been
     // validated and confirmed to be unconditionally consistent with the
     // ledger and with each other.
-    type Block: Sync + Send;
+    type Block: Sync + Send + StakingUpdate;
 
     fn get_prng(&mut self) -> &mut RNG;
 
@@ -889,18 +891,6 @@ impl LedgerStatus {
                     let txo_sid = *next_txo;
                     next_txo.0 += 1;
                     if let Some(tx_output) = txo {
-                        // for staking logic
-                        if block.staking_simulator.coinbase_pubkey()
-                            == tx_output.record.public_key
-                        {
-                            block.staking_simulator.coinbase_recharge(txo_sid);
-                        }
-                        if block.staking_simulator.coinbase_principal_pubkey()
-                            == tx_output.record.public_key
-                        {
-                            block.staking_simulator.coinbase_principal_recharge(txo_sid);
-                        }
-
                         self.utxos.insert(txo_sid, Utxo(tx_output));
                         txn_utxo_sids.push(txo_sid);
                     }
@@ -925,21 +915,6 @@ impl LedgerStatus {
         // issuance_keys should already have been checked
         block.issuance_keys.clear();
 
-        // for staking logic
-        {
-            // set height first!
-            block.staking_simulator.set_custom_block_height(
-                1 + block.pulse_count + self.block_commit_count + self.pulse_count,
-            );
-            block.staking_simulator.delegation_process();
-            block.staking_simulator.validator_apply_current();
-            block.staking_simulator.coinbase_clean_spent_txos(self);
-            block
-                .staking_simulator
-                .coinbase_principal_clean_spent_txos(self);
-            mem::swap(&mut self.staking, &mut block.staking_simulator);
-        }
-
         new_utxo_sids
     }
 
@@ -958,7 +933,6 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
 
     fn start_block(&mut self) -> Result<BlockEffect> {
         if let Some(mut block) = self.block_ctx.take() {
-            block.staking_simulator = self.get_staking().clone();
             Ok(block)
         } else {
             Err(eg!(PlatformError::InputsError(None)))
@@ -970,12 +944,19 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
         block: &mut BlockEffect,
         txe: TxnEffect,
     ) -> Result<TxnTempSID> {
-        block
-            .staking_simulator
-            .coinbase_check_and_pay(&txe.txn)
+        let tx = txe.txn.clone();
+        self.status
+            .check_txn_effects(&txe)
             .c(d!())
-            .and_then(|_| self.status.check_txn_effects(&txe).c(d!()))
             .and_then(|_| block.add_txn_effect(txe).c(d!()))
+            .and_then(|tmpid| {
+                // NOTE: set at the last position
+                block
+                    .staking_simulator
+                    .coinbase_check_and_pay(&tx)
+                    .c(d!())
+                    .map(|_| tmpid)
+            })
     }
 
     fn abort_block(&mut self, block: BlockEffect) -> HashMap<TxnTempSID, Transaction> {
@@ -1134,6 +1115,9 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
                 merkle_id: block_merkle_id,
             });
         }
+
+        // apply staking updates
+        mem::swap(&mut block.staking_simulator, self.get_staking_mut());
 
         self.block_ctx = Some(block);
 
@@ -2050,6 +2034,10 @@ impl LedgerAccess for LedgerState {
             } // Should we just change this to return  Vec<AuthenticatedUtxo> ? and not return None for unknown utxos.
         }
         utxos
+    }
+
+    fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo> {
+        self.status.get_owned_utxos(addr)
     }
 
     fn get_issuance_num(&self, code: &AssetTypeCode) -> Option<u64> {

@@ -1,7 +1,10 @@
 use crate::abci::{server::ABCISubmissionServer, staking};
 use abci::*;
 use lazy_static::lazy_static;
-use ledger::{data_model::TxnEffect, store::LedgerAccess};
+use ledger::{
+    data_model::TxnEffect,
+    store::{LedgerAccess, LedgerUpdate},
+};
 use parking_lot::Mutex;
 use protobuf::RepeatedField;
 use ruc::*;
@@ -96,8 +99,17 @@ pub fn begin_block(
 
     let mut la = s.la.write();
 
+    // set height first
+    la.get_committed_state()
+        .write()
+        .get_staking_mut()
+        .set_custom_block_height(header.height as u64);
+
+    // then create new block or update simulator
     if la.all_commited() {
         la.begin_block();
+    } else {
+        pnk!(la.update_staking_simulator());
     }
 
     ResponseBeginBlock::new()
@@ -107,16 +119,16 @@ pub fn end_block(
     s: &mut ABCISubmissionServer,
     _req: &RequestEndBlock,
 ) -> ResponseEndBlock {
+    let mut resp = ResponseEndBlock::new();
+
     let mut la = s.la.write();
+
     if la.block_txn_count() == 0 {
         la.pulse_block();
     } else if !la.all_commited() {
-        if let Err(e) = la.end_block().c(d!()) {
-            e.print();
-        }
+        pnk!(la.end_block());
     }
 
-    let mut resp = ResponseEndBlock::new();
     let begin_block_req = REQ_BEGIN_BLOCK.lock();
     let header = pnk!(begin_block_req.header.as_ref());
 

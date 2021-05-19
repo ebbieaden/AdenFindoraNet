@@ -11,14 +11,15 @@ use ledger::{
     data_model::{Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA},
     staking::{
         ops::governance::{governance_penalty_tendermint_auto, ByzantineKind},
-        td_pubkey_to_td_addr_bytes, Staking,
+        td_pubkey_to_td_addr_bytes, Staking, COINBASE_PK, COINBASE_PRINCIPAL_PK,
+        VALIDATOR_UPDATE_BLOCK_ITV,
     },
     store::{LedgerAccess, LedgerUpdate},
 };
 use rand_core::{CryptoRng, RngCore};
 use ruc::*;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::atomic::Ordering,
 };
 use txn_builder::TransferOperationBuilder;
@@ -68,7 +69,8 @@ pub fn get_validators(
     // the validator list obtained from `LastCommitInfo` is exactly
     // the same as the current block.
     // So we can use it to filter out non-existing entries.
-    if 0 != TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed) % 4 {
+    if 0 != TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed) % VALIDATOR_UPDATE_BLOCK_ITV
+    {
         return Ok(None);
     }
 
@@ -100,6 +102,8 @@ pub fn get_validators(
                 // to be zero in the context of tendermint
                 *power as u64 != v.td_power
             } else {
+                // add new validator
+                //
                 // try to remove non-existing entries is not allowed
                 0 < v.td_power
             }
@@ -107,9 +111,8 @@ pub fn get_validators(
         .map(|v| (&v.td_pubkey, v.td_power))
         .collect::<Vec<_>>();
 
-    // Ensure the minimal amount of BFT-like algorithm
-    if 3 > vs.len() {
-        return Err(eg!("invalid settings"));
+    if vs.is_empty() {
+        return Ok(None);
     }
 
     // reverse sort
@@ -137,7 +140,7 @@ pub fn get_validators(
     ))
 }
 
-// Call this function in `BeginBlock`,
+// Call this function in `EndBlock`,
 // - pay delegation rewards
 // - pay proposer rewards(traditional block rewards)
 // - do governance operations
@@ -148,15 +151,17 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
     evs: &[Evidence],
     fwder: &str,
 ) {
-    ruc::info_omit!(system_pay(la, &header.proposer_address, fwder));
+    // trigger system staking process
+    la.get_staking_mut().delegation_process();
+    la.get_staking_mut().validator_apply_current();
 
-    let staking = la.get_staking_mut();
     ruc::info_omit!(set_rewards(
-        staking,
+        la.get_staking_mut(),
         &header.proposer_address,
         last_commit_info.map(|lci| get_last_vote_power(lci))
     ));
 
+    // tendermint primary governances
     evs.iter()
         .filter(|ev| ev.validator.is_some())
         .for_each(|ev| {
@@ -166,9 +171,10 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
                 kind: ev.field_type.as_str(),
             };
 
-            ruc::info_omit!(system_governance(staking, &bz));
+            ruc::info_omit!(system_governance(la.get_staking_mut(), &bz));
         });
 
+    // application custom governances
     if let Some(lci) = last_commit_info {
         let offline_list = lci
             .votes
@@ -177,18 +183,22 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
             .flat_map(|info| info.validator.as_ref().map(|v| &v.address))
             .collect::<HashSet<_>>();
         if !offline_list.is_empty() {
-            if let Ok(olpl) = ruc::info!(gen_offline_punish_list(staking, &offline_list))
+            if let Ok(olpl) =
+                ruc::info!(gen_offline_punish_list(la.get_staking(), &offline_list))
             {
                 olpl.into_iter().for_each(|v| {
                     let bz = ByzantineInfo {
-                        addr: &hex::encode(v),
+                        addr: &hex::encode_upper(v),
                         kind: "OFF_LINE",
                     };
-                    ruc::info_omit!(system_governance(staking, &bz));
+                    ruc::info_omit!(system_governance(la.get_staking_mut(), &bz));
                 });
             }
         }
     }
+
+    // pay funds from CoinBase
+    ruc::info_omit!(system_pay(la, &header.proposer_address, fwder));
 }
 
 // Get the actual total power of last block.
@@ -271,18 +281,15 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
         };
     }
 
-    let coinbase_utxo_sids = staking.coinbase_txos().into_iter().collect::<Vec<_>>();
-    let coinbase_principal_utxo_sids = staking
-        .coinbase_principal_txos()
-        .into_iter()
-        .collect::<Vec<_>>();
+    let coinbase_utxos = la.get_owned_utxos(&COINBASE_PK);
+    let coinbase_principal_utxos = la.get_owned_utxos(&COINBASE_PRINCIPAL_PK);
 
     if !paylist.is_empty() {
-        ruc::info_omit!(pay!(false, coinbase_utxo_sids, paylist));
+        ruc::info_omit!(pay!(false, coinbase_utxos, paylist));
     }
 
     if !principal_paylist.is_empty() {
-        ruc::info_omit!(pay!(true, coinbase_principal_utxo_sids, principal_paylist));
+        ruc::info_omit!(pay!(true, coinbase_principal_utxos, principal_paylist));
     }
 
     Ok(())
@@ -291,7 +298,7 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
 // Generate all tx in batch mode.
 fn gen_transaction(
     la: &impl LedgerAccess,
-    utxo_sids: Vec<TxoSID>,
+    utxos: BTreeMap<TxoSID, Utxo>,
     paylist: Vec<(XfrPublicKey, u64)>,
     is_principal: bool,
 ) -> Result<Transaction> {
@@ -304,22 +311,21 @@ fn gen_transaction(
     for i in 0..paylist.len() {
         let mut total_amount =
             paylist.iter().rev().skip(i).map(|(_, am)| *am).sum::<u64>();
-        let mut sids = utxo_sids.iter();
+
+        let mut utxos = utxos.iter();
+        inputs.clear();
+
         while total_amount > 0 {
-            if let Some(sid) = sids.next() {
-                if let Some(auth_utxo) = la.get_utxo(*sid) {
-                    let utxo = auth_utxo.utxo;
-                    if let XfrAssetType::NonConfidential(ty) = utxo.0.record.asset_type {
-                        if ASSET_TYPE_FRA == ty {
-                            if let XfrAmount::NonConfidential(am) = utxo.0.record.amount
-                            {
-                                inputs.push((
-                                    *sid,
-                                    utxo,
-                                    alt!(total_amount > am, am, total_amount),
-                                ));
-                                total_amount = total_amount.saturating_sub(am);
-                            }
+            if let Some((sid, utxo)) = utxos.next() {
+                if let XfrAssetType::NonConfidential(ty) = utxo.0.record.asset_type {
+                    if ASSET_TYPE_FRA == ty {
+                        if let XfrAmount::NonConfidential(am) = utxo.0.record.amount {
+                            inputs.push((
+                                *sid,
+                                utxo,
+                                alt!(total_amount > am, am, total_amount),
+                            ));
+                            total_amount = total_amount.saturating_sub(am);
                         }
                     }
                 }
@@ -353,7 +359,7 @@ fn gen_transaction(
 // **NOTE:**
 // transfer from CoinBase need not to pay FEE
 fn do_gen_transaction(
-    inputs: Vec<(TxoSID, Utxo, u64)>,
+    inputs: Vec<(TxoSID, &Utxo, u64)>,
     dests: HashMap<XfrPublicKey, u64>,
     seq_id: u64,
     keypair: &XfrKeyPair,

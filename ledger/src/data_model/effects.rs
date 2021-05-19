@@ -62,8 +62,8 @@ pub struct TxnEffect {
     // Memo updates
     pub memo_updates: Vec<(AssetTypeCode, XfrPublicKey, Memo)>,
 
-    pub delegations: HashMap<XfrPublicKey, DelegationOps>,
-    pub undelegations: HashMap<XfrPublicKey, UnDelegationOps>,
+    pub delegations: Vec<DelegationOps>,
+    pub undelegations: Vec<UnDelegationOps>,
     pub claims: Vec<ClaimOps>,
     pub update_validators: HashMap<staking::BlockHeight, UpdateValidatorOps>,
     pub governances: Vec<GovernanceOps>,
@@ -93,8 +93,8 @@ impl TxnEffect {
         let mut asset_types_involved: HashSet<AssetTypeCode> = HashSet::new();
         let mut confidential_issuance_types = HashSet::new();
         let mut confidential_transfer_inputs = HashSet::new();
-        let mut delegations = map! {};
-        let mut undelegations = map! {};
+        let mut delegations = vec![];
+        let mut undelegations = vec![];
         let mut claims = vec![];
         let mut update_validators = map! {};
         let mut governances = vec![];
@@ -144,17 +144,11 @@ impl TxnEffect {
             match op {
                 Operation::Delegation(i) => {
                     check_nonce!(i);
-                    // A same address is not allowed to be
-                    // delegated multiple times at the same time.
-                    if delegations.insert(i.pubkey, i.clone()).is_some() {
-                        return Err(eg!("dup entries"));
-                    }
+                    delegations.push(i.clone());
                 }
                 Operation::UnDelegation(i) => {
                     check_nonce!(i);
-                    if undelegations.insert(i.pubkey, i.clone()).is_some() {
-                        return Err(eg!("dup entries"));
-                    }
+                    undelegations.push(i.clone());
                 }
                 Operation::Claim(i) => {
                     check_nonce!(i);
@@ -713,7 +707,14 @@ pub struct BlockEffect {
     pub memo_updates: HashMap<AssetTypeCode, Memo>,
     // counter for consensus integration; will add to a running count when applied.
     pub pulse_count: u64,
+
     pub staking_simulator: staking::Staking,
+}
+
+impl StakingUpdate for BlockEffect {
+    fn get_staking_simulator_mut(&mut self) -> &mut staking::Staking {
+        &mut self.staking_simulator
+    }
 }
 
 impl BlockEffect {
@@ -733,8 +734,6 @@ impl BlockEffect {
     //   Otherwise, Err(...)
     #[allow(clippy::cognitive_complexity)]
     pub fn add_txn_effect(&mut self, txn_effect: TxnEffect) -> Result<TxnTempSID> {
-        self.check_staking(&txn_effect).c(d!())?;
-
         // Check that no inputs are consumed twice
         for (input_sid, _) in txn_effect.input_txos.iter() {
             if self.input_txos.contains_key(&input_sid) {
@@ -782,7 +781,15 @@ impl BlockEffect {
             }
         }
 
-        self.no_replay_tokens.push(no_replay_token); // By construction, no_replay_tokens entries are unique
+        // NOTE: set at the last position
+        self.check_staking(&txn_effect).c(d!())?;
+
+        ///////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////
+
+        // By construction, no_replay_tokens entries are unique
+        self.no_replay_tokens.push(no_replay_token);
 
         let temp_sid = TxnTempSID(self.txns.len());
         self.txns.push(txn_effect.txn);
@@ -790,18 +797,14 @@ impl BlockEffect {
         self.txos.push(txn_effect.txos);
 
         for (input_sid, record) in txn_effect.input_txos {
-            // dbg!(&input_sid);
-            debug_assert!(!self.input_txos.contains_key(&input_sid));
             self.input_txos.insert(input_sid, record);
         }
 
         for (type_code, asset_type) in txn_effect.new_asset_codes {
-            debug_assert!(!self.new_asset_codes.contains_key(&type_code));
             self.new_asset_codes.insert(type_code, asset_type);
         }
 
         for (type_code, issuance_nums) in txn_effect.new_issuance_nums {
-            debug_assert!(!self.new_issuance_nums.contains_key(&type_code));
             self.new_issuance_nums.insert(type_code, issuance_nums);
         }
 
@@ -818,12 +821,12 @@ impl BlockEffect {
     }
 
     fn check_staking(&mut self, txn_effect: &TxnEffect) -> Result<()> {
-        for i in txn_effect.delegations.values() {
+        for i in txn_effect.delegations.iter() {
             i.check_run(&mut self.staking_simulator, &txn_effect.txn)
                 .c(d!())?;
         }
 
-        for i in txn_effect.undelegations.values() {
+        for i in txn_effect.undelegations.iter() {
             i.check_run(&mut self.staking_simulator, &txn_effect.txn)
                 .c(d!())?;
         }

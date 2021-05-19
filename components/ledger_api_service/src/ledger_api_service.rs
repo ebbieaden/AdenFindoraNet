@@ -408,20 +408,29 @@ where
     let global_staking = staking.validator_global_power();
     let global_delegation = staking.delegation_info_global_amount();
 
-    let (bond_amount, unbond_amount, rwd_amount, start_height, end_height) = staking
+    let (
+        bond_amount,
+        unbond_amount,
+        rwd_amount,
+        start_height,
+        end_height,
+        delegation_rwd_cnt,
+        proposer_rwd_cnt,
+    ) = staking
         .delegation_get(&pk)
         .map(|d| {
             let mut bond_amount = d.amount();
             let mut unbond_amount = 0;
-            let start_height = d.start_height();
-            let end_height = d.end_height();
             match d.state {
-                DelegationState::Paid | DelegationState::Free => {
+                DelegationState::Paid => {
                     bond_amount = 0;
+                }
+                DelegationState::Free => {
+                    mem::swap(&mut bond_amount, &mut unbond_amount);
                 }
                 DelegationState::Bond => {
                     if staking.cur_height()
-                        > d.end_height.saturating_sub(UNBOND_BLOCK_CNT)
+                        > d.end_height().saturating_sub(UNBOND_BLOCK_CNT)
                     {
                         mem::swap(&mut bond_amount, &mut unbond_amount);
                     }
@@ -431,11 +440,13 @@ where
                 bond_amount,
                 unbond_amount,
                 d.rwd_amount,
-                start_height,
-                end_height,
+                d.start_height(),
+                d.end_height(),
+                d.delegation_rwd_cnt,
+                d.proposer_rwd_cnt,
             )
         })
-        .unwrap_or((0, 0, 0, None, 0));
+        .unwrap_or((0, 0, 0, 0, 0, 0, 0));
 
     let mut resp = DelegationInfo::new(
         bond_amount,
@@ -446,19 +457,22 @@ where
         global_staking,
     );
     resp.start_height = start_height;
-    resp.current_height = end_height;
+    resp.current_height = staking.cur_height();
+    resp.end_height = end_height;
+    resp.delegation_rwd_cnt = delegation_rwd_cnt;
+    resp.proposer_rwd_cnt = proposer_rwd_cnt;
 
     Ok(web::Json(resp))
 }
 
 async fn query_owned_utxos<AA>(
     data: web::Data<Arc<RwLock<AA>>>,
-    address: web::Path<String>,
+    owner: web::Path<String>,
 ) -> actix_web::Result<web::Json<BTreeMap<TxoSID, Utxo>>>
 where
     AA: ArchiveAccess,
 {
-    wallet::public_key_from_base64(address.as_str())
+    wallet::public_key_from_base64(owner.as_str())
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))
         .map(|pk| web::Json(data.read().get_status().get_owned_utxos(&pk)))
@@ -642,7 +656,7 @@ where
             web::get().to(query_utxo_partial_map::<AA>),
         )
         .route(
-            &LedgerArchiveRoutes::OwnedUtxos.route(),
+            &LedgerArchiveRoutes::OwnedUtxos.with_arg_template("owner"),
             web::get().to(query_owned_utxos::<AA>),
         )
     }

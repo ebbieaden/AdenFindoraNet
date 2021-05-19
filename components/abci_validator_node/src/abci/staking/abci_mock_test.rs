@@ -822,9 +822,9 @@ fn staking_scene_1() -> Result<()> {
     trigger_next_block!();
     wait_one_block();
 
-    for i in 0..10 {
+    for _ in 0..10 {
         let old_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
-        let tx_hash = claim(&x_kp, i).c(d!())?;
+        let tx_hash = claim(&x_kp, 1).c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
 
@@ -835,7 +835,7 @@ fn staking_scene_1() -> Result<()> {
         }
 
         let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
-        assert_eq!(old_balance - TX_FEE_MIN + i, new_balance);
+        assert_eq!(old_balance - TX_FEE_MIN + 1, new_balance);
     }
 
     // 16. make sure it will fail if the claim amount is bigger than total rewards
@@ -859,8 +859,8 @@ fn staking_scene_1() -> Result<()> {
         let d = staking.delegation_get(&x_kp.get_pk()).c(d!())?;
 
         assert_eq!(DelegationState::Bond, d.state);
-        assert!(d.end_height - staking.cur_height() < UNBOND_BLOCK_CNT);
-        assert!(d.end_height - staking.cur_height() > UNBOND_BLOCK_CNT / 2);
+        assert!(d.end_height > staking.cur_height());
+        assert!(d.end_height - staking.cur_height() <= UNBOND_BLOCK_CNT);
     }
 
     let old_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
@@ -888,7 +888,7 @@ fn staking_scene_1() -> Result<()> {
 
     // 20. make sure no rewards will be paid
 
-    for _ in 0..UNBOND_BLOCK_CNT {
+    for _ in 0..(2 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
         wait_one_block();
     }
@@ -901,7 +901,7 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    for _ in 0..UNBOND_BLOCK_CNT {
+    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
         wait_one_block();
     }

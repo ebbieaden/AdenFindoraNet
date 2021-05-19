@@ -5,6 +5,10 @@ authors = ["ngolub <ngolub@stanford.edu>"]
 edition = "2018"
 build = "build.rs"
 
+description = ""
+repository = ""
+license = ""
+
 # wasm-opt has a segfaulting issue. Disabling for now
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

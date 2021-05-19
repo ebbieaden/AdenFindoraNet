@@ -1,7 +1,9 @@
 #![deny(warnings)]
 
 use ledger::data_model::errors::PlatformError;
-use ledger::data_model::{Transaction, TxnEffect, TxnSID, TxnTempSID, TxoSID};
+use ledger::data_model::{
+    StakingUpdate, Transaction, TxnEffect, TxnSID, TxnTempSID, TxoSID,
+};
 use ledger::store::*;
 use log::info;
 use parking_lot::RwLock;
@@ -160,14 +162,23 @@ where
     pub fn end_commit(&mut self) {}
 
     pub fn begin_block(&mut self) {
-        debug_assert!(self.block.is_none());
-        self.block = Some(
-            self.committed_state
-                .write()
-                .start_block()
-                .expect("Ledger could not start block"),
-        );
-        info!("New block started");
+        let mut l = self.committed_state.write();
+        let staking_simulator = l.get_staking().clone();
+
+        let mut block = pnk!(l.start_block());
+        *block.get_staking_simulator_mut() = staking_simulator;
+
+        self.block = Some(block);
+    }
+
+    pub fn update_staking_simulator(&mut self) -> Result<()> {
+        let staking = self.committed_state.read().get_staking().clone();
+        self.block
+            .as_mut()
+            .map(|b| {
+                *b.get_staking_simulator_mut() = staking;
+            })
+            .ok_or(eg!())
     }
 
     pub fn end_block(&mut self) -> Result<()> {
