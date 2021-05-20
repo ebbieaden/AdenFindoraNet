@@ -17,8 +17,8 @@ use ledger::{
         calculate_delegation_rewards, ops::governance::ByzantineKind,
         td_pubkey_to_td_addr, DelegationState, TendermintAddr,
         Validator as StakingValidator, ValidatorKind, BLOCK_HEIGHT_MAX, COINBASE_KP,
-        COINBASE_PK, COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK, FRA,
-        FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
+        COINBASE_PAYMENT_BLOCK_ITV, COINBASE_PK, COINBASE_PRINCIPAL_KP,
+        COINBASE_PRINCIPAL_PK, FRA, FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
     },
     store::{fra_gen_initial_tx, LedgerAccess},
 };
@@ -830,7 +830,7 @@ fn staking_scene_1() -> Result<()> {
         assert!(is_successful(&tx_hash));
 
         // waiting to be paid
-        for _ in 0..2 {
+        for _ in 0..COINBASE_PAYMENT_BLOCK_ITV {
             trigger_next_block!();
             wait_one_block();
         }
@@ -977,7 +977,7 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    for _ in 0..2 {
+    for _ in 0..COINBASE_PAYMENT_BLOCK_ITV {
         trigger_next_block!();
         wait_one_block();
     }
@@ -992,9 +992,10 @@ fn staking_scene_1() -> Result<()> {
             .all(|(pk, am)| *am == abci_mocker.get_owned_balance(pk))
     );
 
-    assert!(
-        alloc_table.values().sum::<u64>()
-            <= 2 + coinbase_balance - abci_mocker.get_owned_balance(&COINBASE_PK)
+    assert_eq!(
+        alloc_table.values().sum::<u64>(),
+        COINBASE_PAYMENT_BLOCK_ITV as u64 + coinbase_balance
+            - abci_mocker.get_owned_balance(&COINBASE_PK)
     );
 
     drop(abci_mocker);

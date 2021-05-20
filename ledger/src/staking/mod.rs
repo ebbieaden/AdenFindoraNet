@@ -791,8 +791,7 @@ impl Staking {
         if !self.seems_valid_coinbase_ops(tx, false)
             && !self.seems_valid_coinbase_ops(tx, true)
         {
-            let msg = serde_json::to_string_pretty(&tx.body.operations).c(d!())?;
-            return Err(eg!(msg));
+            return Err(eg!());
         }
 
         self.coinbase_collect_payments(tx)
@@ -1155,6 +1154,17 @@ const PROPOSER_REWARDS_RATE_RULE: [([u128; 2], u64); 6] = [
 /// the same as the current block.
 /// So we can use it to filter out non-existing entries.
 pub const VALIDATOR_UPDATE_BLOCK_ITV: i64 = 4;
+
+/// In a real consensus cluster, there is no guarantee that
+/// transactions sent by CoinBase will be confirmed in the next block due to asynchronous delays.
+///
+/// If this happens, CoinBase will send repeated payment transactions.
+///
+/// Although these repeated transactions will eventually fail,
+/// they will give users a bad experience and increase the load of p2p cluster.
+///
+/// Therefore, paying every 4 blocks seems to be a good compromise.
+pub const COINBASE_PAYMENT_BLOCK_ITV: i64 = 4;
 
 /// How many FRA units per FRA
 pub const FRA: Amount = 10_u64.pow(FRA_DECIMALS as u32);

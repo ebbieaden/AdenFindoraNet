@@ -11,8 +11,8 @@ use ledger::{
     data_model::{Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA},
     staking::{
         ops::governance::{governance_penalty_tendermint_auto, ByzantineKind},
-        td_pubkey_to_td_addr_bytes, Staking, COINBASE_PK, COINBASE_PRINCIPAL_PK,
-        VALIDATOR_UPDATE_BLOCK_ITV,
+        td_pubkey_to_td_addr_bytes, Staking, COINBASE_PAYMENT_BLOCK_ITV, COINBASE_PK,
+        COINBASE_PRINCIPAL_PK, VALIDATOR_UPDATE_BLOCK_ITV,
     },
     store::{LedgerAccess, LedgerUpdate},
 };
@@ -197,8 +197,19 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
         }
     }
 
-    // pay funds from CoinBase
-    ruc::info_omit!(system_pay(la, &header.proposer_address, fwder));
+    if 0 == TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed) % COINBASE_PAYMENT_BLOCK_ITV
+    {
+        // In a real consensus cluster, there is no guarantee that
+        // transactions sent by CoinBase will be confirmed in the next block due to asynchronous delays.
+        //
+        // If this happens, CoinBase will send repeated payment transactions.
+        //
+        // Although these repeated transactions will eventually fail,
+        // they will give users a bad experience and increase the load of p2p cluster.
+        //
+        // Therefore, paying every 4 blocks seems to be a good compromise.
+        ruc::info_omit!(system_pay(la, &header.proposer_address, fwder));
+    }
 }
 
 // Get the actual voted power of last block.
@@ -268,13 +279,13 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
                 .iter()
                 .map(|(k, v)| (*k, *v)),
         )
-        .take(256)
+        .take(512)
         .collect::<Vec<_>>();
 
     let mut principal_paylist = staking
         .delegation_get_global_principal()
         .into_iter()
-        .take(256)
+        .take(512)
         .collect::<Vec<_>>();
 
     // sort by amount
