@@ -158,7 +158,7 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
     ruc::info_omit!(set_rewards(
         la.get_staking_mut(),
         &header.proposer_address,
-        last_commit_info.map(|lci| get_last_vote_power(lci))
+        last_commit_info.map(|lci| get_last_vote_percent(lci))
     ));
 
     // tendermint primary governances
@@ -201,24 +201,32 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
     ruc::info_omit!(system_pay(la, &header.proposer_address, fwder));
 }
 
-// Get the actual total power of last block.
-fn get_last_vote_power(last_commit_info: &LastCommitInfo) -> u64 {
+// Get the actual voted power of last block.
+fn get_last_vote_percent(last_commit_info: &LastCommitInfo) -> [u64; 2] {
     last_commit_info
         .votes
         .iter()
-        .filter(|v| v.signed_last_block)
-        .flat_map(|info| info.validator.as_ref().map(|v| v.power as u64))
-        .sum()
+        .flat_map(|info| {
+            info.validator
+                .as_ref()
+                .map(|v| [alt!(info.signed_last_block, v.power, 0), v.power])
+        })
+        .fold([0, 0], |mut acc, i| {
+            // this `AddAsign` is safe in the context of tendermint
+            acc[0] += i[0] as u64;
+            acc[1] += i[1] as u64;
+            acc
+        })
 }
 
 // Set delegation rewards and proposer rewards
 fn set_rewards(
     staking: &mut Staking,
     proposer: &[u8],
-    last_vote_power: Option<u64>,
+    last_vote_percent: Option<[u64; 2]>,
 ) -> Result<()> {
     staking
-        .set_last_block_rewards(&hex::encode_upper(proposer), last_vote_power)
+        .set_last_block_rewards(&hex::encode_upper(proposer), last_vote_percent)
         .c(d!())
 }
 

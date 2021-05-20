@@ -998,7 +998,7 @@ impl Staking {
     pub fn set_last_block_rewards(
         &mut self,
         addr: TendermintAddrRef,
-        block_vote_power: Option<Power>,
+        block_vote_percent: Option<[Power; 2]>,
     ) -> Result<()> {
         let pk = self.td_addr_to_app_pk(addr).c(d!())?;
 
@@ -1028,13 +1028,8 @@ impl Staking {
             v.rwd_amount = v.rwd_amount.saturating_add(commissions.into_iter().sum());
         }
 
-        if let Some(power) = block_vote_power {
-            let global_power =
-                self.validator_global_power_at_height(self.cur_height.saturating_sub(1));
-            if 0 < global_power {
-                self.set_proposer_rewards(&pk, [power, global_power])
-                    .c(d!())?;
-            }
+        if let Some(vote_percent) = block_vote_percent {
+            self.set_proposer_rewards(&pk, vote_percent).c(d!())?;
         }
 
         Ok(())
@@ -1069,7 +1064,7 @@ impl Staking {
 
     fn get_proposer_rewards_rate(vote_percent: [u64; 2]) -> Result<[u64; 2]> {
         let p = [vote_percent[0] as u128, vote_percent[1] as u128];
-        if p[0] > p[1] {
+        if p[0] > p[1] || 0 == p[1] {
             let msg = format!("Invalid power percent: {}/{}", p[0], p[1]);
             return Err(eg!(msg));
         }
