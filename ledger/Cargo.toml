@@ -57,6 +57,7 @@ wallet = { path = "../components/wallet" }
 TESTING = []
 debug_env = []
 abci_mock = []
+QUERY_SERVER = []
 
 [dev-dependencies]
 lazy_static = "1.4.0"

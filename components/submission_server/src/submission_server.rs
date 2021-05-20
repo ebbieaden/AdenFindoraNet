@@ -162,13 +162,7 @@ where
     pub fn end_commit(&mut self) {}
 
     pub fn begin_block(&mut self) {
-        let mut l = self.committed_state.write();
-        let staking_simulator = l.get_staking().clone();
-
-        let mut block = pnk!(l.start_block());
-        *block.get_staking_simulator_mut() = staking_simulator;
-
-        self.block = Some(block);
+        self.block = Some(pnk!(self.committed_state.write().start_block()));
     }
 
     pub fn update_staking_simulator(&mut self) -> Result<()> {

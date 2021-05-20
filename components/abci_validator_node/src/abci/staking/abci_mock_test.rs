@@ -1258,8 +1258,7 @@ fn staking_scene_2() -> Result<()> {
         .validator_get_power(&v_set[0].id)
         .c(d!())?;
 
-    assert!(old_power / 3 <= new_power);
-    assert!(old_power / 3 + 1 >= new_power);
+    assert!(old_power > new_power);
 
     // 7. make sure its delegation principle is punished
 

@@ -35,6 +35,8 @@ lazy_static! {
         env::var("STAKING_TESTER_SERV_ADDR").unwrap_or_else(|_| "localhost".to_owned());
     static ref USER_LIST: BTreeMap<Name, User> = gen_user_list();
     static ref VALIDATOR_LIST: BTreeMap<Name, Validator> = gen_valiator_list();
+    static ref ROOT_KP: XfrKeyPair =
+        pnk!(wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC));
 }
 
 const ROOT_MNEMONIC: &str = "bright poem guard trade airport artist soon mountain shoe satisfy fox adapt garden decline uncover when pilot person flat bench connect coach planet hidden";
@@ -57,6 +59,10 @@ fn run() -> Result<()> {
     let subcmd_claim = SubCommand::with_name("claim")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to delegate'");
+    let subcmd_transfer = SubCommand::with_name("transfer")
+        .arg_from_usage("-f, --from-user=[User] 'transfer sender'")
+        .arg_from_usage("-t, --to-user=[User] 'transfer receiver'")
+        .arg_from_usage("-n, --amount=[Amount] 'how much FRA to transfer'");
     let subcmd_show = SubCommand::with_name("show")
         .arg_from_usage("-b, --coinbase 'show the infomation about coinbase'")
         .arg_from_usage("-r, --root-mnemonic 'show the pre-defined root mnemonic'")
@@ -72,6 +78,7 @@ fn run() -> Result<()> {
         .subcommand(subcmd_delegate)
         .subcommand(subcmd_undelegate)
         .subcommand(subcmd_claim)
+        .subcommand(subcmd_transfer)
         .subcommand(subcmd_show)
         .get_matches();
 
@@ -114,6 +121,20 @@ fn run() -> Result<()> {
             claim::gen_tx(user.unwrap(), amount)
                 .c(d!())
                 .and_then(|tx| send_tx(&tx).c(d!()))?;
+        }
+    } else if let Some(m) = matches.subcommand_matches("transfer") {
+        let from = m.value_of("from-user");
+        let to = m.value_of("to-user");
+        let amount = m.value_of("amount");
+
+        if from.is_none() || to.is_none() || amount.is_none() {
+            println!("{}", m.usage());
+        } else {
+            let amount = amount.unwrap().parse::<u64>().c(d!())?;
+            let owner_kp = search_kp(from.unwrap()).c(d!())?;
+            let target_pk = search_kp(to.unwrap()).c(d!())?.get_pk_ref();
+            let target = vec![(target_pk, amount)];
+            transfer(owner_kp, target).c(d!())?;
         }
     } else if let Some(m) = matches.subcommand_matches("show") {
         let cb = m.is_present("coinbase");
@@ -340,12 +361,7 @@ fn get_delegation_info(user: NameRef) -> Result<String> {
 }
 
 fn get_balance(user: NameRef) -> Result<u64> {
-    let pk = USER_LIST
-        .get(user)
-        .map(|u| &u.pubkey)
-        .or_else(|| VALIDATOR_LIST.get(user).map(|v| &v.pubkey))
-        .c(d!())?;
-
+    let pk = search_kp(user).c(d!())?.get_pk_ref();
     get_balance_x(pk).c(d!())
 }
 
@@ -569,4 +585,15 @@ fn gen_transfer_op(
         .c(d!())?
         .transaction()
         .c(d!())
+}
+
+fn search_kp(user: NameRef) -> Option<&'static XfrKeyPair> {
+    if "root" == user {
+        return Some(&ROOT_KP);
+    }
+
+    USER_LIST
+        .get(user)
+        .map(|u| &u.keypair)
+        .or_else(|| VALIDATOR_LIST.get(user).map(|v| &v.keypair))
 }

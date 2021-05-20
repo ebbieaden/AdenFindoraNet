@@ -933,6 +933,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
 
     fn start_block(&mut self) -> Result<BlockEffect> {
         if let Some(mut block) = self.block_ctx.take() {
+            *block.get_staking_simulator_mut() = self.get_staking().clone();
             Ok(block)
         } else {
             Err(eg!(PlatformError::InputsError(None)))
@@ -944,6 +945,13 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
         block: &mut BlockEffect,
         txe: TxnEffect,
     ) -> Result<TxnTempSID> {
+        #[cfg(feature = "QUERY_SERVER")]
+        block.staking_simulator.set_custom_block_height(
+            1 + block.pulse_count
+                + self.get_status().block_commit_count
+                + self.get_status().pulse_count,
+        );
+
         let tx = txe.txn.clone();
         self.status
             .check_txn_effects(&txe)

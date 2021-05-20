@@ -663,7 +663,8 @@ impl Staking {
         if self.addr_is_validator(addr) {
             // punish vote power if if is a validator
             self.validator_get_power(addr).c(d!()).and_then(|p| {
-                self.validator_change_power(addr, p * 2 / 3, true).c(d!())
+                self.validator_change_power(addr, p * percent[0] / percent[1], true)
+                    .c(d!())
             })?;
 
             // punish related delegators
@@ -1047,7 +1048,7 @@ impl Staking {
                 return [*rate, 100];
             }
         }
-        unreachable!();
+        unreachable!(eg!(@p));
     }
 
     fn set_proposer_rewards(
@@ -1077,7 +1078,7 @@ impl Staking {
                 return Ok([*rate, 100]);
             }
         }
-        unreachable!();
+        Err(eg!(@vote_percent))
     }
 
     /// Claim delegation rewards.
@@ -1146,7 +1147,7 @@ const PROPOSER_REWARDS_RATE_RULE: [([u64; 2], u64); 6] = [
     ([75_0000, 83_3333], 2),
     ([83_3333, 91_6667], 3),
     ([91_6667, 100_0000], 4),
-    ([100_0000, 100_0002], 5),
+    ([100_0000, 100_0001], 5),
 ];
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1711,9 +1712,14 @@ mod test {
         let delegator_kp = gen_keypair();
         let validator_kp = gen_keypair();
 
-        let delegation_amount = FRA_TOTAL_AMOUNT
-            * (lower_bound + random::<u64>() % (upper_bound - lower_bound - 1))
-            / 100;
+        let itv = upper_bound - lower_bound;
+        let lb = if 0 == itv {
+            lower_bound
+        } else {
+            lower_bound + random::<u64>() % itv
+        };
+
+        let delegation_amount = FRA_TOTAL_AMOUNT * lb / 100;
 
         let delegation = Delegation {
             entries: map! {B validator_kp.get_pk() => delegation_amount},
@@ -1741,10 +1747,14 @@ mod test {
     }
 
     fn gen_round_vote_percent(lower_bound: u64, upper_bound: u64) -> [u64; 2] {
-        [
-            lower_bound + random::<u64>() % (upper_bound - lower_bound - 1),
-            100_0000,
-        ]
+        let itv = upper_bound - lower_bound;
+        let lb = if 0 == itv {
+            lower_bound
+        } else {
+            lower_bound + random::<u64>() % itv
+        };
+
+        [lb, 100_0000]
     }
 
     fn gen_keypair() -> XfrKeyPair {
