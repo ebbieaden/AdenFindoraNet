@@ -2596,33 +2596,33 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
      **/
 
     let template = AssetRecordTemplate::with_no_asset_tracing(
-        FRA_AMOUNT,
+        FRA_AMOUNT / 100,
         fra_code.val,
         AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
         fra_owner_kp.get_pk(),
     );
 
     let params = PublicParams::default();
-    let (ba, _, _) = build_blind_asset_record(
-        &mut ChaChaRng::from_entropy(),
-        &params.pc_gens,
-        &template,
-        vec![],
-    );
 
-    let asset_issuance_body = IssueAssetBody::new(
-        &fra_code,
-        0,
-        &[(
-            TxOutput {
-                id: None,
-                record: ba,
-                lien: None,
-            },
-            None,
-        )],
-    )
-    .unwrap();
+    let outputs = (0..100)
+        .map(|_| {
+            let (ba, _, _) = build_blind_asset_record(
+                &mut ChaChaRng::from_entropy(),
+                &params.pc_gens,
+                &template,
+                vec![],
+            );
+            (
+                TxOutput {
+                    id: None,
+                    record: ba,
+                    lien: None,
+                },
+                None,
+            )
+        })
+        .collect::<Vec<_>>();
+    let asset_issuance_body = IssueAssetBody::new(&fra_code, 0, &outputs).unwrap();
 
     let asset_issuance_operation = IssueAsset::new(
         asset_issuance_body,

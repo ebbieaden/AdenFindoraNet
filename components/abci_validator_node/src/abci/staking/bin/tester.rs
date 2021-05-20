@@ -170,7 +170,8 @@ mod init {
             .values()
             .map(|u| &u.pubkey)
             .chain(VALIDATOR_LIST.values().map(|v| &v.pubkey))
-            .map(|pk| (pk, 2_000_000_000_000))
+            .map(|pk| (0..20).map(move |_| (pk, 2_000_000_000_000 / 20)))
+            .flatten()
             .collect::<Vec<_>>();
 
         target_list.push((&*COINBASE_PK, 4_000_000_000_000));
@@ -214,9 +215,7 @@ mod delegate {
                 .c(d!())?;
         builder.add_operation(trans_to_self);
 
-        if builder.add_fee_relative_auto(&owner_kp).is_err() {
-            builder.add_operation(gen_fee_op(owner_kp).c(d!())?);
-        }
+        builder.add_operation(gen_fee_op(owner_kp).c(d!())?);
 
         Ok(builder.take_transaction())
     }
@@ -511,9 +510,7 @@ fn transfer(
     let mut builder = new_tx_builder().c(d!())?;
     builder.add_operation(gen_transfer_op(owner_kp, target_list, false).c(d!())?);
 
-    if builder.add_fee_relative_auto(&owner_kp).is_err() {
-        builder.add_operation(gen_fee_op(owner_kp).c(d!())?);
-    }
+    builder.add_operation(gen_fee_op(owner_kp).c(d!())?);
 
     send_tx(&builder.take_transaction()).c(d!())
 }
