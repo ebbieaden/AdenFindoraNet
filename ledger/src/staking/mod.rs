@@ -1042,10 +1042,10 @@ impl Staking {
 
     /// Return rate defination for delegation rewards .
     pub fn get_block_rewards_rate(&self) -> [u64; 2] {
-        let p = [self.di.global_amount as u64, FRA_TOTAL_AMOUNT];
-        for ([low, high], rate) in DELEGATION_REWARDS_RATE_RULE.iter() {
+        let p = [self.di.global_amount as u128, FRA_TOTAL_AMOUNT as u128];
+        for ([low, high], rate) in DELEGATION_REWARDS_RATE_RULE.iter().copied() {
             if p[0] * 100 < p[1] * high && p[0] * 100 >= p[1] * low {
-                return [*rate, 100];
+                return [rate, 100];
             }
         }
         unreachable!(eg!(@p));
@@ -1068,14 +1068,14 @@ impl Staking {
     }
 
     fn get_proposer_rewards_rate(vote_percent: [u64; 2]) -> Result<[u64; 2]> {
-        let p = vote_percent;
+        let p = [vote_percent[0] as u128, vote_percent[1] as u128];
         if p[0] > p[1] {
             let msg = format!("Invalid power percent: {}/{}", p[0], p[1]);
             return Err(eg!(msg));
         }
-        for ([low, high], rate) in PROPOSER_REWARDS_RATE_RULE.iter() {
+        for ([low, high], rate) in PROPOSER_REWARDS_RATE_RULE.iter().copied() {
             if p[0] * 100_0000 < p[1] * high && p[0] * 100_0000 >= p[1] * low {
-                return Ok([*rate, 100]);
+                return Ok([rate, 100]);
             }
         }
         Err(eg!(@vote_percent))
@@ -1128,7 +1128,7 @@ impl Staking {
 
 // SEE:
 // - https://www.notion.so/findora/PoS-Stage-1-Consensus-Rewards-Penalties-72f5c9a697ff461c89c3728e34348834#3d2f1b8ff8244632b715abdd42b6a67b
-const DELEGATION_REWARDS_RATE_RULE: [([u64; 2], u64); 8] = [
+const DELEGATION_REWARDS_RATE_RULE: [([u128; 2], u64); 8] = [
     ([0, 10], 20),
     ([10, 20], 17),
     ([20, 30], 14),
@@ -1141,7 +1141,7 @@ const DELEGATION_REWARDS_RATE_RULE: [([u64; 2], u64); 8] = [
 
 // SEE:
 // - https://www.notion.so/findora/PoS-Stage-1-Consensus-Rewards-Penalties-72f5c9a697ff461c89c3728e34348834#3d2f1b8ff8244632b715abdd42b6a67b
-const PROPOSER_REWARDS_RATE_RULE: [([u64; 2], u64); 6] = [
+const PROPOSER_REWARDS_RATE_RULE: [([u128; 2], u64); 6] = [
     ([0, 66_6667], 0),
     ([66_6667, 75_0000], 1),
     ([75_0000, 83_3333], 2),
@@ -1682,18 +1682,26 @@ mod test {
                 |([lower_bound, upper_bound], rate)| {
                     set_delegation_global_percent(
                         &mut staking,
-                        *lower_bound,
-                        *upper_bound,
+                        *lower_bound as u64,
+                        *upper_bound as u64,
                     );
                     assert_eq!(staking.get_block_rewards_rate(), [*rate, 100]);
                 },
             );
 
+            pnk!(Staking::get_proposer_rewards_rate([
+                3990000000000000,
+                4208000000000000
+            ]));
+
             PROPOSER_REWARDS_RATE_RULE.iter().for_each(
                 |([lower_bound, upper_bound], rate)| {
                     assert_eq!(
                         pnk!(Staking::get_proposer_rewards_rate(
-                            gen_round_vote_percent(*lower_bound, *upper_bound)
+                            gen_round_vote_percent(
+                                *lower_bound as u64,
+                                *upper_bound as u64
+                            )
                         )),
                         [*rate, 100]
                     );
