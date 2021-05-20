@@ -43,6 +43,7 @@ pub struct SnapshotId {
 pub trait LedgerAccess {
     // Look up a currently unspent TXO
     fn get_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
+    fn get_spent_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
     fn get_utxos(&self, address_list: TxoSIDList) -> Vec<Option<AuthenticatedUtxo>>;
 
     fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo>;
@@ -213,6 +214,9 @@ pub struct LedgerStatus {
     // All currently-unspent TXOs
     utxos: BTreeMap<TxoSID, Utxo>,
 
+    // All spent TXOs
+    pub spent_utxos: HashMap<TxoSID, Utxo>,
+
     // Map a TXO to its output position in a transaction
     txo_to_txn_location: HashMap<TxoSID, (TxnSID, OutputPosition)>,
 
@@ -298,11 +302,7 @@ pub struct LedgerState {
     // The `FinalizedTransaction`s consist of a Transaction and an index into
     // `merkle` representing its hash.
     // TODO(joe): should this be in-memory?
-    ////////////////////////////////////////////////////////////////////
-    // Comments above is left by the previous development team.
-    ////////////////////////////////////////////////////////////////////
-    // use sled(DB) to cache the tx data.
-    blocks: Vec<FinalizedBlock>,
+    pub blocks: Vec<FinalizedBlock>,
 
     // Bitmap tracing all the live TXOs
     utxo_map: BitMap,
@@ -452,13 +452,14 @@ impl LedgerStatus {
             txn_path: txn_path.to_owned(),
             utxo_map_path: utxo_map_path.to_owned(),
             utxos: BTreeMap::new(),
-            txo_to_txn_location: HashMap::new(),
-            issuance_amounts: HashMap::new(),
+            spent_utxos: map! {},
+            txo_to_txn_location: map! {},
+            issuance_amounts: map! {},
             utxo_map_versions: VecDeque::new(),
             state_commitment_versions: Vec::new(),
-            asset_types: HashMap::new(),
-            tracing_policies: HashMap::new(),
-            issuance_num: HashMap::new(),
+            asset_types: map! {},
+            tracing_policies: map! {},
+            issuance_num: map! {},
             next_txn: TxnSID(0),
             next_txo: TxoSID(0),
             txns_in_block_hash: None,
@@ -857,7 +858,9 @@ impl LedgerStatus {
         // Remove consumed UTXOs
         for (inp_sid, _) in block.input_txos.drain() {
             // Remove from ledger status
-            self.utxos.remove(&inp_sid);
+            if let Some(v) = self.utxos.remove(&inp_sid) {
+                self.spent_utxos.insert(inp_sid, v);
+            }
         }
 
         // Apply memo updates
@@ -875,8 +878,7 @@ impl LedgerStatus {
         // Each transaction gets a TxnSID, and each of its unspent TXOs gets
         // a TxoSID. TxoSID assignments are based on the order TXOs appear in
         // the transaction.
-        let mut new_utxo_sids: HashMap<TxnTempSID, (TxnSID, Vec<TxoSID>)> =
-            HashMap::new();
+        let mut new_utxo_sids: HashMap<TxnTempSID, (TxnSID, Vec<TxoSID>)> = map! {};
         {
             let next_txn = &mut self.next_txn;
             let next_txo = &mut self.next_txo;
@@ -945,13 +947,6 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
         block: &mut BlockEffect,
         txe: TxnEffect,
     ) -> Result<TxnTempSID> {
-        #[cfg(feature = "QUERY_SERVER")]
-        block.staking_simulator.set_custom_block_height(
-            1 + block.pulse_count
-                + self.get_status().block_commit_count
-                + self.get_status().pulse_count,
-        );
-
         let tx = txe.txn.clone();
         self.status
             .check_txn_effects(&txe)
@@ -1985,6 +1980,11 @@ impl LedgerStatus {
         self.utxos.get(&addr)
     }
 
+    #[inline(always)]
+    fn get_spent_utxo(&self, addr: TxoSID) -> Option<&Utxo> {
+        self.spent_utxos.get(&addr)
+    }
+
     fn get_issuance_num(&self, code: &AssetTypeCode) -> Option<u64> {
         self.issuance_num.get(code).copied()
     }
@@ -2015,6 +2015,28 @@ impl LedgerAccess for LedgerState {
             None
         }
     }
+
+    fn get_spent_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo> {
+        let utxo = self.status.get_spent_utxo(addr).cloned();
+        if let Some(utxo) = utxo {
+            let txn_location = *self.status.txo_to_txn_location.get(&addr).unwrap();
+            let authenticated_txn = self.get_transaction(txn_location.0).unwrap();
+            let authenticated_spent_status = self.get_utxo_status(addr);
+            let state_commitment_data =
+                self.status.state_commitment_data.as_ref().unwrap().clone();
+            let utxo_location = txn_location.1;
+            Some(AuthenticatedUtxo {
+                utxo,
+                authenticated_txn,
+                authenticated_spent_status,
+                utxo_location,
+                state_commitment_data,
+            })
+        } else {
+            None
+        }
+    }
+
     fn get_utxos(&self, sid_list: TxoSIDList) -> Vec<Option<AuthenticatedUtxo>> {
         let mut utxos: Vec<Option<AuthenticatedUtxo>> = Vec::new();
         if sid_list.0.len() > 10 || sid_list.0.is_empty() {

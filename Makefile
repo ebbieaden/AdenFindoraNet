@@ -20,6 +20,7 @@ export STAKING_INITIAL_VALIDATOR_CONFIG_ABCI_MOCK = $(shell pwd)/tools/staking_c
 
 export LEDGER_DIR=/tmp/findora
 export ENABLE_LEDGER_SERVICE = true
+export ENABLE_QUERY_SERVICE = true
 
 ifdef DBG
 target_dir = debug
@@ -35,7 +36,6 @@ release_subdirs = $(bin_dir) $(lib_dir)
 bin_files = \
 		./$(pick)/findora \
 		./$(pick)/abci_validator_node \
-		./$(pick)/query_server \
 		./$(pick)/stt \
 		./$(pick)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
@@ -43,7 +43,6 @@ bin_files = \
 bin_files_musl_debug = \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/findora \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/query_server \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/stt\
 		./target/x86_64-unknown-linux-musl/$(target_dir)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
@@ -71,7 +70,7 @@ endef
 
 build: tendermint wasm
 ifdef DBG
-	cargo build --frozen --bins -p abci_validator_node -p query_api -p cli2
+	cargo build --frozen --bins -p abci_validator_node -p cli2
 	$(call pack,$(target_dir))
 else
 	@ echo -e "\x1b[31;01m\$$(DBG) must be defined !\x1b[00m"
@@ -84,7 +83,7 @@ ifdef DBG
 	@ exit 1
 else
 	cargo build --frozen --release --bins \
-		-p abci_validator_node -p query_api -p cli2 -p ledger
+		-p abci_validator_node -p cli2 -p ledger
 	$(call pack,$(target_dir))
 endif
 
@@ -94,7 +93,7 @@ ifdef DBG
 	@ exit 1
 else
 	cargo build --features="debug_env" --frozen --release --bins \
-		-p abci_validator_node -p query_api -p cli2 -p ledger
+		-p abci_validator_node -p cli2 -p ledger
 	$(call pack,$(target_dir))
 endif
 
@@ -104,7 +103,7 @@ ifdef DBG
 	@ exit 1
 else
 	cargo build --features="debug_env" --frozen --release --bins \
-		-p abci_validator_node -p query_api -p cli2 -p ledger \
+		-p abci_validator_node -p cli2 -p ledger \
 		--target=x86_64-unknown-linux-musl
 	$(call pack_musl_debug,$(target_dir))
 endif
@@ -181,34 +180,28 @@ stop_debug_env:
 ci_build_image:
 	@if [ ! -d "release/bin/" ] && [ -d "debug/bin" ]; then \
 		mkdir -p release/bin/; \
-		cp debug/bin/abci_validator_node debug/bin/query_server debug/bin/tendermint release/bin/; \
+		cp debug/bin/abci_validator_node debug/bin/tendermint release/bin/; \
 	fi
 	docker build -t $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG) -f container/Dockerfile-CI-abci_validator_node .
-	docker build -t $(ECR_URL)/$(ENV)/query_server:$(IMAGE_TAG) -f container/Dockerfile-CI-query_server .
 	docker build -t $(ECR_URL)/$(ENV)/tendermint:$(IMAGE_TAG) -f container/Dockerfile-CI-tendermint .
 ifeq ($(ENV),release)
 	docker tag $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG) $(ECR_URL)/$(ENV)/abci_validator_node:latest
-	docker tag $(ECR_URL)/$(ENV)/query_server:$(IMAGE_TAG) $(ECR_URL)/$(ENV)/query_server:latest
 	docker tag $(ECR_URL)/$(ENV)/tendermint:$(IMAGE_TAG) $(ECR_URL)/$(ENV)/tendermint:latest
 endif
 
 ci_push_image:
 	docker push $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG)
-	docker push $(ECR_URL)/$(ENV)/query_server:$(IMAGE_TAG)
 	docker push $(ECR_URL)/$(ENV)/tendermint:$(IMAGE_TAG)
 ifeq ($(ENV),release)
 	docker push $(ECR_URL)/$(ENV)/abci_validator_node:latest
-	docker push $(ECR_URL)/$(ENV)/query_server:latest
 	docker push $(ECR_URL)/$(ENV)/tendermint:latest
 endif
 
 clean_image:
 	docker rmi $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG)
-	docker rmi $(ECR_URL)/$(ENV)/query_server:$(IMAGE_TAG)
 	docker rmi $(ECR_URL)/$(ENV)/tendermint:$(IMAGE_TAG)
 ifeq ($(ENV),release)
 	docker rmi $(ECR_URL)/$(ENV)/abci_validator_node:latest
-	docker rmi $(ECR_URL)/$(ENV)/query_server:latest
 	docker rmi $(ECR_URL)/$(ENV)/tendermint:latest
 endif
 

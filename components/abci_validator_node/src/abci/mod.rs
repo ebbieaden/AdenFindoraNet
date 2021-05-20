@@ -51,6 +51,17 @@ pub fn run() -> Result<()> {
         });
     }
 
+    if env::var("ENABLE_QUERY_SERVICE").is_ok() {
+        let query_service_hdr = submission_service_hdr.read().borrowable_ledger_state();
+        pnk!(query_api::service::start_query_server(
+            query_service_hdr,
+            &config.query_host,
+            config.query_port,
+        ))
+        .write()
+        .update();
+    }
+
     let submission_host = config.submission_host.clone();
     let submission_port = config.submission_port;
     thread::spawn(move || {

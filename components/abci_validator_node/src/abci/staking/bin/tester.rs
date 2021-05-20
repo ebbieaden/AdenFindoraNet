@@ -243,7 +243,7 @@ mod claim {
     use super::*;
 
     pub fn gen_tx(user: NameRef, amount: Option<u64>) -> Result<Transaction> {
-        let owner_kp = &USER_LIST.get(user).c(d!())?.keypair;
+        let owner_kp = search_kp(user).c(d!())?;
 
         let mut builder = new_tx_builder().c(d!())?;
         builder.add_operation_claim(owner_kp, amount);

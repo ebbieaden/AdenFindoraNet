@@ -7,6 +7,7 @@ use ledger::{
 };
 use parking_lot::Mutex;
 use protobuf::RepeatedField;
+use query_server::BLOCK_CREATED;
 use ruc::*;
 use std::sync::{
     atomic::{AtomicI64, Ordering},
@@ -127,6 +128,12 @@ pub fn end_block(
         la.pulse_block();
     } else if !la.all_commited() {
         pnk!(la.end_block());
+
+        {
+            let mut created = BLOCK_CREATED.0.lock();
+            *created = true;
+            BLOCK_CREATED.1.notify_one();
+        }
     }
 
     let begin_block_req = REQ_BEGIN_BLOCK.lock();

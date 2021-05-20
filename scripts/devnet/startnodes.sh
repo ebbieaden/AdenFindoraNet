@@ -23,9 +23,6 @@ do
     tendermint node --home $DEVNET/$node >> $DEVNET/$node/consensus.log 2>&1  &
 done
 
-# start a query_server node
-cd /tmp && QUERY_SERVER_HOST=0.0.0.0 LEDGER_PORT=8668 nohup query_server &
-
 # show abcis and nodes
 for node in $nodes
 do

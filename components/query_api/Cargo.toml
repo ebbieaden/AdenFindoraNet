@@ -5,14 +5,6 @@ authors = ["Noah Golub <noah@findora.org>"]
 edition = "2018"
 build = "build.rs"
 
-[lib]
-name = "query_api"
-path = "src/query_api.rs"
-
-[[bin]]
-name = "query_server"
-path = "src/query_server_launch.rs"
-
 [dependencies]
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 actix-cors = "0.5.4"
@@ -40,6 +32,4 @@ zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
 vergen = "3.1.0"
 
 [features]
-default = [ "QUERY_SERVER" ]
-QUERY_SERVER = [ "ledger/QUERY_SERVER", "query_server/QUERY_SERVER" ]
 debug_env = [ "ledger/debug_env", "query_server/debug_env" ]

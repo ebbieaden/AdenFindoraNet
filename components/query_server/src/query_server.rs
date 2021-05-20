@@ -1,16 +1,21 @@
 #![deny(warnings)]
 
+use lazy_static::lazy_static;
 use ledger::data_model::errors::PlatformError;
 use ledger::data_model::*;
 use ledger::store::*;
-use ledger_api_service::RestfulArchiveAccess;
-use log::{error, info};
+use parking_lot::{Condvar, Mutex, RwLock};
 use ruc::*;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::sync::Arc;
 use utils::MetricsRenderer;
 use zei::xfr::structs::OwnerMemo;
+
+lazy_static! {
+    pub static ref BLOCK_CREATED: Arc<(Mutex<bool>, Condvar)> =
+        Arc::new((Mutex::new(false), Condvar::new()));
+}
 
 pub type TxnIDHash = (TxnSID, String);
 type Issuances = Vec<Arc<(TxOutput, Option<OwnerMemo>)>>;
@@ -24,12 +29,11 @@ macro_rules! fail {
     };
 }
 
-pub struct QueryServer<T, U>
+pub struct QueryServer<U>
 where
-    T: RestfulArchiveAccess,
     U: MetricsRenderer,
 {
-    committed_state: LedgerState,
+    committed_state: Arc<RwLock<LedgerState>>,
     addresses_to_utxos: HashMap<XfrAddress, HashSet<TxoSID>>,
     related_transactions: HashMap<XfrAddress, HashSet<TxnSID>>, // Set of transactions related to a ledger address
     related_transfers: HashMap<AssetTypeCode, HashSet<TxnSID>>, // Set of transfer transactions related to an asset code
@@ -42,32 +46,31 @@ where
     txo_to_txnid: HashMap<TxoSID, TxnIDHash>, // txo(spent, unspent) to authenticated txn (sid, hash)
     txn_sid_to_hash: HashMap<TxnSID, String>, // txn sid to txn hash
     txn_hash_to_sid: HashMap<String, TxnSID>, // txn hash to txn sid
-    rest_client: T,
     metrics_renderer: U,
+    app_block_cnt: usize,
 }
 
-impl<T, U> QueryServer<T, U>
+impl<U> QueryServer<U>
 where
-    T: RestfulArchiveAccess,
     U: MetricsRenderer,
 {
-    pub fn new(rest_client: T, metrics_renderer: U) -> QueryServer<T, U> {
+    pub fn new(ledger: Arc<RwLock<LedgerState>>, metrics_renderer: U) -> QueryServer<U> {
         QueryServer {
-            committed_state: LedgerState::test_ledger(),
-            addresses_to_utxos: HashMap::new(),
-            related_transactions: HashMap::new(),
-            related_transfers: HashMap::new(),
-            owner_memos: HashMap::new(),
-            created_assets: HashMap::new(),
-            traced_assets: HashMap::new(),
-            issuances: HashMap::new(),
-            token_code_issuances: HashMap::new(),
-            utxos_to_map_index: HashMap::new(),
-            txo_to_txnid: HashMap::new(),
-            txn_sid_to_hash: HashMap::new(),
-            txn_hash_to_sid: HashMap::new(),
-            rest_client,
+            committed_state: ledger,
+            addresses_to_utxos: map! {},
+            related_transactions: map! {},
+            related_transfers: map! {},
+            owner_memos: map! {},
+            created_assets: map! {},
+            traced_assets: map! {},
+            issuances: map! {},
+            token_code_issuances: map! {},
+            utxos_to_map_index: map! {},
+            txo_to_txnid: map! {},
+            txn_sid_to_hash: map! {},
+            txn_hash_to_sid: map! {},
             metrics_renderer,
+            app_block_cnt: 0,
         }
     }
 
@@ -160,7 +163,7 @@ where
 
     // Returns most recent commits at query_server side.
     pub fn get_commits(&self) -> u64 {
-        self.committed_state.get_block_commit_count()
+        self.committed_state.read().get_block_commit_count()
     }
 
     // Returns the owner memo required to decrypt the asset record stored at given index, if it exists.
@@ -227,10 +230,7 @@ where
                         .addresses_to_utxos
                         .get_mut(&address)
                         .c(d!(fail!("No txos stored for this address")))?;
-                    let removed = hash_set.remove(&txo_sid);
-                    if !removed {
-                        return Err(eg!(fail!("Input txo not found")));
-                    }
+                    hash_set.remove(&txo_sid);
                 }
             }
         }
@@ -239,115 +239,114 @@ where
 
     // Updates query server cache with new transactions from a block.
     // Each new block must be consistent with the state of the cached ledger up until this point
-    pub fn add_new_block(&mut self, block: &[FinalizedTransaction]) -> Result<()> {
-        // First, we add block to local ledger state
-        let finalized_block = {
-            let mut block_builder = self.committed_state.start_block().c(d!())?;
-            for txn in block {
-                let eff = TxnEffect::compute_effect(txn.txn.clone()).c(d!())?;
-                self.committed_state
-                    .apply_transaction(&mut block_builder, eff)
-                    .c(d!())?;
-            }
+    fn apply_new_blocks(&mut self) -> Result<()> {
+        let ledger = Arc::clone(&self.committed_state);
+        let ledger = ledger.read();
 
-            self.committed_state.finish_block(block_builder).c(d!())?
-        };
-        // Next, update ownership status
-        for (_, (txn_sid, txo_sids)) in finalized_block.iter() {
-            let ledger = &mut self.committed_state;
-            let curr_txn = ledger.get_transaction(*txn_sid).c(d!())?.finalized_txn.txn;
-            // get the transaction, ownership addresses, and memos associated with each transaction
-            let (addresses, owner_memos) = {
-                let addresses: Vec<XfrAddress> = txo_sids
-                    .iter()
-                    .map(|sid| XfrAddress {
-                        key: ((ledger.get_utxo(*sid).unwrap().utxo).0).record.public_key,
-                    })
-                    .collect();
+        if self.app_block_cnt == ledger.blocks.len() {
+            return Ok(());
+        }
 
-                let owner_memos = curr_txn.get_owner_memos_ref();
+        // Should be unreachable !!
+        if self.app_block_cnt > ledger.blocks.len() {
+            return Err(eg!("The fucking world is over!"));
+        }
 
-                (addresses, owner_memos)
-            };
-
-            // Update related addresses
-            let related_addresses = get_related_addresses(&curr_txn);
-            for address in &related_addresses {
-                self.related_transactions
-                    .entry(*address)
-                    .or_insert_with(HashSet::new)
-                    .insert(*txn_sid);
-            }
-
-            // Update transferred nonconfidential assets
-            let transferred_assets = get_transferred_nonconfidential_assets(&curr_txn);
-            for asset in &transferred_assets {
-                self.related_transfers
-                    .entry(*asset)
-                    .or_insert_with(HashSet::new)
-                    .insert(*txn_sid);
-            }
-
-            // Add created asset and remove spent utxos
-            for op in &curr_txn.body.operations {
-                match op {
-                    Operation::DefineAsset(define_asset) => {
-                        self.add_created_asset(&define_asset);
-                        self.add_traced_asset(&define_asset);
-                    }
-                    Operation::IssueAsset(issue_asset) => {
-                        self.cache_issuance(&issue_asset)
-                    }
-                    Operation::TransferAsset(transfer_asset) => {
-                        self.remove_spent_utxos(&transfer_asset).c(d!())?
-                    }
-                    _ => {}
-                };
-            }
-
-            // Add new utxos (this handles both transfers and issuances)
-            for (txo_sid, (address, owner_memo)) in txo_sids
-                .iter()
-                .zip(addresses.iter().zip(owner_memos.iter()))
+        for block in ledger
+            .blocks
+            .iter()
+            .skip(self.app_block_cnt.saturating_sub(1))
+        {
+            // Update ownership status
+            for (txn_sid, txo_sids) in
+                block.txns.iter().map(|v| (v.tx_id, v.txo_ids.as_slice()))
             {
-                self.addresses_to_utxos
-                    .entry(*address)
-                    .or_insert_with(HashSet::new)
-                    .insert(*txo_sid);
-                self.utxos_to_map_index.insert(*txo_sid, *address);
-                let hash = curr_txn.hash_tm().hex().to_uppercase();
-                self.txo_to_txnid.insert(*txo_sid, (*txn_sid, hash.clone()));
-                self.txn_sid_to_hash.insert(*txn_sid, hash.clone());
-                self.txn_hash_to_sid.insert(hash.clone(), *txn_sid);
-                if let Some(owner_memo) = owner_memo {
-                    self.owner_memos.insert(*txo_sid, (*owner_memo).clone());
+                let curr_txn =
+                    ledger.get_transaction(txn_sid).c(d!())?.finalized_txn.txn;
+                // get the transaction, ownership addresses, and memos associated with each transaction
+                let (addresses, owner_memos) = {
+                    let addresses: Vec<XfrAddress> = txo_sids
+                        .iter()
+                        .map(|sid| XfrAddress {
+                            key: ((ledger
+                                .get_utxo(*sid)
+                                .or_else(|| ledger.get_spent_utxo(*sid))
+                                .unwrap()
+                                .utxo)
+                                .0)
+                                .record
+                                .public_key,
+                        })
+                        .collect();
+
+                    let owner_memos = curr_txn.get_owner_memos_ref();
+
+                    (addresses, owner_memos)
+                };
+
+                // Update related addresses
+                let related_addresses = get_related_addresses(&curr_txn);
+                for address in &related_addresses {
+                    self.related_transactions
+                        .entry(*address)
+                        .or_insert_with(HashSet::new)
+                        .insert(txn_sid);
+                }
+
+                // Update transferred nonconfidential assets
+                let transferred_assets =
+                    get_transferred_nonconfidential_assets(&curr_txn);
+                for asset in &transferred_assets {
+                    self.related_transfers
+                        .entry(*asset)
+                        .or_insert_with(HashSet::new)
+                        .insert(txn_sid);
+                }
+
+                // Add created asset and remove spent utxos
+                for op in &curr_txn.body.operations {
+                    match op {
+                        Operation::DefineAsset(define_asset) => {
+                            self.add_created_asset(&define_asset);
+                            self.add_traced_asset(&define_asset);
+                        }
+                        Operation::IssueAsset(issue_asset) => {
+                            self.cache_issuance(&issue_asset)
+                        }
+                        Operation::TransferAsset(transfer_asset) => {
+                            self.remove_spent_utxos(&transfer_asset).c(d!())?
+                        }
+                        _ => {}
+                    };
+                }
+
+                // Add new utxos (this handles both transfers and issuances)
+                for (txo_sid, (address, owner_memo)) in txo_sids
+                    .iter()
+                    .zip(addresses.iter().zip(owner_memos.iter()))
+                {
+                    self.addresses_to_utxos
+                        .entry(*address)
+                        .or_insert_with(HashSet::new)
+                        .insert(*txo_sid);
+                    self.utxos_to_map_index.insert(*txo_sid, *address);
+                    let hash = curr_txn.hash_tm().hex().to_uppercase();
+                    self.txo_to_txnid.insert(*txo_sid, (txn_sid, hash.clone()));
+                    self.txn_sid_to_hash.insert(txn_sid, hash.clone());
+                    self.txn_hash_to_sid.insert(hash.clone(), txn_sid);
+                    if let Some(owner_memo) = owner_memo {
+                        self.owner_memos.insert(*txo_sid, (*owner_memo).clone());
+                    }
                 }
             }
         }
+
+        self.app_block_cnt = ledger.blocks.len();
         Ok(())
     }
 
-    pub fn poll_new_blocks(&mut self) -> Result<()> {
-        let latest_block = self.committed_state.get_block_count();
-        let new_blocks = match self.rest_client.get_blocks_since(BlockSID(latest_block))
-        {
-            Err(_) => {
-                error!(
-                    "Could not connect to ledger at {}",
-                    self.rest_client.get_source()
-                );
-                return Err(eg!(fail!("Cannot connect to ledger server")));
-            }
-
-            Ok(blocks_and_sid) => blocks_and_sid,
-        };
-
-        for (bid, block) in new_blocks {
-            info!("Received block {}", bid);
-            self.add_new_block(&block).c(d!())?;
-        }
-
-        Ok(())
+    pub fn update(&mut self) {
+        pnk!(self.apply_new_blocks());
     }
 }
 
@@ -376,6 +375,7 @@ fn get_related_addresses(txn: &Transaction) -> HashSet<XfrAddress> {
             Operation::UpdateValidator(i) => staking_gen!(i),
             Operation::Governance(i) => staking_gen!(i),
             Operation::FraDistribution(i) => staking_gen!(i),
+
             Operation::TransferAsset(transfer) => {
                 for input in transfer.body.transfer.inputs.iter() {
                     related_addresses.insert(XfrAddress {
@@ -422,566 +422,4 @@ fn get_transferred_nonconfidential_assets(txn: &Transaction) -> HashSet<AssetTyp
         }
     }
     transferred_assets
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ledger::data_model::{AssetRules, AssetTypeCode, BlockSID, Memo, TransferType};
-    use ledger::store::helpers::{apply_transaction, create_definition_transaction};
-    use ledger_api_service::MockLedgerClient;
-    use parking_lot::RwLock;
-    use rand_chacha::ChaChaRng;
-    use rand_core::SeedableRng;
-    use std::sync::Arc;
-    use txn_builder::{
-        BuildsTransactions, PolicyChoice, TransactionBuilder, TransferOperationBuilder,
-    };
-    use utils::MockMetricsRenderer;
-    use zei::setup::PublicParams;
-    use zei::xfr::asset_record::open_blind_asset_record;
-    use zei::xfr::asset_record::AssetRecordType::{
-        ConfidentialAmount_NonConfidentialAssetType,
-        NonConfidentialAmount_NonConfidentialAssetType,
-    };
-    use zei::xfr::sig::XfrKeyPair;
-    use zei::xfr::structs::{AssetRecordTemplate, AssetTracerKeyPair, TracingPolicy};
-
-    #[test]
-    pub fn test_owner_memo_storage() {
-        let rest_client_ledger_state = Arc::new(RwLock::new(LedgerState::test_ledger()));
-        let mut ledger_state = LedgerState::test_ledger();
-        let mock_ledger = MockLedgerClient::new(&Arc::clone(&rest_client_ledger_state));
-        let params = PublicParams::default();
-        let mut prng = ChaChaRng::from_entropy();
-        let mut query_server = QueryServer::new(mock_ledger, MockMetricsRenderer::new());
-        let token_code = AssetTypeCode::gen_random();
-        // Define keys
-        let alice = XfrKeyPair::generate(&mut prng);
-        let bob = XfrKeyPair::generate(&mut prng);
-        // Define asset
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-        let define_tx = builder
-            .add_operation_create_asset(
-                &alice,
-                Some(token_code),
-                AssetRules::default(),
-                "test",
-                PolicyChoice::Fungible(),
-            )
-            .unwrap()
-            .transaction();
-
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-
-        //Issuance txn
-        let amt = 1000;
-        let confidentiality_flag = ConfidentialAmount_NonConfidentialAssetType;
-        let issuance_tx = builder
-            .add_basic_issue_asset(
-                &alice,
-                &token_code,
-                0,
-                amt,
-                confidentiality_flag,
-                &params,
-            )
-            .unwrap()
-            .add_basic_issue_asset(
-                &alice,
-                &token_code,
-                1,
-                amt,
-                confidentiality_flag,
-                &params,
-            )
-            .unwrap()
-            .transaction();
-
-        apply_transaction(&mut ledger_state, define_tx.clone());
-        apply_transaction(&mut ledger_state, issuance_tx.clone());
-
-        let block0 = ledger_state.get_block(BlockSID(0)).unwrap();
-        let block1 = ledger_state.get_block(BlockSID(1)).unwrap();
-
-        // Add new blocks to query server
-        query_server.add_new_block(&block0.block.txns).unwrap();
-        query_server.add_new_block(&block1.block.txns).unwrap();
-
-        // Transfer first record to Bob
-        let transfer_sid = TxoSID(0);
-        let bar = &(ledger_state.get_utxo(transfer_sid).unwrap().utxo.0).record;
-        let alice_memo = query_server.get_owner_memo(TxoSID(0));
-        let oar = open_blind_asset_record(&bar, &alice_memo.cloned(), &alice).unwrap();
-        let mut xfr_builder = TransferOperationBuilder::new();
-        let out_template = AssetRecordTemplate::with_no_asset_tracing(
-            amt,
-            token_code.val,
-            oar.get_record_type(),
-            bob.get_pk(),
-        );
-        let xfr_op = xfr_builder
-            .add_input(TxoRef::Absolute(transfer_sid), oar, None, None, amt)
-            .unwrap()
-            .add_output(&out_template, None, None, None)
-            .unwrap()
-            .create(TransferType::Standard)
-            .unwrap()
-            .sign(&alice)
-            .unwrap();
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-        let xfr_txn = builder
-            .add_operation(xfr_op.transaction().unwrap())
-            .transaction();
-
-        apply_transaction(&mut ledger_state, xfr_txn.clone());
-
-        let block2 = ledger_state.get_block(BlockSID(2)).unwrap();
-
-        // Query server will now fetch new blocks
-        query_server.add_new_block(&block2.block.txns).unwrap();
-
-        // Ensure that query server returns correct memos
-        let bob_memo = query_server.get_owner_memo(TxoSID(2));
-        let bar = &(ledger_state.get_utxo(TxoSID(2)).unwrap().utxo.0).record;
-        open_blind_asset_record(&bar, &bob_memo.cloned(), &alice).unwrap();
-    }
-
-    #[test]
-    pub fn test_record_storage() {
-        let rest_client_ledger_state = Arc::new(RwLock::new(LedgerState::test_ledger()));
-        let mut ledger_state = LedgerState::test_ledger();
-        // This isn't actually being used in the test, we just make a ledger client so we can compile
-        let mock_ledger = MockLedgerClient::new(&Arc::clone(&rest_client_ledger_state));
-        let mut prng = ChaChaRng::from_entropy();
-        let mut query_server = QueryServer::new(mock_ledger, MockMetricsRenderer::new());
-        let params = PublicParams::default();
-        let token_code = AssetTypeCode::gen_random();
-        // Define keys
-        let alice = XfrKeyPair::generate(&mut prng);
-        let bob = XfrKeyPair::generate(&mut prng);
-        // Define asset
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-        let define_tx = builder
-            .add_operation_create_asset(
-                &alice,
-                Some(token_code),
-                AssetRules::default(),
-                "fiat",
-                PolicyChoice::Fungible(),
-            )
-            .unwrap()
-            .transaction();
-
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-
-        //Issuance txn
-        let amt = 1000;
-        let confidentiality_flag = NonConfidentialAmount_NonConfidentialAssetType;
-        let issuance_tx = builder
-            .add_basic_issue_asset(
-                &alice,
-                &token_code,
-                0,
-                amt,
-                confidentiality_flag,
-                &params,
-            )
-            .unwrap()
-            .add_basic_issue_asset(
-                &alice,
-                &token_code,
-                1,
-                amt,
-                confidentiality_flag,
-                &params,
-            )
-            .unwrap()
-            .add_basic_issue_asset(
-                &alice,
-                &token_code,
-                2,
-                amt,
-                confidentiality_flag,
-                &params,
-            )
-            .unwrap()
-            .transaction();
-
-        apply_transaction(&mut ledger_state, define_tx.clone());
-        apply_transaction(&mut ledger_state, issuance_tx.clone());
-
-        // Transfer to Bob
-        let transfer_sid = TxoSID(0);
-        let bar = &(ledger_state.get_utxo(transfer_sid).unwrap().utxo.0).record;
-        let oar = open_blind_asset_record(&bar, &None, &alice).unwrap();
-        let mut xfr_builder = TransferOperationBuilder::new();
-        let out_template = AssetRecordTemplate::with_no_asset_tracing(
-            amt,
-            token_code.val,
-            oar.get_record_type(),
-            bob.get_pk(),
-        );
-        let xfr_op = xfr_builder
-            .add_input(TxoRef::Absolute(transfer_sid), oar, None, None, amt)
-            .unwrap()
-            .add_output(&out_template, None, None, None)
-            .unwrap()
-            .create(TransferType::Standard)
-            .unwrap()
-            .sign(&alice)
-            .unwrap();
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-        let xfr_txn = builder
-            .add_operation(xfr_op.transaction().unwrap())
-            .transaction();
-
-        apply_transaction(&mut ledger_state, xfr_txn.clone());
-
-        let block0 = ledger_state.get_block(BlockSID(0)).unwrap();
-        let block1 = ledger_state.get_block(BlockSID(1)).unwrap();
-        let block2 = ledger_state.get_block(BlockSID(2)).unwrap();
-
-        // Query server will now fetch new blocks
-        query_server.add_new_block(&block0.block.txns).unwrap();
-        query_server.add_new_block(&block1.block.txns).unwrap();
-        //query_server.poll_new_blocks().c(d!())?;
-
-        // Ensure that query server is aware of issuances
-        let alice_sids = query_server
-            .get_owned_utxo_sids(&XfrAddress {
-                key: *alice.get_pk_ref(),
-            })
-            .unwrap();
-
-        assert!(alice_sids.contains(&TxoSID(0)));
-        assert!(alice_sids.contains(&TxoSID(1)));
-        assert!(alice_sids.contains(&TxoSID(2)));
-
-        query_server.add_new_block(&block2.block.txns).unwrap();
-
-        // Ensure that query server is aware of ownership changes
-        let alice_sids = query_server
-            .get_owned_utxo_sids(&XfrAddress {
-                key: *alice.get_pk_ref(),
-            })
-            .unwrap();
-        let bob_sids = query_server
-            .get_owned_utxo_sids(&XfrAddress {
-                key: *bob.get_pk_ref(),
-            })
-            .unwrap();
-        let issuer_records = query_server
-            .get_issued_records(&IssuerPublicKey {
-                key: alice.get_pk(),
-            })
-            .unwrap();
-        let token_records = query_server
-            .get_issued_records_by_code(&token_code)
-            .unwrap();
-        let alice_related_txns = query_server
-            .get_related_transactions(&XfrAddress {
-                key: *alice.get_pk_ref(),
-            })
-            .unwrap();
-
-        assert!(issuer_records.len() == 3);
-        assert!(token_records.len() == 3);
-        assert!(!alice_sids.contains(&TxoSID(0)));
-        assert!(alice_related_txns.contains(&TxnSID(0)));
-        assert!(bob_sids.contains(&TxoSID(3)));
-    }
-    #[test]
-    fn test_related_txns_memo_update() {
-        let rest_client_ledger_state = Arc::new(RwLock::new(LedgerState::test_ledger()));
-        let mut ledger_state = LedgerState::test_ledger();
-        // This isn't actually being used in the test, we just make a ledger client so we can compile
-        let mock_ledger = MockLedgerClient::new(&Arc::clone(&rest_client_ledger_state));
-        let mut query_server = QueryServer::new(mock_ledger, MockMetricsRenderer::new());
-        let code = AssetTypeCode::gen_random();
-        let creator = XfrKeyPair::generate(&mut ledger_state.get_prng());
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-        let asset_rules = AssetRules::default().set_updatable(true).clone();
-        builder
-            .add_operation_create_asset(
-                &creator,
-                Some(code),
-                asset_rules,
-                "test",
-                PolicyChoice::Fungible(),
-            )
-            .unwrap();
-        let tx = builder.transaction();
-        apply_transaction(&mut ledger_state, tx.clone());
-
-        // Change memo
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-        builder.add_operation_update_memo(&creator, code, "new_memo");
-        let tx = builder.transaction();
-        apply_transaction(&mut ledger_state, tx.clone());
-
-        let block0 = ledger_state.get_block(BlockSID(0)).unwrap();
-        let block1 = ledger_state.get_block(BlockSID(1)).unwrap();
-        query_server.add_new_block(&block0.block.txns).unwrap();
-        query_server.add_new_block(&block1.block.txns).unwrap();
-        let related_txns = query_server
-            .get_related_transactions(&XfrAddress {
-                key: *creator.get_pk_ref(),
-            })
-            .unwrap();
-        assert!(related_txns.contains(&TxnSID(1)));
-    }
-    #[test]
-    fn test_related_txns_define_asset() {
-        let rest_client_ledger_state = Arc::new(RwLock::new(LedgerState::test_ledger()));
-        let mut ledger_state = LedgerState::test_ledger();
-        // This isn't actually being used in the test, we just make a ledger client so we can compile
-        let mock_ledger = MockLedgerClient::new(&Arc::clone(&rest_client_ledger_state));
-        let mut query_server = QueryServer::new(mock_ledger, MockMetricsRenderer::new());
-        let code = AssetTypeCode::gen_random();
-        let creator = XfrKeyPair::generate(&mut ledger_state.get_prng());
-        let seq_id = ledger_state.get_block_commit_count();
-        let tx = create_definition_transaction(
-            &code,
-            &creator,
-            AssetRules::default(),
-            Some(Memo("test".to_string())),
-            seq_id,
-        )
-        .unwrap();
-        apply_transaction(&mut ledger_state, tx);
-        let block0 = ledger_state.get_block(BlockSID(0)).unwrap();
-        query_server.add_new_block(&block0.block.txns).unwrap();
-        let related_txns = query_server
-            .get_related_transactions(&XfrAddress {
-                key: *creator.get_pk_ref(),
-            })
-            .unwrap();
-        assert!(related_txns.contains(&TxnSID(0)));
-    }
-
-    #[test]
-    pub fn test_related_xfrs() {
-        let rest_client_ledger_state = Arc::new(RwLock::new(LedgerState::test_ledger()));
-        let mut ledger_state = LedgerState::test_ledger();
-        // This isn't actually being used in the test, we just make a ledger client so we can compile
-        let mock_ledger = MockLedgerClient::new(&Arc::clone(&rest_client_ledger_state));
-        let mut prng = ChaChaRng::from_entropy();
-        let mut query_server = QueryServer::new(mock_ledger, MockMetricsRenderer::new());
-        let params = PublicParams::default();
-        let token_code = AssetTypeCode::gen_random();
-        // Define keys
-        let alice = XfrKeyPair::generate(&mut prng);
-        let bob = XfrKeyPair::generate(&mut prng);
-        // Define asset
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-        let define_tx = builder
-            .add_operation_create_asset(
-                &alice,
-                Some(token_code),
-                AssetRules::default(),
-                "fiat",
-                PolicyChoice::Fungible(),
-            )
-            .unwrap()
-            .transaction();
-
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-
-        //Issuance txn
-        let amt = 1000;
-        let confidentiality_flag = NonConfidentialAmount_NonConfidentialAssetType;
-        let issuance_tx = builder
-            .add_basic_issue_asset(
-                &alice,
-                &token_code,
-                0,
-                amt,
-                confidentiality_flag,
-                &params,
-            )
-            .unwrap()
-            .transaction();
-
-        apply_transaction(&mut ledger_state, define_tx.clone());
-        apply_transaction(&mut ledger_state, issuance_tx.clone());
-
-        // Transfer to Bob
-        let transfer_sid = TxoSID(0);
-        let bar = &(ledger_state.get_utxo(transfer_sid).unwrap().utxo.0).record;
-        let oar = open_blind_asset_record(&bar, &None, &alice).unwrap();
-        let mut xfr_builder = TransferOperationBuilder::new();
-        let out_template = AssetRecordTemplate::with_no_asset_tracing(
-            amt,
-            token_code.val,
-            oar.get_record_type(),
-            bob.get_pk(),
-        );
-        let xfr_op = xfr_builder
-            .add_input(TxoRef::Absolute(transfer_sid), oar, None, None, amt)
-            .unwrap()
-            .add_output(&out_template, None, None, None)
-            .unwrap()
-            .create(TransferType::Standard)
-            .unwrap()
-            .sign(&alice)
-            .unwrap();
-        let seq_id = ledger_state.get_block_commit_count();
-        let mut builder = TransactionBuilder::from_seq_id(seq_id);
-        let xfr_txn = builder
-            .add_operation(xfr_op.transaction().unwrap())
-            .transaction();
-
-        apply_transaction(&mut ledger_state, xfr_txn.clone());
-
-        let block0 = ledger_state.get_block(BlockSID(0)).unwrap();
-        let block1 = ledger_state.get_block(BlockSID(1)).unwrap();
-        let block2 = ledger_state.get_block(BlockSID(2)).unwrap();
-
-        // Query server will now fetch new blocks
-        query_server.add_new_block(&block0.block.txns).unwrap();
-        query_server.add_new_block(&block1.block.txns).unwrap();
-        query_server.add_new_block(&block2.block.txns).unwrap();
-
-        // Verify the related transfer
-        let related_xfr = query_server.get_related_transfers(&token_code).unwrap();
-        assert_eq!(related_xfr.len(), 1);
-        assert!(related_xfr.contains(&TxnSID(2)));
-    }
-
-    #[test]
-    fn test_created_assets() {
-        let rest_client_ledger_state = Arc::new(RwLock::new(LedgerState::test_ledger()));
-        let mut ledger_state = LedgerState::test_ledger();
-        // This isn't actually being used in the test, we just make a ledger client so we can compile
-        let mock_ledger = MockLedgerClient::new(&Arc::clone(&rest_client_ledger_state));
-        let mut query_server = QueryServer::new(mock_ledger, MockMetricsRenderer::new());
-        let creator = XfrKeyPair::generate(&mut ledger_state.get_prng());
-
-        // Create the first asset
-        let code1 = AssetTypeCode::gen_random();
-        let seq_id = ledger_state.get_block_commit_count();
-        let tx1 = create_definition_transaction(
-            &code1,
-            &creator,
-            AssetRules::default(),
-            Some(Memo("test".to_string())),
-            seq_id,
-        )
-        .unwrap();
-        apply_transaction(&mut ledger_state, tx1);
-        let block1 = ledger_state.get_block(BlockSID(0)).unwrap();
-        query_server.add_new_block(&block1.block.txns).unwrap();
-
-        // Create the second asset
-        let code2 = AssetTypeCode::gen_random();
-        let seq_id = ledger_state.get_block_commit_count();
-        let tx2 = create_definition_transaction(
-            &code2,
-            &creator,
-            AssetRules::default(),
-            Some(Memo("test".to_string())),
-            seq_id,
-        )
-        .unwrap();
-        apply_transaction(&mut ledger_state, tx2);
-        let block2 = ledger_state.get_block(BlockSID(1)).unwrap();
-        query_server.add_new_block(&block2.block.txns).unwrap();
-
-        // Verify the created assets
-        let created_assets = query_server
-            .get_created_assets(&IssuerPublicKey {
-                key: *creator.get_pk_ref(),
-            })
-            .unwrap();
-
-        // Check if the created assets have two asset
-        let asset_found = |code: &AssetTypeCode| -> bool {
-            created_assets.iter().any(|ca| ca.body.asset.code == *code)
-        };
-        assert!(asset_found(&code1));
-        assert!(asset_found(&code2));
-    }
-
-    #[test]
-    fn test_traced_assets() {
-        let rest_client_ledger_state = Arc::new(RwLock::new(LedgerState::test_ledger()));
-        let mut ledger_state = LedgerState::test_ledger();
-        // This isn't actually being used in the test, we just make a ledger client so we can compile
-        let mock_ledger = MockLedgerClient::new(&Arc::clone(&rest_client_ledger_state));
-        let mut query_server = QueryServer::new(mock_ledger, MockMetricsRenderer::new());
-        let creator = XfrKeyPair::generate(&mut ledger_state.get_prng());
-
-        // Set the tracing policy
-        let tracer_kp = AssetTracerKeyPair::generate(&mut ledger_state.get_prng());
-        let tracing_policy = TracingPolicy {
-            enc_keys: tracer_kp.enc_key,
-            asset_tracing: true,
-            identity_tracing: None,
-        };
-
-        // Create the first traceable asset
-        let code1 = AssetTypeCode::gen_random();
-        let tx1 = create_definition_transaction(
-            &code1,
-            &creator,
-            AssetRules::default()
-                .add_tracing_policy(tracing_policy.clone())
-                .clone(),
-            Some(Memo("test".to_string())),
-            ledger_state.get_block_commit_count(),
-        )
-        .unwrap();
-        apply_transaction(&mut ledger_state, tx1);
-        let block1 = ledger_state.get_block(BlockSID(0)).unwrap();
-        query_server.add_new_block(&block1.block.txns).unwrap();
-
-        // Create the second traceable asset
-        let code2 = AssetTypeCode::gen_random();
-        let tx2 = create_definition_transaction(
-            &code2,
-            &creator,
-            AssetRules::default()
-                .add_tracing_policy(tracing_policy)
-                .clone(),
-            Some(Memo("test".to_string())),
-            ledger_state.get_block_commit_count(),
-        )
-        .unwrap();
-        apply_transaction(&mut ledger_state, tx2);
-        let block2 = ledger_state.get_block(BlockSID(1)).unwrap();
-        query_server.add_new_block(&block2.block.txns).unwrap();
-
-        // Create a non-traceable asset
-        let code3 = AssetTypeCode::gen_random();
-        let tx3 = create_definition_transaction(
-            &code3,
-            &creator,
-            AssetRules::default(),
-            Some(Memo("test".to_string())),
-            ledger_state.get_block_commit_count(),
-        )
-        .unwrap();
-        apply_transaction(&mut ledger_state, tx3);
-        let block3 = ledger_state.get_block(BlockSID(2)).unwrap();
-        query_server.add_new_block(&block3.block.txns).unwrap();
-
-        // Verify that the list of traced assets contains only the first and second assets
-        let traced_assets = query_server
-            .get_traced_assets(&IssuerPublicKey {
-                key: *creator.get_pk_ref(),
-            })
-            .unwrap();
-        assert_eq!(traced_assets, &vec![code1, code2]);
-    }
 }

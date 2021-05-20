@@ -11,6 +11,8 @@ pub struct ABCIConfig {
     pub submission_port: u16,
     pub ledger_host: String,
     pub ledger_port: u16,
+    pub query_host: String,
+    pub query_port: u16,
 }
 
 #[derive(Deserialize)]
@@ -28,6 +30,9 @@ pub struct ABCIConfigStr {
 impl TryFrom<ABCIConfigStr> for ABCIConfig {
     type Error = Box<dyn RucError>;
     fn try_from(cfg: ABCIConfigStr) -> Result<Self> {
+        let query_host = cfg.ledger_host.clone();
+        let ledger_port = cfg.ledger_port.parse::<u16>().c(d!())?;
+        let query_port = ledger_port - 1;
         Ok(ABCIConfig {
             abci_host: cfg.abci_host,
             abci_port: cfg.abci_port.parse::<u16>().c(d!())?,
@@ -36,7 +41,9 @@ impl TryFrom<ABCIConfigStr> for ABCIConfig {
             submission_host: cfg.submission_host,
             submission_port: cfg.submission_port.parse::<u16>().c(d!())?,
             ledger_host: cfg.ledger_host,
-            ledger_port: cfg.ledger_port.parse::<u16>().c(d!())?,
+            ledger_port,
+            query_host,
+            query_port,
         })
     }
 }
@@ -74,6 +81,9 @@ impl ABCIConfig {
             .parse::<u16>()
             .c(d!())?;
 
+        let query_host = ledger_host.clone();
+        let query_port = ledger_port - 1;
+
         Ok(ABCIConfig {
             abci_host,
             abci_port,
@@ -83,6 +93,8 @@ impl ABCIConfig {
             submission_port,
             ledger_host,
             ledger_port,
+            query_host,
+            query_port,
         })
     }
 

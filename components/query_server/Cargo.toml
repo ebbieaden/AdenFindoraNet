@@ -23,8 +23,7 @@ sparse_merkle_tree = { path = "../../libs/ads/sparse_merkle_tree" }
 txn_builder = {path = "../txn_builder"}
 utils = { path = "../../libs/utils" }
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
+lazy_static = "1.4.0"
 
 [features]
-default = [ "QUERY_SERVER" ]
-QUERY_SERVER = [ "ledger/QUERY_SERVER" ]
 debug_env = [ "ledger/debug_env" ]
