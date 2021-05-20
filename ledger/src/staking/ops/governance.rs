@@ -25,8 +25,9 @@ lazy_static! {
         map! {
             ByzantineKind::DuplicateVote => Rule::new([5, 100]),
             ByzantineKind::LightClientAttack => Rule::new([1, 100]),
-            ByzantineKind::OffLine => Rule::new([1, 100_0000]),
             ByzantineKind::Unknown => Rule::new([1, 1000]),
+            // we should set this percent to a very small value
+            ByzantineKind::OffLine => Rule::new([1, 1000_0000]),
         }
     };
 }
