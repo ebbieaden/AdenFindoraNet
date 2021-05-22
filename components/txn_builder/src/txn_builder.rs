@@ -22,7 +22,7 @@ use ledger::staking::{
         undelegation::UnDelegationOps,
         update_validator::UpdateValidatorOps,
     },
-    BlockHeight, TendermintAddr, Validator,
+    td_addr_to_string, BlockHeight, StakerMemo, TendermintAddr, Validator,
 };
 use rand_chacha::ChaChaRng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
@@ -315,6 +315,13 @@ pub trait BuildsTransactions {
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
     ) -> &mut Self;
+    fn add_operation_staking(
+        &mut self,
+        keypair: &XfrKeyPair,
+        td_pubkey: Vec<u8>,
+        commission_rate: [u64; 2],
+        memo: Option<StakerMemo>,
+    ) -> Result<&mut Self>;
     fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self;
     fn add_operation_claim(
         &mut self,
@@ -842,8 +849,24 @@ impl BuildsTransactions for TransactionBuilder {
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
     ) -> &mut Self {
-        let op = DelegationOps::new(keypair, validator, self.txn.body.no_replay_token);
+        let op =
+            DelegationOps::new(keypair, validator, None, self.txn.body.no_replay_token);
         self.add_operation(Operation::Delegation(op))
+    }
+
+    fn add_operation_staking(
+        &mut self,
+        keypair: &XfrKeyPair,
+        td_pubkey: Vec<u8>,
+        commission_rate: [u64; 2],
+        memo: Option<StakerMemo>,
+    ) -> Result<&mut Self> {
+        let v_id = keypair.get_pk();
+        let v = Validator::new_staker(td_pubkey, v_id, commission_rate, memo).c(d!())?;
+        let vaddr = td_addr_to_string(&v.td_addr);
+        let op =
+            DelegationOps::new(keypair, vaddr, Some(v), self.txn.body.no_replay_token);
+        Ok(self.add_operation(Operation::Delegation(op)))
     }
 
     fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self {

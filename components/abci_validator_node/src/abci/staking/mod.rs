@@ -11,8 +11,9 @@ use ledger::{
     data_model::{Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA},
     staking::{
         ops::governance::{governance_penalty_tendermint_auto, ByzantineKind},
-        td_pubkey_to_td_addr_bytes, Staking, COINBASE_PAYMENT_BLOCK_ITV, COINBASE_PK,
-        COINBASE_PRINCIPAL_PK, VALIDATOR_UPDATE_BLOCK_ITV,
+        td_addr_to_string, td_pubkey_to_td_addr_bytes, Staking,
+        COINBASE_PAYMENT_BLOCK_ITV, COINBASE_PK, COINBASE_PRINCIPAL_PK,
+        VALIDATOR_UPDATE_BLOCK_ITV,
     },
     store::{LedgerAccess, LedgerUpdate},
 };
@@ -167,7 +168,7 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
         .for_each(|ev| {
             let v = ev.validator.as_ref().unwrap();
             let bz = ByzantineInfo {
-                addr: &hex::encode(&v.address),
+                addr: &td_addr_to_string(&v.address),
                 kind: ev.field_type.as_str(),
             };
 
@@ -188,7 +189,7 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
             {
                 olpl.into_iter().for_each(|v| {
                     let bz = ByzantineInfo {
-                        addr: &hex::encode_upper(v),
+                        addr: &td_addr_to_string(&v),
                         kind: "OFF_LINE",
                     };
                     ruc::info_omit!(system_governance(la.get_staking_mut(), &bz));
@@ -237,7 +238,7 @@ fn set_rewards(
     last_vote_percent: Option<[u64; 2]>,
 ) -> Result<()> {
     staking
-        .set_last_block_rewards(&hex::encode_upper(proposer), last_vote_percent)
+        .set_last_block_rewards(&td_addr_to_string(proposer), last_vote_percent)
         .c(d!())
 }
 

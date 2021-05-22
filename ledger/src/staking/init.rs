@@ -3,7 +3,7 @@
 //!
 
 use super::{
-    BlockHeight, Power, Validator, ValidatorData, ValidatorKind,
+    td_addr_to_bytes, BlockHeight, Power, Validator, ValidatorData, ValidatorKind,
     STAKING_VALIDATOR_MIN_POWER,
 };
 use ruc::*;
@@ -39,7 +39,7 @@ impl TryFrom<ValidatorStr> for Validator {
     fn try_from(v: ValidatorStr) -> Result<Validator> {
         Ok(Validator {
             td_pubkey: base64::decode(&v.td_pubkey).c(d!())?,
-            td_addr: hex::decode(&v.td_addr).c(d!())?,
+            td_addr: td_addr_to_bytes(&v.td_addr).c(d!())?,
             td_power: v.td_power.unwrap_or(DEFAULT_POWER),
             commission_rate: v.commission_rate.unwrap_or([1, 100]),
             id: wallet::public_key_from_base64(&v.id).c(d!())?,

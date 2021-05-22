@@ -7,8 +7,8 @@
 use crate::{
     data_model::{NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA},
     staking::{
-        Amount, Staking, TendermintAddr, Validator, COINBASE_PRINCIPAL_PK,
-        STAKING_VALIDATOR_MIN_POWER,
+        td_addr_to_string, Amount, Staking, TendermintAddr, Validator,
+        COINBASE_PRINCIPAL_PK, STAKING_VALIDATOR_MIN_POWER,
     },
 };
 use ruc::*;
@@ -66,12 +66,12 @@ impl DelegationOps {
     ) -> Result<Amount> {
         let am = check_delegation_context(tx).c(d!())?;
 
-        if let Some(v) = self.body.validator_staking.as_ref() {
+        if let Some(v) = self.body.new_validator.as_ref() {
             let h = staking.cur_height;
 
             if !v.staking_is_basic_valid()
                 || am < STAKING_VALIDATOR_MIN_POWER
-                || self.body.validator != hex::encode_upper(&v.td_addr)
+                || self.body.validator != td_addr_to_string(&v.td_addr)
             {
                 return Err(eg!("invalid"));
             }
@@ -99,9 +99,10 @@ impl DelegationOps {
     pub fn new(
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
+        new_validator: Option<Validator>,
         nonce: NoReplayToken,
     ) -> Self {
-        let body = Box::new(Data::new(validator, nonce));
+        let body = Box::new(Data::new(validator, new_validator, nonce));
         let signature = keypair.sign(&body.to_bytes());
         DelegationOps {
             body,
@@ -129,16 +130,20 @@ pub struct Data {
     /// the target validator to delegated to
     pub validator: TendermintAddr,
     /// if set this field, then enter staking flow
-    pub validator_staking: Option<Validator>,
+    pub new_validator: Option<Validator>,
     nonce: NoReplayToken,
 }
 
 impl Data {
     #[inline(always)]
-    fn new(v: TendermintAddr, nonce: NoReplayToken) -> Self {
+    fn new(
+        v: TendermintAddr,
+        new_validator: Option<Validator>,
+        nonce: NoReplayToken,
+    ) -> Self {
         Data {
             validator: v,
-            validator_staking: None,
+            new_validator,
             nonce,
         }
     }

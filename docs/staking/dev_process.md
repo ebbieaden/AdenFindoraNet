@@ -10,15 +10,15 @@
 - [x] undelegation
   - [x] undelegate at any time
   - [x] N days frozen time after proposing a undelegation
-  - [ ] partial undelegation ( is this necessary? )
+  - partial undelegation ( is this necessary? )
 - [x] claim
   - [x] claim rewards at any time
   - [x] partial claim
 
 ### User Interaction
 
-- [x] support in wallet
 - [ ] `50%` support in command line
+- [x] support in wallet
 
 ## Consensus Level
 
@@ -35,7 +35,7 @@
     - [x] duplicate vote, auto-detected by tendermint
     - [x] light client attack, auto-detected by tendermint
     - [x] offline, aka unavailable
-    - [ ] other more
+    - other more
   - [x] off-chain governance
     - [x] slash consensus based on multi-signature
   - [x] validator slash
@@ -44,12 +44,12 @@
   - [x] delegator slash
     - [x] support principal slash
     - [x] support rewards slash
-- [ ] dynamic fee
 - [x] FRA distribution
   - [x] automated distribution
   - [x] coinbase(fake) implementation
+- dynamic fee (out of plan)
 
 ### User Interaction
 
-- [ ] support in wallet ( seems not necessary )
 - [ ] `50%` support in command line
+- support in wallet (seems not necessary)

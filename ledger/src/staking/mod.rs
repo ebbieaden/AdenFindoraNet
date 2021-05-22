@@ -1236,7 +1236,8 @@ pub(crate) const VALIDATORS_MIN: usize = 6;
 /// when updating validator information, 2/3.
 pub const COSIG_THRESHOLD_DEFAULT: [u64; 2] = [2, 3];
 
-type Memo = String;
+/// self-description of staker
+pub type StakerMemo = String;
 
 /// block height of tendermint
 pub type BlockHeight = u64;
@@ -1397,7 +1398,7 @@ pub struct Validator {
     // for helping FRA owners stake their tokens.
     commission_rate: [u64; 2],
     /// optional descriptive information
-    pub memo: Option<Memo>,
+    pub memo: Option<StakerMemo>,
     kind: ValidatorKind,
 }
 
@@ -1408,7 +1409,7 @@ impl Validator {
         td_power: Amount,
         id: XfrPublicKey,
         commission_rate: [u64; 2],
-        memo: Option<Memo>,
+        memo: Option<StakerMemo>,
         kind: ValidatorKind,
     ) -> Result<Self> {
         if 0 == commission_rate[1] || commission_rate[0] > commission_rate[1] {
@@ -1424,6 +1425,24 @@ impl Validator {
             memo,
             kind,
         })
+    }
+
+    /// use this fn when propose an advanced `Delegation`, aka Staking.
+    pub fn new_staker(
+        td_pubkey: Vec<u8>,
+        id: XfrPublicKey,
+        commission_rate: [u64; 2],
+        memo: Option<StakerMemo>,
+    ) -> Result<Self> {
+        Self::new(
+            td_pubkey,
+            0,
+            id,
+            commission_rate,
+            memo,
+            ValidatorKind::Staker,
+        )
+        .c(d!())
     }
 
     #[inline(always)]
@@ -1645,6 +1664,18 @@ pub fn td_pubkey_to_td_addr(pubkey: &[u8]) -> String {
 #[allow(missing_docs)]
 pub fn td_pubkey_to_td_addr_bytes(pubkey: &[u8]) -> Vec<u8> {
     sha2::Sha256::digest(pubkey)[..20].to_vec()
+}
+
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn td_addr_to_string(td_addr: &[u8]) -> TendermintAddr {
+    hex::encode_upper(td_addr)
+}
+
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn td_addr_to_bytes(td_addr: TendermintAddrRef) -> Result<Vec<u8>> {
+    hex::decode(td_addr).c(d!())
 }
 
 #[inline(always)]

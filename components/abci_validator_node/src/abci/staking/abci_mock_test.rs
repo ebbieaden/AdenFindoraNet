@@ -14,8 +14,8 @@ use ledger::{
         BLACK_HOLE_PUBKEY, TX_FEE_MIN,
     },
     staking::{
-        calculate_delegation_rewards, ops::governance::ByzantineKind,
-        td_pubkey_to_td_addr, DelegationState, TendermintAddr,
+        calculate_delegation_rewards, ops::governance::ByzantineKind, td_addr_to_bytes,
+        td_addr_to_string, td_pubkey_to_td_addr, DelegationState, TendermintAddr,
         Validator as StakingValidator, ValidatorKind, BLOCK_HEIGHT_MAX, COINBASE_KP,
         COINBASE_PAYMENT_BLOCK_ITV, COINBASE_PK, COINBASE_PRINCIPAL_KP,
         COINBASE_PRINCIPAL_PK, FRA, FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
@@ -105,14 +105,8 @@ impl AbciMocker {
         alt!(txs.is_empty(), return);
 
         let h = 1 + TENDERMINT_BLOCK_HEIGHT.fetch_add(1, Ordering::Relaxed);
-        let proposer = pnk!(hex::decode(
-            TD_MOCKER
-                .read()
-                .validators
-                .keys()
-                .next()
-                .unwrap()
-                .as_bytes()
+        let proposer = pnk!(td_addr_to_bytes(
+            &TD_MOCKER.read().validators.keys().next().unwrap()
         ));
 
         self.0.begin_block(&gen_req_begin_block(h, proposer));
@@ -186,13 +180,13 @@ impl TendermintMocker {
         });
 
         TendermintMocker {
-            validators: map! {B hex::encode_upper(&[0; 20]) => 1 },
+            validators: map! {B td_addr_to_string(&[0; 20]) => 1 },
         }
     }
 
     fn clean(&mut self) {
         CHAN.1.lock().try_iter().for_each(|_| {});
-        self.validators = map! {B hex::encode_upper(&[0; 20]) => 1 };
+        self.validators = map! {B td_addr_to_string(&[0; 20]) => 1 };
     }
 }
 
