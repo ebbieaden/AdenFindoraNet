@@ -14,6 +14,7 @@ use ledger::inv_fail;
 use ledger::policies::Fraction;
 use ledger::policy_script::{Policy, PolicyGlobals, TxnCheckInputs, TxnPolicyData};
 use ledger::staking::{
+    is_valid_tendermint_addr,
     ops::{
         claim::ClaimOps,
         delegation::DelegationOps,
@@ -862,10 +863,17 @@ impl BuildsTransactions for TransactionBuilder {
         memo: Option<StakerMemo>,
     ) -> Result<&mut Self> {
         let v_id = keypair.get_pk();
+
         let v = Validator::new_staker(td_pubkey, v_id, commission_rate, memo).c(d!())?;
         let vaddr = td_addr_to_string(&v.td_addr);
+
+        if !is_valid_tendermint_addr(&vaddr) {
+            return Err(eg!("invalid pubkey, invalid address"));
+        }
+
         let op =
             DelegationOps::new(keypair, vaddr, Some(v), self.txn.body.no_replay_token);
+
         Ok(self.add_operation(Operation::Delegation(op)))
     }
 

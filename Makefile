@@ -36,6 +36,7 @@ release_subdirs = $(bin_dir) $(lib_dir)
 bin_files = \
 		./$(pick)/findora \
 		./$(pick)/abci_validator_node \
+		./$(pick)/fns \
 		./$(pick)/stt \
 		./$(pick)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
@@ -43,7 +44,8 @@ bin_files = \
 bin_files_musl_debug = \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/findora \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/stt\
+		./target/x86_64-unknown-linux-musl/$(target_dir)/fns \
+		./target/x86_64-unknown-linux-musl/$(target_dir)/stt \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
 
@@ -70,7 +72,7 @@ endef
 
 build: tendermint wasm
 ifdef DBG
-	cargo build --frozen --bins -p abci_validator_node -p cli2
+	cargo build --bins -p abciapp -p cli2 -p fintools
 	$(call pack,$(target_dir))
 else
 	@ echo -e "\x1b[31;01m\$$(DBG) must be defined !\x1b[00m"
@@ -82,8 +84,7 @@ ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --frozen --release --bins \
-		-p abci_validator_node -p cli2 -p ledger
+	cargo build --release --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
 endif
 
@@ -92,8 +93,7 @@ ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --features="debug_env" --frozen --release --bins \
-		-p abci_validator_node -p cli2 -p ledger
+	cargo build --features="debug_env" --release --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
 endif
 
@@ -102,9 +102,7 @@ ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --features="debug_env" --frozen --release --bins \
-		-p abci_validator_node -p cli2 -p ledger \
-		--target=x86_64-unknown-linux-musl
+	cargo build --features="debug_env" --release --bins -p abciapp -p fintools --target=x86_64-unknown-linux-musl
 	$(call pack_musl_debug,$(target_dir))
 endif
 

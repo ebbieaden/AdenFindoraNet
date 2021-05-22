@@ -2596,7 +2596,7 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
      **/
 
     let template = AssetRecordTemplate::with_no_asset_tracing(
-        FRA_AMOUNT / 100,
+        FRA_AMOUNT / 10,
         fra_code.val,
         AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
         fra_owner_kp.get_pk(),
@@ -2604,7 +2604,7 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
 
     let params = PublicParams::default();
 
-    let outputs = (0..100)
+    let outputs = (0..10)
         .map(|_| {
             let (ba, _, _) = build_blind_asset_record(
                 &mut ChaChaRng::from_entropy(),

@@ -1692,6 +1692,15 @@ pub fn check_delegation_amount(am: Amount) -> Result<()> {
     }
 }
 
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn is_valid_tendermint_addr(addr: TendermintAddrRef) -> bool {
+    // hex::encode_upper(sha256(pubkey[:20]))
+    const TENDERMINT_HEX_ADDR_LEN: usize = 40;
+
+    TENDERMINT_HEX_ADDR_LEN == addr.len() && addr.chars().all(|i| i.is_uppercase())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

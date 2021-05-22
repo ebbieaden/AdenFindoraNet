@@ -447,6 +447,5 @@ fn gen_offline_punish_list(
         .collect())
 }
 
-#[cfg(test)]
 #[cfg(feature = "abci_mock")]
 pub mod abci_mock_test;

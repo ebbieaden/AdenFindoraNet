@@ -10,32 +10,18 @@
 #![deny(warnings)]
 
 use clap::{crate_authors, crate_version, App, SubCommand};
+use fintools::fns;
 use lazy_static::lazy_static;
 use ledger::{
-    data_model::{
-        AssetTypeCode, DelegationInfo, IssueAsset, IssueAssetBody, IssuerKeyPair,
-        Operation, StateCommitmentData, Transaction, TransferType, TxOutput, TxoRef,
-        TxoSID, Utxo, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
-    },
+    data_model::Transaction,
     staking::{check_delegation_amount, COINBASE_PK, COINBASE_PRINCIPAL_PK},
     store::fra_gen_initial_tx,
 };
-use rand_chacha::{rand_core::SeedableRng, ChaChaRng};
 use ruc::*;
 use serde::Serialize;
 use std::{collections::BTreeMap, env};
-use txn_builder::{BuildsTransactions, TransactionBuilder, TransferOperationBuilder};
-use utils::{HashOf, SignatureOf};
-use zei::{
-    setup::PublicParams,
-    xfr::{
-        asset_record::{
-            build_blind_asset_record, open_blind_asset_record, AssetRecordType,
-        },
-        sig::{XfrKeyPair, XfrPublicKey},
-        structs::{AssetRecordTemplate, XfrAmount},
-    },
-};
+use txn_builder::BuildsTransactions;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 lazy_static! {
     static ref SERV_ADDR: String = env::var("STAKING_TESTER_SERV_ADDR")
@@ -57,7 +43,6 @@ fn main() {
 
 fn run() -> Result<()> {
     let subcmd_init = SubCommand::with_name("init");
-    let subcmd_issue = SubCommand::with_name("issue");
     let subcmd_delegate = SubCommand::with_name("delegate")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to delegate'")
@@ -66,7 +51,7 @@ fn run() -> Result<()> {
         .arg_from_usage("-u, --user=[User] 'user name of delegator'");
     let subcmd_claim = SubCommand::with_name("claim")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
-        .arg_from_usage("-n, --amount=[Amount] 'how much FRA to delegate'");
+        .arg_from_usage("-n, --amount=[Amount] 'how much FRA to claim'");
     let subcmd_transfer = SubCommand::with_name("transfer")
         .arg_from_usage("-f, --from-user=[User] 'transfer sender'")
         .arg_from_usage("-t, --to-user=[User] 'transfer receiver'")
@@ -83,7 +68,6 @@ fn run() -> Result<()> {
         .author(crate_authors!())
         .about("A manual test tool for the staking function.")
         .subcommand(subcmd_init)
-        .subcommand(subcmd_issue)
         .subcommand(subcmd_delegate)
         .subcommand(subcmd_undelegate)
         .subcommand(subcmd_claim)
@@ -93,8 +77,6 @@ fn run() -> Result<()> {
 
     if matches.subcommand_matches("init").is_some() {
         init::init().c(d!())?;
-    } else if matches.subcommand_matches("issue").is_some() {
-        issue_fra().c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("delegate") {
         let user = m.value_of("user");
         let amount = m.value_of("amount");
@@ -106,7 +88,7 @@ fn run() -> Result<()> {
             let amount = amount.unwrap().parse::<u64>().c(d!())?;
             delegate::gen_tx(user.unwrap(), amount, validator.unwrap())
                 .c(d!())
-                .and_then(|tx| send_tx(&tx).c(d!()))?;
+                .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
         }
     } else if let Some(m) = matches.subcommand_matches("undelegate") {
         let user = m.value_of("user");
@@ -116,7 +98,7 @@ fn run() -> Result<()> {
         } else {
             undelegate::gen_tx(user.unwrap())
                 .c(d!())
-                .and_then(|tx| send_tx(&tx).c(d!()))?;
+                .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
         }
     } else if let Some(m) = matches.subcommand_matches("claim") {
         let user = m.value_of("user");
@@ -131,7 +113,7 @@ fn run() -> Result<()> {
             };
             claim::gen_tx(user.unwrap(), amount)
                 .c(d!())
-                .and_then(|tx| send_tx(&tx).c(d!()))?;
+                .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
         }
     } else if let Some(m) = matches.subcommand_matches("transfer") {
         let from = m.value_of("from-user");
@@ -145,7 +127,7 @@ fn run() -> Result<()> {
             let owner_kp = search_kp(from.unwrap()).c(d!())?;
             let target_pk = search_kp(to.unwrap()).c(d!())?.get_pk_ref();
             let target = vec![(target_pk, amount)];
-            transfer(owner_kp, target).c(d!())?;
+            fns::transfer_batch(owner_kp, target).c(d!())?;
         }
     } else if let Some(m) = matches.subcommand_matches("show") {
         let cb = m.is_present("coinbase");
@@ -173,7 +155,7 @@ mod init {
         let root_kp =
             wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
 
-        send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
+        fns::send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
 
         sleep_ms!(10 * 1000);
 
@@ -187,14 +169,14 @@ mod init {
 
         target_list.push((&*COINBASE_PK, 4_000_000_000_000));
 
-        transfer(&root_kp, target_list).c(d!())?;
+        fns::transfer_batch(&root_kp, target_list).c(d!())?;
 
         sleep_ms!(10 * 1000);
 
         for v in VALIDATOR_LIST.values() {
             delegate::gen_tx(&v.name, 1_000_000_000_000, &v.name)
                 .c(d!())
-                .and_then(|tx| send_tx(&tx).c(d!()))?;
+                .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
         }
 
         Ok(())
@@ -218,15 +200,14 @@ mod delegate {
             .c(d!())?;
         let validator = &VALIDATOR_LIST.get(validator).c(d!())?.td_addr;
 
-        let mut builder = new_tx_builder().c(d!())?;
-        builder.add_operation_delegation(owner_kp, validator.to_owned());
+        let mut builder = fns::new_tx_builder().c(d!())?;
 
-        let trans_to_self =
-            gen_transfer_op(owner_kp, vec![(&COINBASE_PRINCIPAL_PK, amount)], false)
-                .c(d!())?;
-        builder.add_operation(trans_to_self);
-
-        builder.add_operation(gen_fee_op(owner_kp).c(d!())?);
+        fns::gen_transfer_op(owner_kp, vec![(&COINBASE_PRINCIPAL_PK, amount)])
+            .c(d!())
+            .map(|principal_op| {
+                builder.add_operation(principal_op);
+                builder.add_operation_delegation(owner_kp, validator.to_owned());
+            })?;
 
         Ok(builder.take_transaction())
     }
@@ -238,12 +219,12 @@ mod undelegate {
     pub fn gen_tx(user: NameRef) -> Result<Transaction> {
         let owner_kp = &USER_LIST.get(user).c(d!())?.keypair;
 
-        let mut builder = new_tx_builder().c(d!())?;
-        builder.add_operation_undelegation(owner_kp);
+        let mut builder = fns::new_tx_builder().c(d!())?;
 
-        gen_fee_op(owner_kp)
-            .c(d!())
-            .map(|op| builder.add_operation(op))?;
+        fns::gen_fee_op(owner_kp).c(d!()).map(|op| {
+            builder.add_operation(op);
+            builder.add_operation_undelegation(owner_kp);
+        })?;
 
         Ok(builder.take_transaction())
     }
@@ -255,12 +236,12 @@ mod claim {
     pub fn gen_tx(user: NameRef, amount: Option<u64>) -> Result<Transaction> {
         let owner_kp = search_kp(user).c(d!())?;
 
-        let mut builder = new_tx_builder().c(d!())?;
-        builder.add_operation_claim(owner_kp, amount);
+        let mut builder = fns::new_tx_builder().c(d!())?;
 
-        gen_fee_op(owner_kp)
-            .c(d!())
-            .map(|op| builder.add_operation(op))?;
+        fns::gen_fee_op(owner_kp).c(d!()).map(|op| {
+            builder.add_operation(op);
+            builder.add_operation_claim(owner_kp, amount);
+        })?;
 
         Ok(builder.take_transaction())
     }
@@ -274,8 +255,8 @@ fn print_info(
     user: Option<NameRef>,
 ) -> Result<()> {
     if show_coinbse {
-        let cb_balance = get_balance_x(&COINBASE_PK).c(d!())?;
-        let cb_principal_balance = get_balance_x(&COINBASE_PRINCIPAL_PK).c(d!())?;
+        let cb_balance = fns::get_balance(&COINBASE_PK).c(d!())?;
+        let cb_principal_balance = fns::get_balance(&COINBASE_PRINCIPAL_PK).c(d!())?;
 
         println!(
             "\x1b[31;01mCOINBASE BALANCE:\x1b[00m\n{} FRA units\n",
@@ -312,40 +293,6 @@ fn print_info(
     Ok(())
 }
 
-fn send_tx(tx: &Transaction) -> Result<()> {
-    let url = format!("{}:8669/submit_transaction", &*SERV_ADDR);
-    attohttpc::post(&url)
-        .header(attohttpc::header::CONTENT_TYPE, "application/json")
-        .bytes(&serde_json::to_vec(tx).c(d!())?)
-        .send()
-        .c(d!())
-        .map(|_| ())
-}
-
-fn new_tx_builder() -> Result<TransactionBuilder> {
-    get_seq_id().c(d!()).map(TransactionBuilder::from_seq_id)
-}
-
-fn get_seq_id() -> Result<u64> {
-    type Resp = (
-        HashOf<Option<StateCommitmentData>>,
-        u64,
-        SignatureOf<(HashOf<Option<StateCommitmentData>>, u64)>,
-    );
-
-    let url = format!("{}:8668/global_state", &*SERV_ADDR);
-
-    attohttpc::get(&url)
-        .send()
-        .c(d!())?
-        .error_for_status()
-        .c(d!())?
-        .bytes()
-        .c(d!())
-        .and_then(|b| serde_json::from_slice::<Resp>(&b).c(d!()))
-        .map(|resp| resp.1)
-}
-
 fn get_delegation_info(user: NameRef) -> Result<String> {
     let pk = USER_LIST
         .get(user)
@@ -353,58 +300,14 @@ fn get_delegation_info(user: NameRef) -> Result<String> {
         .or_else(|| VALIDATOR_LIST.get(user).map(|v| &v.pubkey))
         .c(d!())?;
 
-    let url = format!(
-        "{}:8668/delegation_info/{}",
-        &*SERV_ADDR,
-        wallet::public_key_to_base64(pk)
-    );
-
-    attohttpc::get(&url)
-        .send()
-        .c(d!())?
-        .error_for_status()
-        .c(d!())?
-        .bytes()
+    fns::get_delegation_info(pk)
         .c(d!())
-        .and_then(|b| serde_json::from_slice::<DelegationInfo>(&b).c(d!()))
-        .and_then(|resp| serde_json::to_string_pretty(&resp).c(d!()))
+        .and_then(|di| serde_json::to_string_pretty(&di).c(d!()))
 }
 
 fn get_balance(user: NameRef) -> Result<u64> {
     let pk = search_kp(user).c(d!())?.get_pk_ref();
-    get_balance_x(pk).c(d!())
-}
-
-fn get_balance_x(pk: &XfrPublicKey) -> Result<u64> {
-    let balance = get_owned_utxos(pk)
-        .c(d!())?
-        .values()
-        .map(|utxo| {
-            if let XfrAmount::NonConfidential(am) = utxo.0.record.amount {
-                am
-            } else {
-                0
-            }
-        })
-        .sum();
-
-    Ok(balance)
-}
-
-fn get_owned_utxos(addr: &XfrPublicKey) -> Result<BTreeMap<TxoSID, Utxo>> {
-    let url = format!(
-        "{}:8668/owned_utxos/{}",
-        &*SERV_ADDR,
-        wallet::public_key_to_base64(addr)
-    );
-    attohttpc::get(&url)
-        .send()
-        .c(d!())?
-        .error_for_status()
-        .c(d!())?
-        .bytes()
-        .c(d!())
-        .and_then(|b| serde_json::from_slice(&b).c(d!()))
+    fns::get_balance(pk).c(d!())
 }
 
 #[derive(Debug, Serialize)]
@@ -514,87 +417,6 @@ fn gen_valiator_list() -> BTreeMap<Name, Validator> {
         .collect()
 }
 
-fn transfer(
-    owner_kp: &XfrKeyPair,
-    target_list: Vec<(&XfrPublicKey, u64)>,
-) -> Result<()> {
-    let mut builder = new_tx_builder().c(d!())?;
-    builder.add_operation(gen_transfer_op(owner_kp, target_list, false).c(d!())?);
-
-    builder.add_operation(gen_fee_op(owner_kp).c(d!())?);
-
-    send_tx(&builder.take_transaction()).c(d!())
-}
-
-fn gen_fee_op(owner_kp: &XfrKeyPair) -> Result<Operation> {
-    gen_transfer_op(owner_kp, vec![(&*BLACK_HOLE_PUBKEY, TX_FEE_MIN)], true).c(d!())
-}
-
-fn gen_transfer_op(
-    owner_kp: &XfrKeyPair,
-    target_list: Vec<(&XfrPublicKey, u64)>,
-    rev: bool,
-) -> Result<Operation> {
-    let mut trans_builder = TransferOperationBuilder::new();
-
-    let mut am = target_list.iter().map(|(_, am)| *am).sum();
-    let mut i_am;
-    let utxos = get_owned_utxos(owner_kp.get_pk_ref()).c(d!())?.into_iter();
-
-    macro_rules! add_inputs {
-        ($utxos: expr) => {
-            for (sid, utxo) in $utxos {
-                if let XfrAmount::NonConfidential(n) = utxo.0.record.amount {
-                    alt!(n < am, i_am = n, i_am = am);
-                    am = am.saturating_sub(n);
-                } else {
-                    continue;
-                }
-
-                open_blind_asset_record(&utxo.0.record, &None, owner_kp)
-                    .c(d!())
-                    .and_then(|ob| {
-                        trans_builder
-                            .add_input(TxoRef::Absolute(sid), ob, None, None, i_am)
-                            .c(d!())
-                    })?;
-                alt!(0 == am, break);
-            }
-        };
-    }
-
-    alt!(rev, add_inputs!(utxos.rev()), add_inputs!(utxos));
-
-    if 0 != am {
-        return Err(eg!());
-    }
-
-    let outputs = target_list.into_iter().map(|(pk, n)| {
-        AssetRecordTemplate::with_no_asset_tracing(
-            n,
-            ASSET_TYPE_FRA,
-            AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            *pk,
-        )
-    });
-
-    for output in outputs {
-        trans_builder
-            .add_output(&output, None, None, None)
-            .c(d!())?;
-    }
-
-    trans_builder
-        .balance()
-        .c(d!())?
-        .create(TransferType::Standard)
-        .c(d!())?
-        .sign(owner_kp)
-        .c(d!())?
-        .transaction()
-        .c(d!())
-}
-
 fn search_kp(user: NameRef) -> Option<&'static XfrKeyPair> {
     if "root" == user {
         return Some(&ROOT_KP);
@@ -604,49 +426,4 @@ fn search_kp(user: NameRef) -> Option<&'static XfrKeyPair> {
         .get(user)
         .map(|u| &u.keypair)
         .or_else(|| VALIDATOR_LIST.get(user).map(|v| &v.keypair))
-}
-
-fn issue_fra() -> Result<()> {
-    const FRA_AMOUNT: u64 = 2_1000_0000_0000_0000;
-
-    let kp = search_kp("root").c(d!())?;
-    let fra_code = AssetTypeCode {
-        val: ASSET_TYPE_FRA,
-    };
-
-    let template = AssetRecordTemplate::with_no_asset_tracing(
-        FRA_AMOUNT / 100,
-        fra_code.val,
-        AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-        kp.get_pk(),
-    );
-
-    let params = PublicParams::default();
-
-    let outputs = (0..100)
-        .map(|_| {
-            let (ba, _, _) = build_blind_asset_record(
-                &mut ChaChaRng::from_entropy(),
-                &params.pc_gens,
-                &template,
-                vec![],
-            );
-            (
-                TxOutput {
-                    id: None,
-                    record: ba,
-                    lien: None,
-                },
-                None,
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let op_body = IssueAssetBody::new(&fra_code, 0, &outputs).unwrap();
-    let op = IssueAsset::new(op_body, &IssuerKeyPair { keypair: kp }).c(d!())?;
-
-    get_seq_id()
-        .c(d!())
-        .map(|i| Transaction::from_operation(Operation::IssueAsset(op), i))
-        .and_then(|tx| send_tx(&tx).c(d!()))
 }

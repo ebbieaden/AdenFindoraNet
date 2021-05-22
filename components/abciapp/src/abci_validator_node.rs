@@ -3,7 +3,7 @@
 
 use ruc::*;
 
-mod abci;
+pub mod abci;
 
 fn main() {
     env_logger::init();

@@ -1,5 +1,5 @@
 [package]
-name = "abci_validator_node"
+name = "abciapp"
 version = "0.1.0"
 authors = ["FindoraNetwork"]
 edition = "2018"
@@ -7,11 +7,7 @@ build = "build.rs"
 
 [[bin]]
 name = "abci_validator_node"
-path = "src/main.rs"
-
-[[bin]]
-name = "stt"
-path = "src/abci/staking/bin/tester.rs"
+path = "src/abci_validator_node.rs"
 
 [dependencies]
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
@@ -44,13 +40,15 @@ futures = { version = "0.3.13", features = ["thread-pool"] }
 
 hex = "0.4.2"
 wallet = { path = "../wallet" }
-txn_builder = { path = "../txn_builder" }
 protobuf = "2.15.1"
 
 ctrlc = "3.1.7"
 toml = "0.5.8"
 
 clap = "2.33.3"
+
+fintools = { path =  "../fintools" }
+txn_builder = { path = "../txn_builder" }
 
 [build-dependencies]
 vergen = "3.1.0"

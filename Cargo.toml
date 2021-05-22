@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "components/cli2",
-    "components/abci_validator_node",
+    "components/abciapp",
     "components/ledger_api_service",
     "components/query_api",
     "components/query_server",
@@ -10,6 +10,7 @@ members = [
     "components/txn_builder",
     "components/wasm",
     "components/wallet",
+    "components/fintools",
     "ledger",
     "libs/ads/air",
     "libs/ads/merkle_tree",

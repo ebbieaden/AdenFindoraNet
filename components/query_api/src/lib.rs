@@ -69,6 +69,27 @@ where
     ))
 }
 
+#[allow(clippy::unnecessary_wraps)]
+async fn get_owner_memo_batch<U>(
+    data: web::Data<Arc<RwLock<QueryServer<U>>>>,
+    info: web::Path<String>,
+) -> actix_web::Result<web::Json<Vec<Option<OwnerMemo>>>, actix_web::error::Error>
+where
+    U: MetricsRenderer,
+{
+    let ids = info
+        .as_ref()
+        .split(',')
+        .map(|i| i.parse::<u64>().map_err(actix_web::error::ErrorBadRequest))
+        .collect::<actix_web::Result<Vec<_>, actix_web::error::Error>>()?;
+    let hdr = data.read();
+    let resp = ids
+        .into_iter()
+        .map(|i| hdr.get_owner_memo(TxoSID(i)).cloned())
+        .collect();
+    Ok(web::Json(resp))
+}
+
 // Returns an array of the utxo sids currently spendable by a given address
 async fn get_owned_utxos<U>(
     data: web::Data<Arc<RwLock<QueryServer<U>>>>,
@@ -106,6 +127,7 @@ where
 pub enum QueryServerRoutes {
     GetAddress,
     GetOwnerMemo,
+    GetOwnerMemoBatch,
     GetOwnedUtxos,
     GetCreatedAssets,
     GetTracedAssets,
@@ -128,6 +150,7 @@ impl NetworkRoute for QueryServerRoutes {
             QueryServerRoutes::GetRelatedXfrs => "get_related_xfrs",
             QueryServerRoutes::GetOwnedUtxos => "get_owned_utxos",
             QueryServerRoutes::GetOwnerMemo => "get_owner_memo",
+            QueryServerRoutes::GetOwnerMemoBatch => "get_owner_memo_batch",
             QueryServerRoutes::GetCreatedAssets => "get_created_assets",
             QueryServerRoutes::GetTracedAssets => "get_traced_assets",
             QueryServerRoutes::GetIssuedRecords => "get_issued_records",
@@ -385,6 +408,11 @@ impl QueryApi {
                 .route(
                     &QueryServerRoutes::GetOwnerMemo.with_arg_template("txo_sid"),
                     web::get().to(get_owner_memo::<U>),
+                )
+                .route(
+                    &QueryServerRoutes::GetOwnerMemoBatch
+                        .with_arg_template("txo_sid_list"),
+                    web::get().to(get_owner_memo_batch::<U>),
                 )
                 .route(
                     &QueryServerRoutes::GetRelatedTxns.with_arg_template("address"),

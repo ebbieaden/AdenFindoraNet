@@ -338,7 +338,8 @@ fn parse_blocks(block_input: String) -> Option<Vec<usize>> {
     Some(result)
 }
 
-//query current validator list
+// query current validator list,
+// validtors who have not completed self-deletagion will be filtered out.
 #[allow(unused)]
 async fn query_validators<LA>(
     data: web::Data<Arc<RwLock<LA>>>,
@@ -347,11 +348,13 @@ where
     LA: LedgerAccess,
 {
     let read = data.read();
+    let staking = read.get_staking();
 
-    if let Some(validator_data) = read.get_staking().validator_get_current() {
+    if let Some(validator_data) = staking.validator_get_current() {
         let validators = validator_data.get_validator_addr_map();
         let validators_list = validators
             .iter()
+            .filter(|(_, v)| staking.delegation_has_addr(v))
             .flat_map(|(tendermint_addr, pk)| {
                 validator_data.get_validator_by_key(pk).map(|v| {
                     Validator::new(
@@ -364,6 +367,7 @@ where
             .collect();
         return Ok(web::Json(ValidatorList::new(validators_list)));
     };
+
     Ok(web::Json(ValidatorList::new(vec![])))
 }
 

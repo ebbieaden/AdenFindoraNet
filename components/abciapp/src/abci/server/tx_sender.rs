@@ -80,7 +80,6 @@ mod real {
     }
 }
 
-#[cfg(test)]
 #[cfg(feature = "abci_mock")]
 mod mocker {
     use crate::abci::staking::abci_mock_test::CHAN;

@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default)]
+
 #[cfg(not(feature = "abci_mock"))]
 pub use real::gen_tendermint_attr;
 

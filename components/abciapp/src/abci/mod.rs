@@ -1,3 +1,5 @@
+#![deny(warnings)]
+
 use lazy_static::lazy_static;
 use ledger_api_service::RestfulApiService;
 use ruc::*;
