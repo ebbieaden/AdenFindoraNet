@@ -62,11 +62,11 @@ impl Iterator for FreshNamer {
 }
 
 fn default_sub_server() -> String {
-    "https://testnet.findora.org:8669".to_string()
+    "http://localhost:8669".to_string()
 }
 
 fn default_ledger_server() -> String {
-    "https://testnet.findora.org:8668".to_string()
+    "http://localhost:8668".to_string()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

@@ -13,26 +13,33 @@ use clap::{crate_authors, crate_version, App, SubCommand};
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{
-        DelegationInfo, Operation, StateCommitmentData, Transaction, TransferType,
-        TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
+        AssetTypeCode, DelegationInfo, IssueAsset, IssueAssetBody, IssuerKeyPair,
+        Operation, StateCommitmentData, Transaction, TransferType, TxOutput, TxoRef,
+        TxoSID, Utxo, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
     },
     staking::{check_delegation_amount, COINBASE_PK, COINBASE_PRINCIPAL_PK},
     store::fra_gen_initial_tx,
 };
+use rand_chacha::{rand_core::SeedableRng, ChaChaRng};
 use ruc::*;
 use serde::Serialize;
 use std::{collections::BTreeMap, env};
 use txn_builder::{BuildsTransactions, TransactionBuilder, TransferOperationBuilder};
 use utils::{HashOf, SignatureOf};
-use zei::xfr::{
-    asset_record::{open_blind_asset_record, AssetRecordType},
-    sig::{XfrKeyPair, XfrPublicKey},
-    structs::{AssetRecordTemplate, XfrAmount},
+use zei::{
+    setup::PublicParams,
+    xfr::{
+        asset_record::{
+            build_blind_asset_record, open_blind_asset_record, AssetRecordType,
+        },
+        sig::{XfrKeyPair, XfrPublicKey},
+        structs::{AssetRecordTemplate, XfrAmount},
+    },
 };
 
 lazy_static! {
-    static ref SERV_ADDR: String =
-        env::var("STAKING_TESTER_SERV_ADDR").unwrap_or_else(|_| "localhost".to_owned());
+    static ref SERV_ADDR: String = env::var("STAKING_TESTER_SERV_ADDR")
+        .unwrap_or_else(|_| "http://localhost".to_owned());
     static ref USER_LIST: BTreeMap<Name, User> = gen_user_list();
     static ref VALIDATOR_LIST: BTreeMap<Name, Validator> = gen_valiator_list();
     static ref ROOT_KP: XfrKeyPair =
@@ -50,6 +57,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let subcmd_init = SubCommand::with_name("init");
+    let subcmd_issue = SubCommand::with_name("issue");
     let subcmd_delegate = SubCommand::with_name("delegate")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to delegate'")
@@ -75,6 +83,7 @@ fn run() -> Result<()> {
         .author(crate_authors!())
         .about("A manual test tool for the staking function.")
         .subcommand(subcmd_init)
+        .subcommand(subcmd_issue)
         .subcommand(subcmd_delegate)
         .subcommand(subcmd_undelegate)
         .subcommand(subcmd_claim)
@@ -84,6 +93,8 @@ fn run() -> Result<()> {
 
     if matches.subcommand_matches("init").is_some() {
         init::init().c(d!())?;
+    } else if matches.subcommand_matches("issue").is_some() {
+        issue_fra().c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("delegate") {
         let user = m.value_of("user");
         let amount = m.value_of("amount");
@@ -302,7 +313,7 @@ fn print_info(
 }
 
 fn send_tx(tx: &Transaction) -> Result<()> {
-    let url = format!("http://{}:8669/submit_transaction", &*SERV_ADDR);
+    let url = format!("{}:8669/submit_transaction", &*SERV_ADDR);
     attohttpc::post(&url)
         .header(attohttpc::header::CONTENT_TYPE, "application/json")
         .bytes(&serde_json::to_vec(tx).c(d!())?)
@@ -322,7 +333,7 @@ fn get_seq_id() -> Result<u64> {
         SignatureOf<(HashOf<Option<StateCommitmentData>>, u64)>,
     );
 
-    let url = format!("http://{}:8668/global_state", &*SERV_ADDR);
+    let url = format!("{}:8668/global_state", &*SERV_ADDR);
 
     attohttpc::get(&url)
         .send()
@@ -343,7 +354,7 @@ fn get_delegation_info(user: NameRef) -> Result<String> {
         .c(d!())?;
 
     let url = format!(
-        "http://{}:8668/delegation_info/{}",
+        "{}:8668/delegation_info/{}",
         &*SERV_ADDR,
         wallet::public_key_to_base64(pk)
     );
@@ -382,7 +393,7 @@ fn get_balance_x(pk: &XfrPublicKey) -> Result<u64> {
 
 fn get_owned_utxos(addr: &XfrPublicKey) -> Result<BTreeMap<TxoSID, Utxo>> {
     let url = format!(
-        "http://{}:8668/owned_utxos/{}",
+        "{}:8668/owned_utxos/{}",
         &*SERV_ADDR,
         wallet::public_key_to_base64(addr)
     );
@@ -593,4 +604,49 @@ fn search_kp(user: NameRef) -> Option<&'static XfrKeyPair> {
         .get(user)
         .map(|u| &u.keypair)
         .or_else(|| VALIDATOR_LIST.get(user).map(|v| &v.keypair))
+}
+
+fn issue_fra() -> Result<()> {
+    const FRA_AMOUNT: u64 = 2_1000_0000_0000_0000;
+
+    let kp = search_kp("root").c(d!())?;
+    let fra_code = AssetTypeCode {
+        val: ASSET_TYPE_FRA,
+    };
+
+    let template = AssetRecordTemplate::with_no_asset_tracing(
+        FRA_AMOUNT / 100,
+        fra_code.val,
+        AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
+        kp.get_pk(),
+    );
+
+    let params = PublicParams::default();
+
+    let outputs = (0..100)
+        .map(|_| {
+            let (ba, _, _) = build_blind_asset_record(
+                &mut ChaChaRng::from_entropy(),
+                &params.pc_gens,
+                &template,
+                vec![],
+            );
+            (
+                TxOutput {
+                    id: None,
+                    record: ba,
+                    lien: None,
+                },
+                None,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let op_body = IssueAssetBody::new(&fra_code, 0, &outputs).unwrap();
+    let op = IssueAsset::new(op_body, &IssuerKeyPair { keypair: kp }).c(d!())?;
+
+    get_seq_id()
+        .c(d!())
+        .map(|i| Transaction::from_operation(Operation::IssueAsset(op), i))
+        .and_then(|tx| send_tx(&tx).c(d!()))
 }

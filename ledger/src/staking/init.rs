@@ -205,7 +205,6 @@ pub fn get_cfg_path() -> Option<&'static str> {
 }
 
 #[cfg(test)]
-#[cfg(feature = "abci_mock")]
 mod test {
     use super::*;
     use crate::staking::td_pubkey_to_td_addr;
