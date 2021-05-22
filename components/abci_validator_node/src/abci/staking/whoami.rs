@@ -24,9 +24,19 @@ fn from_env() -> Result<Vec<u8>> {
 
 fn from_tendermint_rpc() -> Result<Vec<u8>> {
     const URL: &str = "http://node:26657/status";
-    http_req(URL)
-        .c(d!())
-        .and_then(|ni| td_addr_to_bytes(&ni.result.validator_info.address).c(d!()))
+
+    // when abci container finish the replay work of history txs,
+    // the node container may be in a temporary panic state because
+    // it can not connect to abci container in the last round,
+    // so we should wait and retry some times.
+    for _ in 0..10 {
+        if let Ok(ni) = ruc::info!(http_req(URL)) {
+            return td_addr_to_bytes(&ni.result.validator_info.address).c(d!());
+        }
+        sleep_ms!(6000);
+    }
+
+    Err(eg!())
 }
 
 // `curl node:26657/status`
