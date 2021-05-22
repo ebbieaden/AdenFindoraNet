@@ -338,29 +338,6 @@ fn parse_blocks(block_input: String) -> Option<Vec<usize>> {
     Some(result)
 }
 
-#[allow(unused)]
-async fn query_utxo_partial_map<AA>(
-    data: web::Data<Arc<RwLock<AA>>>,
-    info: web::Path<String>,
-) -> actix_web::Result<String>
-where
-    AA: ArchiveAccess,
-{
-    // TODO(joe?): Implement this
-    Err(actix_web::error::ErrorBadRequest("unimplemented"))
-    // if let Some(block_list) = parse_blocks(info.to_string()) {
-    //   let mut reader = data.write().c(d!())?;
-
-    //   if let Some(vec) = reader.get_utxos(block_list) {
-    //     Ok(serde_json::to_string(&vec)?)
-    //   } else {
-    //     Err(actix_web::error::ErrorNotFound("The map is unavailable."))
-    //   }
-    // } else {
-    //   Err(actix_web::error::ErrorBadRequest("Invalid block list encoding."))
-    // }
-}
-
 //query current validator list
 #[allow(unused)]
 async fn query_validators<LA>(
@@ -650,10 +627,6 @@ where
         .route(
             &LedgerArchiveRoutes::UtxoMapChecksum.route(),
             web::get().to(query_utxo_map_checksum::<AA>),
-        )
-        .route(
-            &LedgerArchiveRoutes::UtxoPartialMap.with_arg_template("sidlist"),
-            web::get().to(query_utxo_partial_map::<AA>),
         )
         .route(
             &LedgerArchiveRoutes::OwnedUtxos.with_arg_template("owner"),
