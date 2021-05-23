@@ -18,10 +18,6 @@
 //! - show, query real-time state of your staking
 //! - setup
 //!     - "--serv-addr=[URL/IP]"
-//!     - "--owner-pubkey=[XfrPublicKey, base64 format]"
-//!         - in a query-only environment,
-//!         - you only need to set the public key
-//!         - so that your private key is not exposed
 //!     - "--owner-mnemonic-path=[File Path]"
 //!         - the `id` of your validator will be drived from this
 //! - contribute, pay some FRAs to CoinBase
@@ -31,7 +27,7 @@
 
 #![deny(warnings)]
 
-use clap::{crate_authors, crate_version, App, SubCommand};
+use clap::{crate_authors, crate_version, App, ArgGroup, SubCommand};
 use fintools::fns;
 use ruc::*;
 use std::fmt;
@@ -45,15 +41,17 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let subcmd_stake_subcmd_append = SubCommand::with_name("append").arg_from_usage(
-        "-n, --amount=[Amount] 'how much `FRA unit`s to append to your staking'",
-    );
+    let subcmd_stake_arggrp = ArgGroup::with_name("staking_flags")
+        .args(&["validator-pubkey", "commission-rate", "validator-memo"])
+        .multiple(true)
+        .conflicts_with("append");
     let subcmd_stake = SubCommand::with_name("stake")
-        .subcommand(subcmd_stake_subcmd_append)
-        .arg_from_usage("-n, --amount=[Amount] 'how much `FRA unit`s to stake'")
-        .arg_from_usage("-A, --validator-pubkey=[PubKey] 'the tendermint pubkey of your validator node'")
-        .arg_from_usage("-r, --commission-rate=[Rate] 'the commission rate for your delegators")
-        .arg_from_usage("-M, --validator-memo=[Memo] 'the description of your validator node'");
+        .arg_from_usage("-n, --amount=<Amount> 'how much `FRA unit`s you want to stake'")
+        .arg_from_usage("-K, --validator-pubkey=[PubKey] 'the tendermint pubkey of your validator node, base64 format'")
+        .arg_from_usage("-R, --commission-rate=[Rate] 'the commission rate for your delegators, should be a float number")
+        .arg_from_usage("-M, --validator-memo=[Memo] 'the description of your validator node, optional'")
+        .arg_from_usage("-a, --append 'stake more FRAs to your node'")
+        .group(subcmd_stake_arggrp);
     let subcmd_unstake = SubCommand::with_name("unstake");
     let subcmd_claim = SubCommand::with_name("claim")
         .arg_from_usage("-n, --amount=[Amount] 'how much `FRA unit`s to claim'");
@@ -63,14 +61,14 @@ fn run() -> Result<()> {
             "-S, --serv-addr=[URL/IP] 'a fullnode address of Findora Network'",
         )
         .arg_from_usage(
-            "-O, --owner-mnemonic-path=<Path>, 'Storage path of your mnemonic words'",
-        )
-        .arg_from_usage(
-            "-k, --owner-pubkey=[PubKey], 'A `XfrPublicKey` in base64 format'",
+            "-O, --owner-mnemonic-path=[Path], 'storage path of your mnemonic words'",
         )
         .arg_from_usage(
             "-A, --validator-addr=[Addr], 'the tendermint address of your validator node'",
         );
+    let subcmd_transfer = SubCommand::with_name("transfer")
+        .arg_from_usage("-t, --target-addr=<Addr> 'wallet address of the receiver'")
+        .arg_from_usage("-n, --amount=<Amount> 'how much FRA to transfer'");
     let subcmd_contribute = SubCommand::with_name("contribute").arg_from_usage(
         "-n, --amount=[Amout] 'contribute some `FRA unit`s to CoinBase'",
     );
@@ -84,26 +82,26 @@ fn run() -> Result<()> {
         .subcommand(subcmd_claim)
         .subcommand(subcmd_show)
         .subcommand(subcmd_setup)
+        .subcommand(subcmd_transfer)
         .subcommand(subcmd_contribute)
         .get_matches();
 
     if let Some(m) = matches.subcommand_matches("stake") {
-        if let Some(mm) = m.subcommand_matches("append") {
-            let am = mm.value_of("amount");
+        let am = m.value_of("amount");
+        if m.is_present("append") {
             if am.is_none() {
-                println!("{}", mm.usage());
+                println!("{}", m.usage());
             } else {
                 fns::stake_append(am.unwrap()).c(d!())?;
             }
         } else {
-            let am = m.value_of("amount");
             let va = m.value_of("validator-pubkey");
             let cr = m.value_of("commission-rate");
             let vm = m.value_of("validator-memo");
             if am.is_none() || va.is_none() || cr.is_none() {
                 println!("{}", m.usage());
                 println!(
-                    "Tips: if you want to raise the power of your validator node, please use `fns stake append [OPTIONS]`"
+                    "Tips: if you want to raise the power of your node, please use `fns stake --append [OPTIONS]`"
                 );
             } else {
                 fns::stake(am.unwrap(), va.unwrap(), cr.unwrap(), vm).c(d!())?;
@@ -119,16 +117,30 @@ fn run() -> Result<()> {
     } else if let Some(m) = matches.subcommand_matches("setup") {
         let sa = m.value_of("serv-addr");
         let om = m.value_of("owner-mnemonic-path");
-        let op = m.value_of("owner-pubkey");
-        let ta = m.value_of("tendermint_addr");
-        if sa.is_none() && om.is_none() && op.is_none() {
+        let ta = m.value_of("validator-addr");
+        if sa.is_none() && om.is_none() && ta.is_none() {
             println!("{}", m.usage());
         } else {
-            fns::setup(sa, om, op, ta).c(d!())?;
+            fns::setup(sa, om, ta).c(d!())?;
+        }
+    } else if let Some(m) = matches.subcommand_matches("transfer") {
+        let ta = m.value_of("target-addr");
+        let am = m.value_of("amount");
+        if ta.is_none() || am.is_none() {
+            println!("{}", m.usage());
+        } else {
+            fns::transfer_fra(ta.unwrap(), am.unwrap()).c(d!())?;
         }
     } else if let Some(m) = matches.subcommand_matches("contribute") {
-        let am = m.value_of("amount");
-        fns::contribute(am).c(d!())?;
+        let sure = promptly::prompt_default(
+            "\x1b[31;01m\tAre you sure?\n\tOnce executed, it can NOT be reverted.\x1b[00m",
+            false,
+        )
+        .c(d!("incorrect inputs"))?;
+        if sure {
+            let am = m.value_of("amount");
+            fns::contribute(am).c(d!())?;
+        }
     } else {
         println!("{}", matches.usage());
     }
@@ -137,15 +149,14 @@ fn run() -> Result<()> {
 }
 
 fn tip_fail(e: impl fmt::Display) {
-    eprintln!("\n\x1b[31;01mFail!\x1b[00m");
+    eprintln!("\n\x1b[31;01mFAIL !!!\x1b[00m");
     eprintln!(
-        "\x1b[35;01mTips\x1b[01m:\n\tPlease send all error messages back to FindoraNetwork,\n\tif you can not understand its meaning ^!^\x1b[00m"
+        "\x1b[35;01mTips\x1b[01m:\n\tPlease send your error messages to us,\n\tif you can't understand their meanings ~^!^~\x1b[00m"
     );
     eprintln!("\n{}", e);
 }
 
 fn tip_success() {
-    println!("\n\x1b[31;01mSuccess!\x1b[00m");
     println!(
         "\x1b[35;01mNote\x1b[01m:\n\tYour operations has been executed without local error,\n\tbut the final result may need an asynchronous query.\x1b[00m"
     );

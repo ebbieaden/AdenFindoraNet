@@ -4,13 +4,13 @@
 
 use super::{
     td_addr_to_bytes, BlockHeight, Power, Validator, ValidatorData, ValidatorKind,
-    STAKING_VALIDATOR_MIN_POWER,
+    FRA_TOTAL_AMOUNT,
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
-const DEFAULT_POWER: Power = 10 * STAKING_VALIDATOR_MIN_POWER;
+const DEFAULT_POWER: Power = FRA_TOTAL_AMOUNT / 1000;
 
 /// Generate config during compiling time.
 #[derive(Serialize, Deserialize)]

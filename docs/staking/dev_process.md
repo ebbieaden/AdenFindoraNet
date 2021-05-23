@@ -17,7 +17,7 @@
 
 ### User Interaction
 
-- [ ] `50%` support in command line
+- [x] support in command line
 - [x] support in wallet
 
 ## Consensus Level
@@ -51,5 +51,5 @@
 
 ### User Interaction
 
-- [ ] `50%` support in command line
+- [x] support in command line
 - support in wallet (seems not necessary)

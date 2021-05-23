@@ -1176,7 +1176,7 @@ const MIN_DELEGATION_AMOUNT: Amount = 32 * FRA;
 const MAX_DELEGATION_AMOUNT: Amount = FRA_TOTAL_AMOUNT / 10;
 
 /// The minimum investment to become a validator through staking.
-pub const STAKING_VALIDATOR_MIN_POWER: Power = FRA_TOTAL_AMOUNT / 1000;
+pub const STAKING_VALIDATOR_MIN_POWER: Power = 1_000_000_000_000;
 
 /// The highest height in the context of tendermint.
 pub const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
@@ -1698,7 +1698,8 @@ pub fn is_valid_tendermint_addr(addr: TendermintAddrRef) -> bool {
     // hex::encode_upper(sha256(pubkey[:20]))
     const TENDERMINT_HEX_ADDR_LEN: usize = 40;
 
-    TENDERMINT_HEX_ADDR_LEN == addr.len() && addr.chars().all(|i| i.is_uppercase())
+    TENDERMINT_HEX_ADDR_LEN == addr.len()
+        && addr.chars().all(|i| i.is_numeric() || i.is_uppercase())
 }
 
 #[cfg(test)]

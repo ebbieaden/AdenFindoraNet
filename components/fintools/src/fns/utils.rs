@@ -4,7 +4,7 @@ use ledger::data_model::{
     TxoSID, Utxo, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
 };
 use ruc::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use txn_builder::{BuildsTransactions, TransactionBuilder, TransferOperationBuilder};
 use utils::{HashOf, SignatureOf};
 use zei::xfr::{
@@ -99,7 +99,7 @@ pub fn gen_transfer_op_x(
     }
 
     if 0 != am {
-        return Err(eg!());
+        return Err(eg!("insufficient balance"));
     }
 
     let outputs = target_list.into_iter().map(|(pk, n)| {
@@ -174,16 +174,9 @@ fn get_owned_utxos(
         .c(d!())?
         .bytes()
         .c(d!())
-        .and_then(|b| serde_json::from_slice::<BTreeMap<TxoSID, Utxo>>(&b).c(d!()))
-        .and_then(|map| {
-            get_owner_memo_batch(&map.keys().copied().collect::<Vec<_>>())
+        .and_then(|b| {
+            serde_json::from_slice::<HashMap<TxoSID, (Utxo, Option<OwnerMemo>)>>(&b)
                 .c(d!())
-                .map(|memos| {
-                    map.into_iter()
-                        .zip(memos.into_iter())
-                        .map(|((k, v), memo)| (k, (v, memo)))
-                        .collect()
-                })
         })
 }
 
@@ -209,7 +202,8 @@ fn get_seq_id() -> Result<u64> {
 }
 
 #[inline(always)]
-fn get_owner_memo_batch(ids: &[TxoSID]) -> Result<Vec<Option<OwnerMemo>>> {
+#[allow(missing_docs)]
+pub fn get_owner_memo_batch(ids: &[TxoSID]) -> Result<Vec<Option<OwnerMemo>>> {
     let ids = ids
         .iter()
         .map(|id| id.0.to_string())
