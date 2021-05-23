@@ -76,13 +76,10 @@ impl DelegationOps {
                 return Err(eg!("invalid"));
             }
 
-            let mut v = v.clone();
-            v.td_power = am;
-
             staking
                 .validator_check_power_x(am, 0)
                 .c(d!())
-                .and_then(|_| staking.validator_add_staker(h, v).c(d!()))?;
+                .and_then(|_| staking.validator_add_staker(h, v.clone()).c(d!()))?;
         }
 
         Ok(am)

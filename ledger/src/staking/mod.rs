@@ -1106,6 +1106,8 @@ impl Staking {
             }
 
             let mut vd = vd.clone();
+            vd.addr_td_to_app
+                .insert(td_addr_to_string(&v.td_addr), v.id);
             vd.body.insert(v.id, v);
 
             self.validator_set_at_height_force(h, vd);

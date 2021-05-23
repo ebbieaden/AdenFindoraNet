@@ -197,8 +197,6 @@ pub struct LoggedBlock {
 
 const MAX_VERSION: usize = 100;
 
-// Parts of the current ledger state which can be restored from a snapshot
-// without replaying a log
 #[derive(Deserialize, Serialize, PartialEq, Debug)]
 pub struct LedgerStatus {
     // Paths to archival logs for the merkle tree and transaction history
@@ -206,12 +204,6 @@ pub struct LedgerStatus {
     txn_merkle_path: String,
     txn_path: String,
     utxo_map_path: String,
-
-    // TODO(joe): The old version of LedgerState had this field but it didn't
-    // seem to be used for anything -- so we should figure out what it's
-    // supposed to be for and whether or not having a reference to what file
-    // the state is loaded from in the state itself is a good idea.
-    // snapshot_path:       String,
 
     // All currently-unspent TXOs
     utxos: BTreeMap<TxoSID, Utxo>,
@@ -443,8 +435,6 @@ impl LedgerStatus {
         block_merkle_path: &str,
         txn_merkle_path: &str,
         txn_path: &str,
-        // TODO(joe): should this do something?
-        // snapshot_path: &str,
         utxo_map_path: &str,
     ) -> Result<LedgerStatus> {
         let ledger = LedgerStatus {
@@ -1802,8 +1792,6 @@ impl LedgerState {
         let sig_key_file_buf = base_dir.join("sig_key");
         let sig_key_file = sig_key_file_buf.to_str().c(d!())?;
 
-        // TODO(joe): distinguish between the transaction log not existing
-        // and it being corrupted
         LedgerState::load_from_log(
             &block_merkle,
             &txn_merkle,
@@ -1813,24 +1801,7 @@ impl LedgerState {
             None,
         )
         .or_else(|e| {
-            log::info!(
-                "Replaying without merkle trees failed: {}",
-                e.generate_log()
-            );
-            LedgerState::load_checked_from_log(
-                &block_merkle,
-                &txn_merkle,
-                &txn_log,
-                &utxo_map,
-                Some(sig_key_file),
-                None,
-            )
-        })
-        .or_else(|e| {
-            log::info!(
-                "Checking log against merkle trees failed: {}",
-                e.generate_log()
-            );
+            e.print();
             let ret = LedgerState::new(
                 &block_merkle,
                 &txn_merkle,
@@ -1856,81 +1827,6 @@ impl LedgerState {
         })
     }
 
-    // Load a ledger given the paths to the various storage elements.
-    #[allow(unused_variables)]
-    pub fn load_from_snapshot(
-        block_merkle_path: &str,
-        air_path: &str,
-        merkle_path: &str,
-        txn_path: &str,
-        utxo_map_path: &str,
-        prng_seed: Option<[u8; 32]>,
-        snapshot_path: &str,
-    ) -> Result<LedgerState> {
-        unimplemented!();
-
-        // let block_merkle = LedgerState::init_merkle_log(block_merkle_path, false)?;
-        // let txn_merkle = LedgerState::init_merkle_log(merkle_path, false)?;
-        // let utxo_map = LedgerState::init_utxo_map(utxo_map_path, false)?;
-        // let txs = LedgerState::load_transaction_log(txn_path)?;
-        // let ledger_file = File::open(snapshot_path)?;
-        // let status      = serde_json::from_reader
-        //                          ::<BufReader<File>, LedgerStatus>(
-        //                               BufReader::new(ledger_file)
-        //                          ).c(d!())?;
-        // let txn_log = OpenOptions::new().append(true).open(txn_path)?;
-
-        // // TODO(joe): thoughts about write-ahead transaction log so that
-        // // recovery can happen between snapshots.
-        // // for txn in &txs[ledger.txn_count..] {
-        // //   ledger.apply_transaction(&txn);
-        // // }
-
-        // let prng =
-        //     // TODO(joe): is this safe?
-        //     rand_chacha::ChaChaRng::from_seed(prng_seed.unwrap_or([0u8;32]));
-
-        // let ledger = LedgerState { status,
-        //                            prng,
-        //                            block_merkle,
-        //                            txn_merkle,
-        //                            txs,
-        //                            utxo_map,
-        //                            txn_log,
-        //                            block_ctx: Some(BlockEffect::new()) };
-        // Ok(ledger)
-    }
-
-    // Snapshot the block ledger state
-    pub fn snapshot_block(&mut self) -> Result<SnapshotId> {
-        let state = self.block_merkle.state();
-        // TODO: START https://github.com/findoraorg/platform/issues/307
-        // let writer = LedgerState::create_merkle_log(self.status.block_merkle_path.clone(), state)?;
-        // self.block_merkle.snapshot(writer)?;
-        // TODO: END This is being disabled as we decide what to do about about logging, archival, etc
-        Ok(SnapshotId { id: state })
-    }
-
-    // Snapshot the ledger state. This involves synchronizing
-    // the durable data structures to the disk and starting a
-    // new log file for the logged Merkle tree.
-    //
-    // TODO(joe): Actually serialize the active ledger state.
-    pub fn snapshot_txns(&mut self) -> Result<SnapshotId> {
-        let state = self.txn_merkle.state();
-        // TODO: START https://github.com/findoraorg/platform/issues/307
-        // let writer = LedgerState::create_merkle_log(self.status.txn_merkle_path.clone(), state)?;
-        // self.txn_merkle.snapshot(writer)?;
-        // TODO: END This is being disabled as we decide what to do about about logging, archival, etc
-
-        Ok(SnapshotId { id: state })
-    }
-
-    // pub fn begin_commit(&mut self) {
-    //   self.txn_base_sid.0 = self.max_applied_sid.0 + 1;
-    // }
-    //
-
     pub fn checkpoint(&mut self, block: &BlockEffect) -> u64 {
         self.save_utxo_map_version();
         let merkle_id = self.compute_and_append_txns_hash(&block);
@@ -1944,24 +1840,6 @@ impl LedgerState {
         // TODO: END This is being disabled as we decide what to do about about logging, archival, etc
         merkle_id
     }
-
-    // Create a file structure for a Merkle tree log.
-    // Mostly just make a path of the form:
-    //
-    //     <tree_path>-log-<Merkle tree state>
-    //
-    /* TODO: Leaving this code here while https://github.com/findoraorg/platform/issues/307 gets worked out
-    fn create_merkle_log(base_path: String, next_id: u64) -> Result<File> {
-      let log_path = base_path + "-log-" + &next_id.to_string();
-      println!("merkle log:  {}", log_path);
-      let file = OpenOptions::new().write(true)
-                                     .create(true)
-                                     .truncate(true)
-                                     .open(&log_path).c(d!())?;
-
-      Ok(file)
-    }
-    */
 
     pub fn get_pulse_count(&self) -> u64 {
         self.status.pulse_count
@@ -2797,29 +2675,6 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot() {
-        let tmp_dir = tempdir().unwrap();
-        let block_buf = tmp_dir.path().join("test_snapshot_block");
-        let txn_buf = tmp_dir.path().join("test_snapshot_txns");
-        let block_path = block_buf.to_str().unwrap();
-        let txn_path = txn_buf.to_str().unwrap();
-
-        let mut ledger_state = LedgerState::test_ledger();
-
-        ledger_state.status.block_merkle_path = block_path.to_string();
-        let block_result = ledger_state.snapshot_block();
-
-        ledger_state.status.txn_merkle_path = txn_path.to_string();
-        let txn_result = ledger_state.snapshot_txns();
-
-        // Verify that the SnapshotId is correct
-        assert_eq!(block_result.ok().unwrap().id, 0);
-        assert_eq!(txn_result.ok().unwrap().id, 0);
-
-        tmp_dir.close().unwrap();
-    }
-
-    #[test]
     fn test_checkpoint() {
         let mut ledger_state = LedgerState::test_ledger();
 
@@ -3299,24 +3154,6 @@ mod tests {
         );
 
         assert!(query_result == compute_result);
-
-        match ledger.snapshot_txns() {
-            Ok(n) => {
-                assert!(n.id == 2);
-            }
-            Err(x) => {
-                panic!("snapshot failed:  {}", x);
-            }
-        }
-
-        match ledger.snapshot_block() {
-            Ok(n) => {
-                assert!(n.id == 2);
-            }
-            Err(x) => {
-                panic!("snapshot failed:  {}", x);
-            }
-        }
     }
 
     #[test]

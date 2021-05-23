@@ -176,13 +176,9 @@ where
     }
 
     pub fn end_block(&mut self) -> Result<()> {
-        let mut block = None;
-        std::mem::swap(&mut self.block, &mut block);
-        if let Some(block) = block {
+        if let Some(block) = self.block.take() {
             let mut ledger = self.committed_state.write();
-            let finalized_txns = ledger
-                .finish_block(block)
-                .expect("Ledger could not finish block");
+            let finalized_txns = ledger.finish_block(block).c(d!())?;
             // Update status of all committed transactions
             for (txn_temp_sid, handle, _txn) in self.pending_txns.drain(..) {
                 let committed_txn_info = finalized_txns.get(&txn_temp_sid).c(d!())?;

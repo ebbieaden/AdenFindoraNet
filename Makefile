@@ -172,6 +172,9 @@ debug_env: stop_debug_env build_release_debug
 	cd $(LEDGER_DIR) && tar -xpf debug_env.tar.gz && mv debug_env devnet
 	./scripts/devnet/startnodes.sh
 
+start_debug_env:
+	./scripts/devnet/startnodes.sh
+
 stop_debug_env:
 	@./scripts/devnet/stopnodes.sh
 
