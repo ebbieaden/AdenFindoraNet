@@ -126,6 +126,8 @@ pub fn setup(
     owner_pubkey: Option<&str>,
     validator_addr: Option<&str>,
 ) -> Result<()> {
+    fs::create_dir_all(CFG_PATH).c(d!("fail to create config path"))?;
+
     if let Some(sa) = serv_addr {
         fs::write(&*SERV_ADDR_FILE, sa).c(d!("fail to cache 'serv-addr'"))?;
     }

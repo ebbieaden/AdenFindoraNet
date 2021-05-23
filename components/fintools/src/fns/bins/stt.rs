@@ -14,7 +14,10 @@ use fintools::fns;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::Transaction,
-    staking::{check_delegation_amount, COINBASE_PK, COINBASE_PRINCIPAL_PK},
+    staking::{
+        check_delegation_amount, COINBASE_KP, COINBASE_PK, COINBASE_PRINCIPAL_KP,
+        COINBASE_PRINCIPAL_PK,
+    },
     store::fra_gen_initial_tx,
 };
 use ruc::*;
@@ -255,8 +258,8 @@ fn print_info(
     user: Option<NameRef>,
 ) -> Result<()> {
     if show_coinbse {
-        let cb_balance = fns::get_balance(&COINBASE_PK).c(d!())?;
-        let cb_principal_balance = fns::get_balance(&COINBASE_PRINCIPAL_PK).c(d!())?;
+        let cb_balance = fns::get_balance(&COINBASE_KP).c(d!())?;
+        let cb_principal_balance = fns::get_balance(&COINBASE_PRINCIPAL_KP).c(d!())?;
 
         println!(
             "\x1b[31;01mCOINBASE BALANCE:\x1b[00m\n{} FRA units\n",
@@ -306,8 +309,8 @@ fn get_delegation_info(user: NameRef) -> Result<String> {
 }
 
 fn get_balance(user: NameRef) -> Result<u64> {
-    let pk = search_kp(user).c(d!())?.get_pk_ref();
-    fns::get_balance(pk).c(d!())
+    let kp = search_kp(user).c(d!())?;
+    fns::get_balance(&kp).c(d!())
 }
 
 #[derive(Debug, Serialize)]

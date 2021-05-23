@@ -6,22 +6,19 @@ extern crate ledger;
 extern crate serde_json;
 
 use actix_cors::Cors;
-use actix_web::{dev, error, middleware, test, web, App, HttpResponse, HttpServer};
-use futures::executor;
+use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer};
 use ledger::{
     data_model::*,
-    inp_fail, ser_fail,
     staking::{DelegationState, UNBOND_BLOCK_CNT},
-    store::{ArchiveAccess, LedgerAccess, LedgerState},
+    store::LedgerAccess,
 };
 use log::info;
 use log::warn;
 use parking_lot::RwLock;
 use ruc::*;
-use serde::Serialize;
 use std::{collections::BTreeMap, mem, sync::Arc};
-use utils::{http_get_request, HashOf, NetworkRoute, SignatureOf};
-use zei::xfr::sig::XfrPublicKey;
+use utils::{HashOf, NetworkRoute, SignatureOf};
+use zei::xfr::{sig::XfrPublicKey, structs::OwnerMemo};
 
 pub struct RestfulApiService {
     web_runtime: actix_rt::SystemRunner,
@@ -105,17 +102,23 @@ pub async fn query_utxos<LA>(
 where
     LA: LedgerAccess,
 {
+    let sid_list = info
+        .as_ref()
+        .split(',')
+        .map(|i| {
+            i.parse::<u64>()
+                .map(TxoSID)
+                .map_err(actix_web::error::ErrorBadRequest)
+        })
+        .collect::<actix_web::Result<Vec<_>, actix_web::error::Error>>()?;
+
     let reader = data.read();
-    if let Ok(txo_sid_list) = info.parse::<TxoSIDList>() {
-        if txo_sid_list.0.len() > 10 || txo_sid_list.0.is_empty() {
-            return Err(actix_web::error::ErrorBadRequest("Invalid Query List"));
-        }
-        Ok(web::Json(reader.get_utxos(txo_sid_list)))
-    } else {
-        Err(actix_web::error::ErrorBadRequest(
-            "Invalid txo sid encoding for list of sid",
-        ))
+
+    if sid_list.len() > 10 || sid_list.is_empty() {
+        return Err(actix_web::error::ErrorBadRequest("Invalid Query List"));
     }
+
+    Ok(web::Json(reader.get_utxos(sid_list.as_slice())))
 }
 
 pub async fn query_asset<LA>(
@@ -141,12 +144,12 @@ where
     }
 }
 
-pub async fn query_txn<AA>(
-    data: web::Data<Arc<RwLock<AA>>>,
+pub async fn query_txn<LA>(
+    data: web::Data<Arc<RwLock<LA>>>,
     info: web::Path<String>,
 ) -> actix_web::Result<String>
 where
-    AA: ArchiveAccess,
+    LA: LedgerAccess,
 {
     let reader = data.read();
     if let Ok(txn_sid) = info.parse::<usize>() {
@@ -192,24 +195,24 @@ where
     web::Json((hash, seq_id, sig))
 }
 
-pub async fn query_global_state_version<AA>(
-    data: web::Data<Arc<RwLock<AA>>>,
+pub async fn query_global_state_version<LA>(
+    data: web::Data<Arc<RwLock<LA>>>,
     version: web::Path<u64>,
 ) -> web::Json<Option<HashOf<Option<StateCommitmentData>>>>
 where
-    AA: ArchiveAccess,
+    LA: LedgerAccess,
 {
     let reader = data.read();
     let hash = reader.get_state_commitment_at_block_height(*version);
     web::Json(hash)
 }
 
-async fn query_blocks_since<AA>(
-    data: web::Data<Arc<RwLock<AA>>>,
+async fn query_blocks_since<LA>(
+    data: web::Data<Arc<RwLock<LA>>>,
     block_id: web::Path<usize>,
 ) -> web::Json<Vec<(usize, Vec<FinalizedTransaction>)>>
 where
-    AA: ArchiveAccess,
+    LA: LedgerAccess,
 {
     let reader = data.read();
     let mut ret = Vec::new();
@@ -236,11 +239,11 @@ where
     web::Json(ret)
 }
 
-async fn query_block_log<AA>(
-    data: web::Data<Arc<RwLock<AA>>>,
+async fn query_block_log<LA>(
+    data: web::Data<Arc<RwLock<LA>>>,
 ) -> impl actix_web::Responder
 where
-    AA: ArchiveAccess,
+    LA: LedgerAccess,
 {
     let reader = data.read();
     let mut res = String::new();
@@ -286,11 +289,11 @@ where
         .body(res)
 }
 
-async fn query_utxo_map<AA>(
-    data: web::Data<Arc<RwLock<AA>>>,
+async fn query_utxo_map<LA>(
+    data: web::Data<Arc<RwLock<LA>>>,
 ) -> actix_web::Result<String>
 where
-    AA: ArchiveAccess,
+    LA: LedgerAccess,
 {
     let mut reader = data.write();
 
@@ -298,12 +301,12 @@ where
     Ok(serde_json::to_string(&vec)?)
 }
 
-async fn query_utxo_map_checksum<AA>(
-    data: web::Data<Arc<RwLock<AA>>>,
+async fn query_utxo_map_checksum<LA>(
+    data: web::Data<Arc<RwLock<LA>>>,
     info: web::Path<String>,
 ) -> actix_web::Result<String>
 where
-    AA: ArchiveAccess,
+    LA: LedgerAccess,
 {
     if let Ok(version) = info.parse::<u64>() {
         let reader = data.read();
@@ -446,17 +449,17 @@ where
     Ok(web::Json(resp))
 }
 
-async fn query_owned_utxos<AA>(
-    data: web::Data<Arc<RwLock<AA>>>,
+async fn query_owned_utxos<LA>(
+    data: web::Data<Arc<RwLock<LA>>>,
     owner: web::Path<String>,
-) -> actix_web::Result<web::Json<BTreeMap<TxoSID, Utxo>>>
+) -> actix_web::Result<web::Json<BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)>>>
 where
-    AA: ArchiveAccess,
+    LA: LedgerAccess,
 {
     wallet::public_key_from_base64(owner.as_str())
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))
-        .map(|pk| web::Json(data.read().get_status().get_owned_utxos(&pk)))
+        .map(|pk| web::Json(data.read().get_owned_utxos(&pk)))
 }
 
 enum AccessApi {
@@ -533,7 +536,7 @@ impl NetworkRoute for LedgerArchiveRoutes {
 }
 
 trait Route {
-    fn set_route<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
+    fn set_route<LA: 'static + LedgerAccess + LedgerAccess + Sync + Send>(
         self,
         service_interface: AccessApi,
     ) -> Self;
@@ -542,11 +545,11 @@ trait Route {
         self,
     ) -> Self;
 
-    fn set_route_for_archive_access<AA: 'static + ArchiveAccess + Sync + Send>(
+    fn set_route_for_archive_access<LA: 'static + LedgerAccess + Sync + Send>(
         self,
     ) -> Self;
 
-    fn set_route_for_staking_access<AA: 'static + LedgerAccess + Sync + Send>(
+    fn set_route_for_staking_access<LA: 'static + LedgerAccess + Sync + Send>(
         self,
     ) -> Self;
 }
@@ -563,7 +566,7 @@ where
     >,
 {
     // Call the appropraite function depending on the interface
-    fn set_route<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
+    fn set_route<LA: 'static + LedgerAccess + Sync + Send>(
         self,
         service_interface: AccessApi,
     ) -> Self {
@@ -604,37 +607,37 @@ where
         )
     }
 
-    // Set routes for the ArchiveAccess interface
-    fn set_route_for_archive_access<AA: 'static + ArchiveAccess + Sync + Send>(
+    // Set routes for the LedgerAccess interface
+    fn set_route_for_archive_access<LA: 'static + LedgerAccess + Sync + Send>(
         self,
     ) -> Self {
         self.route(
             &LedgerArchiveRoutes::TxnSid.with_arg_template("sid"),
-            web::get().to(query_txn::<AA>),
+            web::get().to(query_txn::<LA>),
         )
         .route(
             &LedgerArchiveRoutes::BlockLog.route(),
-            web::get().to(query_block_log::<AA>),
+            web::get().to(query_block_log::<LA>),
         )
         .route(
             &LedgerArchiveRoutes::GlobalStateVersion.with_arg_template("version"),
-            web::get().to(query_global_state_version::<AA>),
+            web::get().to(query_global_state_version::<LA>),
         )
         .route(
             &LedgerArchiveRoutes::BlocksSince.with_arg_template("block_sid"),
-            web::get().to(query_blocks_since::<AA>),
+            web::get().to(query_blocks_since::<LA>),
         )
         .route(
             &LedgerArchiveRoutes::UtxoMap.route(),
-            web::get().to(query_utxo_map::<AA>),
+            web::get().to(query_utxo_map::<LA>),
         )
         .route(
             &LedgerArchiveRoutes::UtxoMapChecksum.route(),
-            web::get().to(query_utxo_map_checksum::<AA>),
+            web::get().to(query_utxo_map_checksum::<LA>),
         )
         .route(
             &LedgerArchiveRoutes::OwnedUtxos.with_arg_template("owner"),
-            web::get().to(query_owned_utxos::<AA>),
+            web::get().to(query_owned_utxos::<LA>),
         )
     }
 
@@ -653,7 +656,7 @@ where
 }
 
 impl RestfulApiService {
-    pub fn create<LA: 'static + LedgerAccess + ArchiveAccess + Sync + Send>(
+    pub fn create<LA: 'static + LedgerAccess + Sync + Send>(
         ledger_access: Arc<RwLock<LA>>,
         host: &str,
         port: u16,
@@ -685,296 +688,14 @@ impl RestfulApiService {
     }
 }
 
-pub trait RestfulLedgerAccess {
-    fn get_utxo(&self, addr: TxoSID) -> Result<AuthenticatedUtxo>;
-
-    fn get_utxos(&self, addr: TxoSIDList) -> Result<Vec<Option<AuthenticatedUtxo>>>;
-
-    fn get_issuance_num(&self, code: &AssetTypeCode) -> Result<u64>;
-
-    fn get_asset_type(&self, code: &AssetTypeCode) -> Result<AssetType>;
-
-    #[allow(clippy::type_complexity)]
-    fn get_state_commitment(
-        &self,
-    ) -> Result<(
-        HashOf<Option<StateCommitmentData>>,
-        u64,
-        SignatureOf<(HashOf<Option<StateCommitmentData>>, u64)>,
-    )>;
-
-    fn get_block_commit_count(&self) -> Result<u64>;
-
-    fn public_key(&self) -> Result<XfrPublicKey>;
-
-    fn sign_message<T: Serialize + serde::de::DeserializeOwned>(
-        &self,
-        msg: &T,
-    ) -> Result<SignatureOf<T>>;
-}
-
-pub trait RestfulArchiveAccess {
-    fn get_blocks_since(
-        &self,
-        addr: BlockSID,
-    ) -> Result<Vec<(usize, Vec<FinalizedTransaction>)>>;
-    // For debug purposes. Returns the location of ledger being communicated with.
-    fn get_source(&self) -> String;
-}
-
-impl RestfulArchiveAccess for MockLedgerClient {
-    fn get_blocks_since(
-        &self,
-        _addr: BlockSID,
-    ) -> Result<Vec<(usize, Vec<FinalizedTransaction>)>> {
-        unimplemented!();
-    }
-
-    fn get_source(&self) -> String {
-        unimplemented!();
-    }
-}
-
-pub struct MockLedgerClient {
-    mock_ledger: Arc<RwLock<LedgerState>>,
-}
-
-impl MockLedgerClient {
-    pub fn new(state: &Arc<RwLock<LedgerState>>) -> Self {
-        MockLedgerClient {
-            mock_ledger: Arc::clone(state),
-        }
-    }
-}
-
-impl RestfulLedgerAccess for MockLedgerClient {
-    fn get_utxo(&self, addr: TxoSID) -> Result<AuthenticatedUtxo> {
-        let mut app = executor::block_on(test::init_service(
-            App::new().data(Arc::clone(&self.mock_ledger)).route(
-                &LedgerAccessRoutes::UtxoSid.with_arg_template("sid"),
-                web::get().to(query_utxo::<LedgerState>),
-            ),
-        ));
-        let req = test::TestRequest::get()
-            .uri(&LedgerAccessRoutes::UtxoSid.with_arg(&addr.0))
-            .to_request();
-
-        Ok(executor::block_on(test::read_response_json(&mut app, req)))
-    }
-    fn get_utxos(&self, addr: TxoSIDList) -> Result<Vec<Option<AuthenticatedUtxo>>> {
-        let mut app = executor::block_on(test::init_service(
-            App::new().data(Arc::clone(&self.mock_ledger)).route(
-                &LedgerAccessRoutes::UtxoSidList.with_arg_template("sid_list"),
-                web::get().to(query_utxos::<LedgerState>),
-            ),
-        ));
-        let req = test::TestRequest::get()
-            .uri(&LedgerAccessRoutes::UtxoSidList.with_arg(&addr))
-            .to_request();
-
-        Ok(executor::block_on(test::read_response_json(&mut app, req)))
-    }
-
-    fn get_issuance_num(&self, code: &AssetTypeCode) -> Result<u64> {
-        let mut app = executor::block_on(test::init_service(
-            App::new().data(Arc::clone(&self.mock_ledger)).route(
-                &LedgerAccessRoutes::AssetIssuanceNum.with_arg_template("code"),
-                web::get().to(query_asset_issuance_num::<LedgerState>),
-            ),
-        ));
-        let req = test::TestRequest::get()
-            .uri(&LedgerAccessRoutes::AssetIssuanceNum.with_arg(&code.to_base64()))
-            .to_request();
-        Ok(executor::block_on(test::read_response_json(&mut app, req)))
-    }
-
-    fn get_asset_type(&self, code: &AssetTypeCode) -> Result<AssetType> {
-        let mut app = executor::block_on(test::init_service(
-            App::new().data(Arc::clone(&self.mock_ledger)).route(
-                &LedgerAccessRoutes::AssetToken.with_arg_template("code"),
-                web::get().to(query_asset::<LedgerState>),
-            ),
-        ));
-        let req = test::TestRequest::get()
-            .uri(&LedgerAccessRoutes::AssetToken.with_arg(&code.to_base64()))
-            .to_request();
-        Ok(executor::block_on(test::read_response_json(&mut app, req)))
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn get_state_commitment(
-        &self,
-    ) -> Result<(
-        HashOf<Option<StateCommitmentData>>,
-        u64,
-        SignatureOf<(HashOf<Option<StateCommitmentData>>, u64)>,
-    )> {
-        let mut app = executor::block_on(test::init_service(
-            App::new().data(Arc::clone(&self.mock_ledger)).route(
-                &LedgerAccessRoutes::GlobalState.route(),
-                web::get().to(query_global_state::<LedgerState>),
-            ),
-        ));
-        let req = test::TestRequest::get()
-            .uri(&LedgerAccessRoutes::GlobalState.route())
-            .to_request();
-        Ok(executor::block_on(test::read_response_json(&mut app, req)))
-    }
-
-    fn get_block_commit_count(&self) -> Result<u64> {
-        unimplemented!();
-    }
-
-    fn public_key(&self) -> Result<XfrPublicKey> {
-        unimplemented!();
-    }
-
-    fn sign_message<T: Serialize + serde::de::DeserializeOwned>(
-        &self,
-        _msg: &T,
-    ) -> Result<SignatureOf<T>> {
-        unimplemented!();
-    }
-}
-
-pub struct ActixLedgerClient {
-    port: usize,
-    host: String,
-    protocol: String,
-}
-
-impl ActixLedgerClient {
-    pub fn new(port: usize, host: &str, protocol: &str) -> Self {
-        ActixLedgerClient {
-            port,
-            host: String::from(host),
-            protocol: String::from(protocol),
-        }
-    }
-}
-
-impl RestfulArchiveAccess for ActixLedgerClient {
-    fn get_blocks_since(
-        &self,
-        addr: BlockSID,
-    ) -> Result<Vec<(usize, Vec<FinalizedTransaction>)>> {
-        let query = format!(
-            "{}://{}:{}{}",
-            self.protocol,
-            self.host,
-            self.port,
-            LedgerArchiveRoutes::BlocksSince.with_arg(&addr.0)
-        );
-        let text = http_get_request(&query).c(d!(inp_fail!()))?;
-        serde_json::from_str::<Vec<(usize, Vec<FinalizedTransaction>)>>(&text)
-            .c(d!(ser_fail!()))
-    }
-
-    fn get_source(&self) -> String {
-        format!("{}://{}:{}", self.protocol, self.host, self.port)
-    }
-}
-
-impl RestfulLedgerAccess for ActixLedgerClient {
-    fn get_utxo(&self, addr: TxoSID) -> Result<AuthenticatedUtxo> {
-        let query = format!(
-            "{}://{}:{}{}",
-            self.protocol,
-            self.host,
-            self.port,
-            LedgerAccessRoutes::UtxoSid.with_arg(&addr.0)
-        );
-        let text = http_get_request(&query).c(d!(inp_fail!()))?;
-        serde_json::from_str::<AuthenticatedUtxo>(&text).c(d!(ser_fail!()))
-    }
-
-    fn get_utxos(&self, addr: TxoSIDList) -> Result<Vec<Option<AuthenticatedUtxo>>> {
-        let query = format!(
-            "{}://{}:{}{}",
-            self.protocol,
-            self.host,
-            self.port,
-            LedgerAccessRoutes::UtxoSidList.with_arg(&addr)
-        );
-        let text = http_get_request(&query).c(d!(inp_fail!()))?;
-        serde_json::from_str::<Vec<Option<AuthenticatedUtxo>>>(&text).c(d!(ser_fail!()))
-    }
-
-    fn get_issuance_num(&self, code: &AssetTypeCode) -> Result<u64> {
-        let query = format!(
-            "{}://{}:{}{}",
-            self.protocol,
-            self.host,
-            self.port,
-            LedgerAccessRoutes::AssetIssuanceNum.with_arg(&code.to_base64())
-        );
-        let text = http_get_request(&query).c(d!(inp_fail!()))?;
-        serde_json::from_str::<u64>(&text).c(d!(ser_fail!()))
-    }
-
-    fn get_asset_type(&self, code: &AssetTypeCode) -> Result<AssetType> {
-        let query = format!(
-            "{}://{}:{}{}",
-            self.protocol,
-            self.host,
-            self.port,
-            LedgerAccessRoutes::AssetToken.with_arg(&code.to_base64())
-        );
-        let text = http_get_request(&query).c(d!(inp_fail!()))?;
-        serde_json::from_str::<AssetType>(&text).c(d!(ser_fail!()))
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn get_state_commitment(
-        &self,
-    ) -> Result<(
-        HashOf<Option<StateCommitmentData>>,
-        u64,
-        SignatureOf<(HashOf<Option<StateCommitmentData>>, u64)>,
-    )> {
-        let query = format!(
-            "{}://{}:{}{}",
-            self.protocol,
-            self.host,
-            self.port,
-            LedgerAccessRoutes::GlobalState.route()
-        );
-        let text = http_get_request(&query).c(d!(inp_fail!()))?;
-        serde_json::from_str::<_>(&text).c(d!(ser_fail!()))
-    }
-
-    fn get_block_commit_count(&self) -> Result<u64> {
-        unimplemented!();
-    }
-
-    fn public_key(&self) -> Result<XfrPublicKey> {
-        let query = format!(
-            "{}://{}:{}{}",
-            self.protocol,
-            self.host,
-            self.port,
-            LedgerAccessRoutes::PublicKey.route()
-        );
-        let text = http_get_request(&query).c(d!(inp_fail!()))?;
-        serde_json::from_str::<_>(&text).c(d!(ser_fail!()))
-    }
-
-    fn sign_message<T: Serialize + serde::de::DeserializeOwned>(
-        &self,
-        _msg: &T,
-    ) -> Result<SignatureOf<T>> {
-        unimplemented!();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use actix_service::Service;
-    use actix_web::{web, App};
+    use actix_web::{test, web, App};
+    use futures::executor;
     use ledger::data_model::{Operation, Transaction, TxnEffect};
-    use ledger::store::helpers::*;
-    use ledger::store::{LedgerState, LedgerUpdate};
+    use ledger::store::{helpers::*, LedgerState, LedgerUpdate};
     use rand_chacha::ChaChaRng;
     use rand_core::SeedableRng;
 

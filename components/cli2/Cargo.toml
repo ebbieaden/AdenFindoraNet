@@ -25,7 +25,6 @@ dirs = "2.0.2"
 itertools = "0.9.0"
 ledger = { path = "../../ledger", features = ["TESTING"] }
 ledger_api_service = { path = "../ledger_api_service" }
-network = { path = "../../libs/network" }
 promptly = "0.3.0"
 rand = "0.7.3"
 attohttpc = { version = "0.16.3", default-features = false, features = ["compress", "json", "tls-rustls"] }

@@ -43,7 +43,7 @@ use txn_builder::{BuildsTransactions, TransactionBuilder, TransferOperationBuild
 use zei::xfr::{
     asset_record::{open_blind_asset_record, AssetRecordType},
     sig::{XfrKeyPair, XfrPublicKey},
-    structs::{AssetRecordTemplate, XfrAmount},
+    structs::{AssetRecordTemplate, OwnerMemo, XfrAmount},
 };
 
 lazy_static! {
@@ -144,20 +144,22 @@ impl AbciMocker {
         self.0.commit(&gen_req_commit());
     }
 
-    fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo> {
+    fn get_owned_utxos(
+        &self,
+        addr: &XfrPublicKey,
+    ) -> BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)> {
         self.0
             .la
             .read()
             .get_committed_state()
             .read()
-            .get_status()
             .get_owned_utxos(addr)
     }
 
     fn get_owned_balance(&self, addr: &XfrPublicKey) -> u64 {
         self.get_owned_utxos(addr)
             .values()
-            .map(|utxo| {
+            .map(|(utxo, _)| {
                 if let XfrAmount::NonConfidential(am) = utxo.0.record.amount {
                     am
                 } else {
@@ -232,7 +234,7 @@ fn gen_keypair() -> XfrKeyPair {
     XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
 }
 
-fn get_owned_utxos(pk: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo> {
+fn get_owned_utxos(pk: &XfrPublicKey) -> BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)> {
     ABCI_MOCKER.read().get_owned_utxos(pk)
 }
 
@@ -249,7 +251,7 @@ pub fn gen_transfer_op(
     let mut i_am;
     let utxos = get_owned_utxos(owner_kp.get_pk_ref()).into_iter();
 
-    for (sid, utxo) in utxos {
+    for (sid, (utxo, owner_memo)) in utxos {
         if let XfrAmount::NonConfidential(n) = utxo.0.record.amount {
             alt!(n < am, i_am = n, i_am = am);
             am = am.saturating_sub(n);
@@ -257,7 +259,7 @@ pub fn gen_transfer_op(
             continue;
         }
 
-        open_blind_asset_record(&utxo.0.record, &None, owner_kp)
+        open_blind_asset_record(&utxo.0.record, &owner_memo, owner_kp)
             .c(d!())
             .and_then(|ob| {
                 trans_builder
@@ -300,7 +302,16 @@ pub fn gen_transfer_op(
 
 fn new_tx_builder() -> TransactionBuilder {
     let h = TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed) as u64;
-    TransactionBuilder::from_seq_id(h.saturating_sub(20))
+    let seq_id = ABCI_MOCKER
+        .read()
+        .0
+        .la
+        .read()
+        .get_committed_state()
+        .read()
+        .get_state_commitment()
+        .1;
+    TransactionBuilder::from_seq_id(seq_id)
 }
 
 fn gen_fee_op(owner_kp: &XfrKeyPair) -> Result<Operation> {
@@ -889,7 +900,7 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
+    for _ in 0..(2 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
         wait_one_block();
     }

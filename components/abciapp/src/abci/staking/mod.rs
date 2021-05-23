@@ -27,7 +27,7 @@ use txn_builder::TransferOperationBuilder;
 use zei::xfr::asset_record::{open_blind_asset_record, AssetRecordType};
 use zei::xfr::{
     sig::{XfrKeyPair, XfrPublicKey},
-    structs::{AssetRecordTemplate, XfrAmount, XfrAssetType},
+    structs::{AssetRecordTemplate, OwnerMemo, XfrAmount, XfrAssetType},
 };
 
 mod whoami;
@@ -318,7 +318,7 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
 // Generate all tx in batch mode.
 fn gen_transaction(
     la: &impl LedgerAccess,
-    utxos: BTreeMap<TxoSID, Utxo>,
+    utxos: BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)>,
     paylist: Vec<(XfrPublicKey, u64)>,
     is_principal: bool,
 ) -> Result<Transaction> {
@@ -336,13 +336,14 @@ fn gen_transaction(
         inputs.clear();
 
         while total_amount > 0 {
-            if let Some((sid, utxo)) = utxos.next() {
+            if let Some((sid, (utxo, owner_memo))) = utxos.next() {
                 if let XfrAssetType::NonConfidential(ty) = utxo.0.record.asset_type {
                     if ASSET_TYPE_FRA == ty {
                         if let XfrAmount::NonConfidential(am) = utxo.0.record.amount {
                             inputs.push((
                                 *sid,
                                 utxo,
+                                owner_memo,
                                 alt!(total_amount > am, am, total_amount),
                             ));
                             total_amount = total_amount.saturating_sub(am);
@@ -379,17 +380,17 @@ fn gen_transaction(
 // **NOTE:**
 // transfer from CoinBase need not to pay FEE
 fn do_gen_transaction(
-    inputs: Vec<(TxoSID, &Utxo, u64)>,
+    inputs: Vec<(TxoSID, &Utxo, &Option<OwnerMemo>, u64)>,
     dests: HashMap<XfrPublicKey, u64>,
     seq_id: u64,
     keypair: &XfrKeyPair,
 ) -> Result<Transaction> {
     let mut op = TransferOperationBuilder::new();
 
-    for (sid, utxo, n) in inputs.into_iter() {
+    for (sid, utxo, owner_memo, n) in inputs.into_iter() {
         op.add_input(
             TxoRef::Absolute(sid),
-            open_blind_asset_record(&utxo.0.record, &None, keypair).unwrap(),
+            open_blind_asset_record(&utxo.0.record, owner_memo, keypair).unwrap(),
             None,
             None,
             n,

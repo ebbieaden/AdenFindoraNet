@@ -19,7 +19,6 @@ members = [
     "libs/cryptohash",
     "libs/credentials",
     "libs/sliding_set",
-    "libs/network",
     "libs/utils",
 ]
 

@@ -34,7 +34,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 use std::result::Result as StdResult;
-use std::{env, mem};
+use std::{env, fmt, mem};
 use time::OffsetDateTime;
 use unicode_normalization::UnicodeNormalization;
 use utils::{HashOf, ProofOf, Serialized, SignatureOf};
@@ -47,11 +47,8 @@ use zei::xfr::structs::{
 };
 
 use super::effects::*;
-use itertools::Itertools;
 use ruc::*;
-use std::fmt;
 use std::ops::Deref;
-use std::str::FromStr;
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -563,44 +560,20 @@ pub struct SmartContract;
 )]
 pub struct TxoSID(pub u64);
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct TxoSIDList(pub Vec<TxoSID>);
-
-impl FromStr for TxoSIDList {
-    type Err = Box<(dyn ruc::RucError + 'static)>;
-
-    fn from_str(s: &str) -> Result<Self> {
-        let s_string = s.to_string();
-        let list_of_txostr = s_string.split(',').collect_vec();
-        let mut txolist: Vec<TxoSID> = Vec::new();
-        for (_, str_txo) in list_of_txostr.iter().enumerate() {
-            if let Ok(txu) = str_txo.parse::<u64>() {
-                txolist.push(TxoSID(txu));
-            }
-        }
-        Ok(TxoSIDList(txolist))
-    }
-}
-impl fmt::Display for TxoSID {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-impl fmt::Display for TxoSIDList {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Values:")?;
-        for v in &self.0 {
-            write!(f, "\t{}", v.0)?;
-        }
-        Ok(())
-    }
-}
+#[allow(missing_docs)]
+pub type TxoSIDList = Vec<TxoSID>;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct OutputPosition(pub usize);
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct TxnSID(pub usize);
+
+impl fmt::Display for TxoSID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct BlockSID(pub usize);

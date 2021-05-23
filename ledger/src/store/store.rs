@@ -31,7 +31,9 @@ use zei::xfr::lib::XfrNotePolicies;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 use zei::xfr::{
     asset_record::{build_blind_asset_record, AssetRecordType},
-    structs::{AssetRecordTemplate, TracingPolicies, TracingPolicy, XfrAssetType},
+    structs::{
+        AssetRecordTemplate, OwnerMemo, TracingPolicies, TracingPolicy, XfrAssetType,
+    },
 };
 
 const TRANSACTION_WINDOW_WIDTH: u64 = 128;
@@ -44,9 +46,12 @@ pub trait LedgerAccess {
     // Look up a currently unspent TXO
     fn get_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
     fn get_spent_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
-    fn get_utxos(&self, address_list: TxoSIDList) -> Vec<Option<AuthenticatedUtxo>>;
+    fn get_utxos(&self, address_list: &[TxoSID]) -> Vec<Option<AuthenticatedUtxo>>;
 
-    fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo>;
+    fn get_owned_utxos(
+        &self,
+        addr: &XfrPublicKey,
+    ) -> BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)>;
 
     // The most recently-issued sequence number for the `code`-labelled asset
     // type
@@ -80,6 +85,41 @@ pub trait LedgerAccess {
     // fn get_tracked_sids(&self, key: &EGPubKey)       -> Option<Vec<TxoSID>>;
 
     fn get_staking(&self) -> &Staking;
+
+    fn get_status(&self) -> &LedgerStatus;
+    // Number of blocks committed
+    fn get_block_count(&self) -> usize;
+    // Number of transactions available
+    fn get_transaction_count(&self) -> usize;
+    // Look up transaction in the log
+    fn get_transaction(&self, addr: TxnSID) -> Option<AuthenticatedTransaction>;
+    // Look up block in the log
+    fn get_block(&self, addr: BlockSID) -> Option<AuthenticatedBlock>;
+
+    // This previously did the serialization at the call to this, and
+    // unconditionally returned Some(...).
+    // fn get_utxo_map     (&mut self)                   -> Vec<u8>;
+    // I (joe) think returning &BitMap matches the intended usage a bit more
+    // closely
+    fn get_utxo_map(&self) -> &BitMap;
+
+    // Since serializing the bitmap requires mutation access, I'm (joe)
+    // making this a separate method
+    fn serialize_utxo_map(&mut self) -> Vec<u8>;
+
+    // TODO(joe): figure out what interface this should have -- currently
+    // there isn't anything to handle out-of-bounds indices from `list`
+    // fn get_utxos        (&mut self, list: Vec<usize>) -> Option<Vec<u8>>;
+
+    // Get the bitmap's hash at version `version`, if such a hash is
+    // available.
+    fn get_utxo_checksum(&self, version: u64) -> Option<BitDigest>;
+
+    // Get the ledger state commitment at a specific block height.
+    fn get_state_commitment_at_block_height(
+        &self,
+        height: u64,
+    ) -> Option<HashOf<Option<StateCommitmentData>>>;
 }
 
 pub trait LedgerUpdate<RNG: RngCore + CryptoRng> {
@@ -147,44 +187,6 @@ pub trait LedgerUpdate<RNG: RngCore + CryptoRng> {
     fn block_pulse_count(block: &Self::Block) -> u64;
 
     fn get_staking_mut(&mut self) -> &mut Staking;
-}
-
-// TODO(joe/keyao): which of these methods should be in `LedgerAccess`?
-pub trait ArchiveAccess {
-    fn get_status(&self) -> &LedgerStatus;
-    // Number of blocks committed
-    fn get_block_count(&self) -> usize;
-    // Number of transactions available
-    fn get_transaction_count(&self) -> usize;
-    // Look up transaction in the log
-    fn get_transaction(&self, addr: TxnSID) -> Option<AuthenticatedTransaction>;
-    // Look up block in the log
-    fn get_block(&self, addr: BlockSID) -> Option<AuthenticatedBlock>;
-
-    // This previously did the serialization at the call to this, and
-    // unconditionally returned Some(...).
-    // fn get_utxo_map     (&mut self)                   -> Vec<u8>;
-    // I (joe) think returning &BitMap matches the intended usage a bit more
-    // closely
-    fn get_utxo_map(&self) -> &BitMap;
-
-    // Since serializing the bitmap requires mutation access, I'm (joe)
-    // making this a separate method
-    fn serialize_utxo_map(&mut self) -> Vec<u8>;
-
-    // TODO(joe): figure out what interface this should have -- currently
-    // there isn't anything to handle out-of-bounds indices from `list`
-    // fn get_utxos        (&mut self, list: Vec<usize>) -> Option<Vec<u8>>;
-
-    // Get the bitmap's hash at version `version`, if such a hash is
-    // available.
-    fn get_utxo_checksum(&self, version: u64) -> Option<BitDigest>;
-
-    // Get the ledger state commitment at a specific block height.
-    fn get_state_commitment_at_block_height(
-        &self,
-        height: u64,
-    ) -> Option<HashOf<Option<StateCommitmentData>>>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1968,11 +1970,11 @@ impl LedgerState {
 
 impl LedgerStatus {
     #[allow(missing_docs)]
-    pub fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo> {
+    pub fn get_owned_utxos(&self, addr: &XfrPublicKey) -> Vec<TxoSID> {
         self.utxos
             .iter()
-            .filter(|(sid, utxo)| &utxo.0.record.public_key == addr)
-            .map(|(sid, utxo)| (sid.clone(), utxo.clone()))
+            .filter(|(_, utxo)| &utxo.0.record.public_key == addr)
+            .map(|(sid, _)| sid.clone())
             .collect()
     }
 
@@ -2037,14 +2039,11 @@ impl LedgerAccess for LedgerState {
         }
     }
 
-    fn get_utxos(&self, sid_list: TxoSIDList) -> Vec<Option<AuthenticatedUtxo>> {
-        let mut utxos: Vec<Option<AuthenticatedUtxo>> = Vec::new();
-        if sid_list.0.len() > 10 || sid_list.0.is_empty() {
-            return utxos;
-        }
-        for sid in sid_list.0.iter() {
+    fn get_utxos(&self, sid_list: &[TxoSID]) -> Vec<Option<AuthenticatedUtxo>> {
+        let mut utxos = vec![];
+        for sid in sid_list.iter() {
             let utxo = self.status.get_utxo(*sid);
-            if let Some(utxo) = utxo.cloned() {
+            if let Some(utxo) = utxo {
                 let txn_location = *self.status.txo_to_txn_location.get(sid).unwrap();
                 let authenticated_txn = self.get_transaction(txn_location.0).unwrap();
                 let authenticated_spent_status = self.get_utxo_status(*sid);
@@ -2052,7 +2051,7 @@ impl LedgerAccess for LedgerState {
                     self.status.state_commitment_data.as_ref().unwrap().clone();
                 let utxo_location = txn_location.1;
                 let authUtxo = AuthenticatedUtxo {
-                    utxo,
+                    utxo: utxo.clone(),
                     authenticated_txn,
                     authenticated_spent_status,
                     state_commitment_data,
@@ -2066,8 +2065,27 @@ impl LedgerAccess for LedgerState {
         utxos
     }
 
-    fn get_owned_utxos(&self, addr: &XfrPublicKey) -> BTreeMap<TxoSID, Utxo> {
-        self.status.get_owned_utxos(addr)
+    fn get_owned_utxos(
+        &self,
+        addr: &XfrPublicKey,
+    ) -> BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)> {
+        let sids = self.status.get_owned_utxos(addr);
+        let aus = self.get_utxos(&sids);
+        sids.into_iter()
+            .zip(aus.into_iter())
+            .filter_map(|(sid, au)| au.map(|au| (sid, au)))
+            .map(|(sid, au)| {
+                (
+                    sid,
+                    (
+                        au.utxo,
+                        au.authenticated_txn.finalized_txn.txn.get_owner_memos_ref()
+                            [au.utxo_location.0]
+                            .cloned(),
+                    ),
+                )
+            })
+            .collect()
     }
 
     fn get_issuance_num(&self, code: &AssetTypeCode) -> Option<u64> {
@@ -2134,9 +2152,7 @@ impl LedgerAccess for LedgerState {
     fn get_staking(&self) -> &Staking {
         &self.status.staking
     }
-}
 
-impl ArchiveAccess for LedgerState {
     fn get_status(&self) -> &LedgerStatus {
         &self.status
     }
@@ -2200,17 +2216,6 @@ impl ArchiveAccess for LedgerState {
     fn serialize_utxo_map(&mut self) -> Vec<u8> {
         self.utxo_map.serialize(self.get_transaction_count())
     }
-
-    // TODO(joe): see notes in ArchiveAccess about these
-    // fn get_utxo_map(&mut self) -> Option<Vec<u8>> {
-    //   Some(self.utxo_map.as_mut().c(d!())?.serialize(self.txn_count))
-    // }
-    // fn get_utxos(&mut self, utxo_list: Vec<usize>) -> Option<Vec<u8>> {
-    //   Some(self.utxo_map
-    //            .as_mut()
-    //            .c(d!())?
-    //            .serialize_partial(utxo_list, self.txn_count))
-    // }
 
     fn get_utxo_checksum(&self, version: u64) -> Option<BitDigest> {
         for pair in self.status.utxo_map_versions.iter() {

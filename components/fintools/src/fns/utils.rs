@@ -141,17 +141,18 @@ pub fn gen_fee_op(owner_kp: &XfrKeyPair) -> Result<Operation> {
 
 #[inline(always)]
 #[allow(missing_docs)]
-pub fn get_balance(pk: &XfrPublicKey) -> Result<u64> {
-    let balance = get_owned_utxos(pk)
+pub fn get_balance(kp: &XfrKeyPair) -> Result<u64> {
+    let balance = get_owned_utxos(kp.get_pk_ref())
         .c(d!())?
         .values()
-        .map(|(utxo, _)| {
-            if let XfrAmount::NonConfidential(am) = utxo.0.record.amount {
-                am
-            } else {
-                0
-            }
+        .map(|(utxo, owner_memo)| {
+            open_blind_asset_record(&utxo.0.record, owner_memo, kp)
+                .c(d!())
+                .map(|obr| obr.amount)
         })
+        .collect::<Result<Vec<_>>>()
+        .c(d!())?
+        .iter()
         .sum();
 
     Ok(balance)
@@ -211,7 +212,7 @@ fn get_seq_id() -> Result<u64> {
 fn get_owner_memo_batch(ids: &[TxoSID]) -> Result<Vec<Option<OwnerMemo>>> {
     let ids = ids
         .iter()
-        .map(|id| id.to_string())
+        .map(|id| id.0.to_string())
         .collect::<Vec<_>>()
         .join(",");
     let url = format!(
