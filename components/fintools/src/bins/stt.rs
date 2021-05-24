@@ -27,8 +27,6 @@ use txn_builder::BuildsTransactions;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 lazy_static! {
-    static ref SERV_ADDR: String = env::var("STAKING_TESTER_SERV_ADDR")
-        .unwrap_or_else(|_| "http://localhost".to_owned());
     static ref USER_LIST: BTreeMap<Name, User> = gen_user_list();
     static ref VALIDATOR_LIST: BTreeMap<Name, Validator> = gen_valiator_list();
     static ref ROOT_KP: XfrKeyPair =
@@ -65,7 +63,6 @@ fn run() -> Result<()> {
         .arg_from_usage("-U, --user-list 'show the pre-defined user list'")
         .arg_from_usage("-v, --validator-list 'show the pre-defined validator list'")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'");
-    let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
     let matches = App::new("stt")
         .version(crate_version!())
@@ -77,7 +74,6 @@ fn run() -> Result<()> {
         .subcommand(subcmd_claim)
         .subcommand(subcmd_transfer)
         .subcommand(subcmd_show)
-        .subcommand(subcmd_set_initial_validators)
         .get_matches();
 
     if matches.subcommand_matches("init").is_some() {
@@ -146,10 +142,6 @@ fn run() -> Result<()> {
         } else {
             println!("{}", m.usage());
         }
-    } else if matches.is_present("set-initial-validators") {
-        search_kp("root")
-            .ok_or(eg!())
-            .and_then(|kp| fns::set_initial_validators(kp).c(d!()))?;
     } else {
         println!("{}", matches.usage());
     }
@@ -178,6 +170,8 @@ mod init {
         target_list.push((&*COINBASE_PK, 4_000_000_000_000));
 
         fns::transfer_batch(&root_kp, target_list).c(d!())?;
+
+        fns::set_initial_validators(&root_kp).c(d!())?;
 
         sleep_ms!(10 * 1000);
 
@@ -362,6 +356,9 @@ struct Validator {
 
 fn gen_valiator_list() -> BTreeMap<Name, Validator> {
     const NUM: usize = 20;
+
+    // locale env
+    #[cfg(feature = "debug_env")]
     const TD_ADDR_LIST: [&str; NUM] = [
         "611C922247C3BE7EA13455B191B6EFD909F10196",
         "5A006EA8455C6DB35B4B60B7218774B2E589482B",
@@ -384,6 +381,33 @@ fn gen_valiator_list() -> BTreeMap<Name, Validator> {
         "8424784D8505B2661F120831D18BE0021DD0CDA8",
         "9F832EE81DB4FBDAA8D3541ECA6ECEE0E97C119B",
     ];
+
+    // online env
+    #[cfg(not(feature = "debug_env"))]
+    const TD_ADDR_LIST: [&str; NUM] = [
+        "FD8C65634A9D8899FA14200177AF19D24F6E1C37",
+        "0856654F7CD4BB0D6CC4409EF4892136C9D24692",
+        "5C97EE9B91D90B332813078957E3A96B304791B4",
+        "000E33AB7471186F3B1DE9FC08BB9C480F453590",
+        "EA70EB6087E3D606730C4E9062CC24A5BD7D2B37",
+        "E5705FED0049EDA431D37B37947A136F22F8F054",
+        "9ED0D8D661C99A58F78F80816968E61AAE8DC649",
+        "9AB077E00C8B731AE1F82DEC5E45CB3D1E9BBB12",
+        "8CB713C8EA32223FCAC66B966FCFA9BAEE257946",
+        "EAC5792572EB726AA0DBA9A7AFA9757F8063C6C9",
+        "A50D65F2F63F65D845A7C5CBB989FF94D6688F38",
+        "A8DFD116BA9664F38958C721688FA73E6320755B",
+        "A07875BBD4E062BAB2C162E180237FC3B30C4ABC",
+        "39F0C5E451394FAAE7213FD914EFBA8F963CCB90",
+        "EE2F73BAA1605C998BB106E5A38DBD79B5209F1D",
+        "09EF1DB6B67D1CBF7EBA6BD9B204611848993DF7",
+        "AD2C69A9432E8F6634E1ADC3D6CA69EA9E1F4114",
+        "510082967DFA7DEBA11267B26A6318D07A457B48",
+        "60689516C566F27E03794329C431D0084299480A",
+        "5C71532CEEFC43EE3857905AB94FDA505BFC06F3",
+    ];
+
+    #[cfg(feature = "debug_env")]
     const MNEMONIC_LIST: [&str; NUM] = [
         "alien pride power ostrich will cart crumble judge ordinary picnic bring dinner nut success phone banana fold agent shallow silent dose feel short insane",
         "erode wasp helmet advice olive ridge update kid drip toast agree hand oppose hurt creek hazard purity raise main organ bargain patrol ramp toward",
@@ -405,6 +429,30 @@ fn gen_valiator_list() -> BTreeMap<Name, Validator> {
         "choice speed eternal movie glide culture deal elite sick aspect cluster cruel net moment myself jeans fade radio reflect desk grit toast this proof",
         "strong fever clock wear forum palm celery smart sting mesh barrel again drive note clump cross unfold buddy tube lesson future lounge flat dune",
         "margin mention suit twice submit horse drive myth afraid upper neither reward refuse cart caught nurse era beef exclude goose large borrow mansion universe",
+    ];
+
+    #[cfg(not(feature = "debug_env"))]
+    const MNEMONIC_LIST: [&str; NUM] = [
+        "arrest wrist tumble fall agree tunnel modify soldier arrange step stadium taste special lawn illness village abstract wheel opera fit define device burden relief",
+        "detail frog laundry clay border urge one olympic liberty buddy capital zone catalog lunar special double design consider banana round achieve desert ride cup",
+        "silk garlic area tell sudden bird dove shield question powder visa limit stool column soccer unfair tobacco online right front valid uniform ski private",
+        "humor shop duck festival pottery rescue proof roof galaxy become arrow seat safe monster labor treat adapt comfort almost cousin yellow install vote mother",
+        "town egg feature credit drum rescue evil asthma defy artist where amazing ankle syrup awake drop magnet mandate crucial phone cinnamon fabric window address",
+        "negative health science tiger palm dutch memory approve icon fresh moral stumble enable trash cushion cherry viable hazard pull reward shift mansion blur nothing",
+        "harsh list identify fortune kick feel naive spy universe jacket glow comic nice hammer fire truth vessel bind private round quiz elite broken roof",
+        "stumble tank law captain girl bitter spring tumble reveal execute tent junk artist pudding sponsor city ginger denial copy addict canvas explain favorite indicate",
+        "mixed snack ribbon question addict situate suit letter left beach guitar tobacco tank strike can zebra sniff distance mirror gospel weekend gown candy moon",
+        "iron vapor hello easily level concert second undo elbow question anxiety stove merry young rate sound tackle cash trim eternal dog curtain charge random",
+        "trigger usage enforce sunset bless sorry hard return disorder window muffin assume only sight census aisle hamster brush accident science pear addict saddle pole",
+        "income sign bargain unit ready scale inner nice flash coach oval about price assume add seminar claim open rescue body flame meat supply expire",
+        "alert orient second industry power shove finger culture evil scout view cream win poem power protect journey build tide work picture suggest velvet inner",
+        "concert corn drama emerge amateur blur boss travel burden reflect time old whisper lens roast spider kiwi derive stick mimic girl burger joy vault",
+        "practice nut satisfy embark rug desk cloud donkey gloom simple disorder have one plate spawn result chase pond canoe main essence degree often industry",
+        "dragon alien deal appear cost arm shop drama heart satoshi bring lion fruit cross cradle book now verb way arrange observe wide rubber combine",
+        "buffalo twice awake erode marriage oyster reunion foot favorite boost happy boring eight flower return core planet adjust funny asset luxury bean double trim",
+        "town birth juice near group imitate dismiss alpha ginger october antenna rookie next suspect mountain pilot prosper fashion shell submit swap atom catalog misery",
+        "ugly talent maximum relax frame subject chronic member fade seven range crop goat happy trumpet element among tube dune ten sheriff mule mouse glad",
+        "health summer sausage steel salon ridge pudding stone museum obey size panther crush pizza between start deny sheriff naive frost mechanic thing garden hollow",
     ];
 
     (0..NUM)

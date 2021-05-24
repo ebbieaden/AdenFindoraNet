@@ -670,7 +670,7 @@ fn generate_fee_operation_inner(
 
 fn check_tx(txs: Vec<Transaction>) -> Result<Vec<Transaction>> {
     txs.into_iter()
-        .filter(|tx| tx.check_fee() && tx.check_fra_no_illegal_issuance(100_0000))
+        .filter(|tx| tx.check_fee() && tx.fra_no_illegal_issuance(100_0000))
         .map(|tx| TxnEffect::compute_effect(tx).c(d!()).map(|txe| txe.txn))
         .collect()
 }

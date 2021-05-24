@@ -112,6 +112,21 @@ pub fn claim(am: Option<&str>) -> Result<()> {
 pub fn show() -> Result<()> {
     let kp = get_keypair().c(d!())?;
 
+    let servaddr = ruc::info!(get_serv_addr()).map(|i| {
+        println!("\x1b[31;01mServer URL:\x1b[00m\n{}\n", i);
+    });
+
+    let xfrpubkey = ruc::info!(get_keypair()).map(|i| {
+        println!(
+            "\x1b[31;01mXfrPublicKey:\x1b[00m\n{}\n",
+            wallet::public_key_to_base64(&i.get_pk())
+        );
+    });
+
+    let tdaddr = ruc::info!(get_td_addr()).map(|i| {
+        println!("\x1b[31;01mValidator Node Addr:\x1b[00m\n{}\n", i);
+    });
+
     let cb_balance = ruc::info!(utils::get_balance(&COINBASE_KP)).map(|i| {
         println!("\x1b[31;01mCoinBase Balance:\x1b[00m\n{} FRA units\n", i);
     });
@@ -138,6 +153,9 @@ pub fn show() -> Result<()> {
     });
 
     if [
+        servaddr,
+        xfrpubkey,
+        tdaddr,
         cb_balance,
         cb_principal_balance,
         self_balance,
