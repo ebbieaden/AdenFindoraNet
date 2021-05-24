@@ -141,7 +141,8 @@ tendermint:
 		if [ -d "tools/tendermint" ]; then rm -rf tools/tendermint; fi; \
 		git clone -b v0.33.5 --depth=1 https://github.com/tendermint/tendermint.git tools/tendermint; \
 	fi
-	cd tools/tendermint && make install
+	# cd tools/tendermint && make install
+	cd tools/tendermint && make build TENDERMINT_BUILD_OPTIONS=cleveldb && cp build/tendermint ~/go/bin/
 
 wasm:
 	cd components/wasm && wasm-pack build
@@ -158,11 +159,14 @@ devnet:
 	@./scripts/devnet/startnodes.sh
 
 debug_env: stop_debug_env build_release_debug
-	- rm -rf $(LEDGER_DIR)
-	mkdir $(LEDGER_DIR)
-	cp tools/debug_env.tar.gz $(LEDGER_DIR)/
-	cd $(LEDGER_DIR) && tar -xpf debug_env.tar.gz && mv debug_env devnet
-	./scripts/devnet/startnodes.sh
+	@- rm -rf $(LEDGER_DIR)
+	@ mkdir $(LEDGER_DIR)
+	@ cp tools/debug_env.tar.gz $(LEDGER_DIR)/
+	@ cd $(LEDGER_DIR) && tar -xpf debug_env.tar.gz && mv debug_env devnet
+	@ ./scripts/devnet/startnodes.sh
+
+run_demo:
+	bash tools/staking/demo.sh
 
 start_debug_env:
 	./scripts/devnet/startnodes.sh

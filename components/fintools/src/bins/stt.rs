@@ -15,8 +15,8 @@ use lazy_static::lazy_static;
 use ledger::{
     data_model::Transaction,
     staking::{
-        check_delegation_amount, COINBASE_KP, COINBASE_PK, COINBASE_PRINCIPAL_KP,
-        COINBASE_PRINCIPAL_PK,
+        check_delegation_amount, BLOCK_INTERVAL, COINBASE_KP, COINBASE_PK,
+        COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK, FRA_TOTAL_AMOUNT,
     },
     store::fra_gen_initial_tx,
 };
@@ -37,6 +37,12 @@ const ROOT_MNEMONIC: &str = "bright poem guard trade airport artist soon mountai
 
 type Name = String;
 type NameRef<'a> = &'a str;
+
+macro_rules! sleep_n_block {
+    ($n_block: expr) => {
+        sleep_ms!($n_block * BLOCK_INTERVAL * 1000);
+    };
+}
 
 fn main() {
     pnk!(run());
@@ -156,31 +162,41 @@ mod init {
         let root_kp =
             wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
 
+        println!(">>> define and issue FRA...");
         fns::send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
 
-        sleep_ms!(10 * 1000);
+        println!(">>> wait 2 blocks...");
+        sleep_n_block!(2);
+
+        println!(">>> set initial validator set...");
+        fns::set_initial_validators(&root_kp).c(d!())?;
+
+        println!(">>> wait 4 blocks...");
+        sleep_n_block!(4);
 
         let mut target_list = USER_LIST
             .values()
             .map(|u| &u.pubkey)
             .chain(VALIDATOR_LIST.values().map(|v| &v.pubkey))
-            .map(|pk| (pk, 2_000_000_000_000))
+            .map(|pk| (pk, FRA_TOTAL_AMOUNT / 500))
             .collect::<Vec<_>>();
 
         target_list.push((&*COINBASE_PK, 4_000_000_000_000));
 
+        println!(">>> transfer FRAs to validators...");
         fns::transfer_batch(&root_kp, target_list).c(d!())?;
 
-        fns::set_initial_validators(&root_kp).c(d!())?;
+        println!(">>> wait 2 blocks ...");
+        sleep_n_block!(2);
 
-        sleep_ms!(10 * 1000);
-
+        println!(">>> propose self-delegations...");
         for v in VALIDATOR_LIST.values() {
-            delegate::gen_tx(&v.name, 1_000_000_000_000, &v.name)
+            delegate::gen_tx(&v.name, FRA_TOTAL_AMOUNT / 1000, &v.name)
                 .c(d!())
                 .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
         }
 
+        println!(">>> DONE !");
         Ok(())
     }
 }

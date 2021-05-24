@@ -660,8 +660,8 @@ impl Staking {
 
         if self.addr_is_validator(addr) {
             // punish vote power if if is a validator
-            self.validator_get_power(addr).c(d!()).and_then(|p| {
-                self.validator_change_power(addr, p * percent[0] / percent[1], true)
+            self.validator_get_power(addr).c(d!()).and_then(|power| {
+                self.validator_change_power(addr, power * percent[0] / percent[1], true)
                     .c(d!())
             })?;
 
@@ -669,9 +669,9 @@ impl Staking {
             let pl = || {
                 self.di
                     .addr_map
-                    .values()
-                    .filter(|d| d.validator_entry_exists(addr))
-                    .map(|d| (d.rwd_pk, d.amount() * percent[0] / percent[1] / 10))
+                    .iter()
+                    .filter(|(pk, d)| *pk != addr && d.validator_entry_exists(addr))
+                    .map(|(pk, d)| (*pk, d.amount() * percent[0] / percent[1] / 10))
                     .collect::<Vec<_>>()
             };
 
@@ -1215,20 +1215,15 @@ pub const MAX_TOTAL_POWER: Amount = Amount::MAX / 8;
 pub const MAX_POWER_PERCENT_PER_VALIDATOR: [u128; 2] = [1, 5];
 
 /// Block time interval, in seconds.
+#[cfg(not(any(feature = "debug_env", feature = "abci_mock")))]
 pub const BLOCK_INTERVAL: u64 = 15 + 1;
 
-// /// The lock time after the delegation expires, about 21 days.
-// #[cfg(not(any(feature = "debug_env", feature = "abci_mock")))]
-// pub const UNBOND_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
-//
-// /// used in test env
-// #[cfg(feature = "debug_env")]
+/// used in test/mock env
+#[cfg(any(feature = "debug_env", feature = "abci_mock"))]
+pub const BLOCK_INTERVAL: u64 = 5 + 1;
+
 /// ...
 pub const UNBOND_BLOCK_CNT: u64 = 20;
-
-// /// used in mock env
-// #[cfg(feature = "abci_mock")]
-// pub const UNBOND_BLOCK_CNT: u64 = 10;
 
 // minimal number of validators
 pub(crate) const VALIDATORS_MIN: usize = 6;
@@ -1245,6 +1240,10 @@ pub type BlockHeight = u64;
 
 type Amount = u64;
 type Power = u64;
+
+/// Node PubKey in base64 format
+pub type TendermintPubKey = String;
+type TendermintPubKeyRef<'a> = &'a str;
 
 /// sha256(pubkey)[:20] in hex format
 pub type TendermintAddr = String;
@@ -1665,6 +1664,18 @@ pub fn td_pubkey_to_td_addr(pubkey: &[u8]) -> String {
 #[allow(missing_docs)]
 pub fn td_pubkey_to_td_addr_bytes(pubkey: &[u8]) -> Vec<u8> {
     sha2::Sha256::digest(pubkey)[..20].to_vec()
+}
+
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn td_pubkey_to_string(td_pubkey: &[u8]) -> TendermintPubKey {
+    base64::encode(td_pubkey)
+}
+
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn td_pubkey_to_bytes(td_pubkey: TendermintPubKeyRef) -> Result<Vec<u8>> {
+    base64::decode(td_pubkey).c(d!())
 }
 
 #[inline(always)]
