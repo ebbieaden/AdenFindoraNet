@@ -1375,18 +1375,18 @@ pub enum ValidatorKind {
 /// Validator info
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Validator {
-    /// pubkey in the context of tendermint
-    pub td_pubkey: Vec<u8>,
-    /// node address in the context of tendermint
-    pub td_addr: Vec<u8>,
-    /// vote power in the context of Staking
-    pub td_power: Amount,
     /// public key of validator, aka 'Validator ID'.
     ///
     /// staking rewards will be paid to this addr
     /// - eg.. self-delegation rewards
     /// - eg.. block rewards
     pub id: XfrPublicKey,
+    /// pubkey in the context of tendermint
+    pub td_pubkey: Vec<u8>,
+    /// node address in the context of tendermint
+    pub td_addr: Vec<u8>,
+    /// vote power in the context of Staking
+    pub td_power: Amount,
     // During registration the Validator,
     // Candidate/Validator will specifiy a % commission which will be publicly recorded on the blockchain,
     // so FRA owners can make an informed choice on which validator to use;
@@ -1396,6 +1396,9 @@ pub struct Validator {
     /// optional descriptive information
     pub memo: Option<StakerMemo>,
     kind: ValidatorKind,
+    /// use this field to mark
+    /// if this validator signed last block
+    pub signed_last_block: bool,
 }
 
 impl Validator {
@@ -1420,6 +1423,7 @@ impl Validator {
             commission_rate,
             memo,
             kind,
+            signed_last_block: false,
         })
     }
 

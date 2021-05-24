@@ -44,6 +44,7 @@ impl TryFrom<ValidatorStr> for Validator {
             id: wallet::public_key_from_base64(&v.id).c(d!())?,
             memo: v.memo,
             kind: ValidatorKind::Initor,
+            signed_last_block: false,
         })
     }
 }

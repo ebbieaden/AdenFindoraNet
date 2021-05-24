@@ -185,7 +185,7 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
             .collect::<HashSet<_>>();
         if !offline_list.is_empty() {
             if let Ok(olpl) =
-                ruc::info!(gen_offline_punish_list(la.get_staking(), &offline_list))
+                ruc::info!(gen_offline_punish_list(la.get_staking_mut(), &offline_list))
             {
                 olpl.into_iter().for_each(|v| {
                     let bz = ByzantineInfo {
@@ -423,15 +423,26 @@ fn do_gen_transaction(
 }
 
 fn gen_offline_punish_list(
-    staking: &Staking,
+    staking: &mut Staking,
     offline_list: &HashSet<&Vec<u8>>,
 ) -> Result<Vec<Vec<u8>>> {
     let last_height = TENDERMINT_BLOCK_HEIGHT
         .load(Ordering::Relaxed)
         .saturating_sub(1);
-    let mut vs = staking
-        .validator_get_effective_at_height(last_height as u64)
-        .c(d!())?
+    let validators = staking
+        .validator_get_effective_at_height_mut(last_height as u64)
+        .c(d!())?;
+
+    // mark if a validator is online at last block
+    validators.body.values_mut().for_each(|v| {
+        if offline_list.contains(&v.td_pubkey) {
+            v.signed_last_block = false;
+        } else {
+            v.signed_last_block = true;
+        }
+    });
+
+    let mut vs = validators
         .body
         .values()
         .map(|v| (td_pubkey_to_td_addr_bytes(&v.td_pubkey), v.td_power))
