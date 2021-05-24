@@ -357,13 +357,13 @@ where
         let validators = validator_data.get_validator_addr_map();
         let validators_list = validators
             .iter()
-            .filter(|(_, v)| staking.delegation_has_addr(v))
             .flat_map(|(tendermint_addr, pk)| {
                 validator_data.get_validator_by_key(pk).map(|v| {
                     Validator::new(
                         tendermint_addr.clone(),
                         v.td_power,
                         v.get_commission_rate(),
+                        staking.delegation_has_addr(&pk),
                     )
                 })
             })

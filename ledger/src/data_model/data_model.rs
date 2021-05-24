@@ -1079,16 +1079,23 @@ pub struct Validator {
     addr: TendermintAddr,
     power: u64,
     commission_rate: [u64; 2],
+    accept_delegation: bool,
 }
 
 impl Validator {
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn new(addr: TendermintAddr, power: u64, commission_rate: [u64; 2]) -> Self {
+    pub fn new(
+        addr: TendermintAddr,
+        power: u64,
+        commission_rate: [u64; 2],
+        accept_delegation: bool,
+    ) -> Self {
         Validator {
             addr,
             power,
             commission_rate,
+            accept_delegation,
         }
     }
 }
