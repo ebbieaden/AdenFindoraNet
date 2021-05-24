@@ -5,7 +5,10 @@
 //!
 
 use super::MAX_TOTAL_POWER;
-use crate::{data_model::NoReplayToken, staking::Staking};
+use crate::{
+    data_model::NoReplayToken,
+    staking::{Staking, ValidatorData},
+};
 use cryptohash::sha256::{self, Digest};
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -66,14 +69,14 @@ where
     }
 
     /// Check if a cosig is valid.
-    pub fn check_cosigs(&self, rule: &CoSigRule) -> Result<()> {
-        if rule.weights.is_empty() {
+    pub fn check_cosigs(&self, vd: &ValidatorData) -> Result<()> {
+        if vd.body.is_empty() {
             return Ok(());
         }
 
-        self.check_existence(rule)
+        self.check_existence(vd)
             .c(d!())
-            .and_then(|_| self.check_weight(rule).c(d!()))
+            .and_then(|_| self.check_weight(vd).c(d!()))
             .and_then(|_| {
                 let msg = bincode::serialize(&(self.nonce, &self.data)).c(d!())?;
                 if self
@@ -89,8 +92,8 @@ where
     }
 
     #[inline(always)]
-    fn check_existence(&self, rule: &CoSigRule) -> Result<()> {
-        if self.cosigs.keys().any(|k| rule.weights.get(k).is_none()) {
+    fn check_existence(&self, vd: &ValidatorData) -> Result<()> {
+        if self.cosigs.keys().any(|k| !vd.body.contains_key(k)) {
             Err(eg!(CoSigErr::KeyUnknown))
         } else {
             Ok(())
@@ -98,19 +101,18 @@ where
     }
 
     #[inline(always)]
-    fn check_weight(&self, rule: &CoSigRule) -> Result<()> {
-        let rule_weights = rule
-            .weights
-            .values()
-            .map(|v| v.weight as u128)
-            .sum::<u128>();
+    fn check_weight(&self, vd: &ValidatorData) -> Result<()> {
+        let rule_weights = vd.body.values().map(|v| v.td_power as u128).sum::<u128>();
         let actual_weights = self
             .cosigs
             .values()
-            .flat_map(|s| rule.weights.get(&s.pk).map(|w| w.weight as u128))
+            .flat_map(|s| vd.body.get(&s.pk).map(|v| v.td_power as u128))
             .sum::<u128>();
 
-        let rule = [rule.threshold[0] as u128, rule.threshold[1] as u128];
+        let rule = [
+            vd.cosig_rule.threshold[0] as u128,
+            vd.cosig_rule.threshold[1] as u128,
+        ];
 
         if actual_weights.checked_mul(rule[1]).ok_or(eg!())?
             < rule[0].checked_mul(rule_weights).ok_or(eg!())?
@@ -126,7 +128,7 @@ where
         staking
             .validator_get_current()
             .ok_or(eg!())
-            .and_then(|vd| self.check_cosigs(vd.get_cosig_rule()).c(d!()))
+            .and_then(|vd| self.check_cosigs(vd).c(d!()))
     }
 
     /// Generate sha256 digest.
@@ -153,8 +155,6 @@ where
 /// The rule for a kind of data.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct CoSigRule {
-    /// weight of each `XfrPublicKey`,
-    pub weights: BTreeMap<XfrPublicKey, KeyWeight>,
     /// check rule:
     /// - `[actual weight].sum() / [rule weight].sum() >= threshold%`
     /// - threshold% = `numerator / denominator` = `threshold[0] / threshold[1]`
@@ -167,44 +167,14 @@ pub struct CoSigRule {
 
 impl CoSigRule {
     #[allow(missing_docs)]
-    pub fn new(
-        threshold: [u64; 2],
-        mut weights: Vec<(XfrPublicKey, Weight)>,
-    ) -> Result<Self> {
-        let len = weights.len();
-        weights.sort_by(|a, b| a.0.cmp(&b.0));
-        weights.dedup_by(|a, b| a.0 == b.0);
-        if len != weights.len() {
-            return Err(eg!("found dup keys"));
-        }
-
+    pub fn new(threshold: [u64; 2]) -> Result<Self> {
         if threshold[0] > threshold[1] || threshold[1] > MAX_TOTAL_POWER as u64 {
             return Err(eg!("invalid threshold"));
         }
 
         Ok(CoSigRule {
-            weights: weights
-                .into_iter()
-                .map(|(pk, w)| (pk, KeyWeight::new(pk, w)))
-                .collect(),
             threshold: [threshold[0], threshold[1]],
         })
-    }
-}
-
-type Weight = u64;
-
-/// A pubkey and its co-reponding weight.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-pub struct KeyWeight {
-    pk: XfrPublicKey,
-    weight: Weight,
-}
-
-impl KeyWeight {
-    #[inline(always)]
-    fn new(pk: XfrPublicKey, weight: Weight) -> Self {
-        KeyWeight { pk, weight }
     }
 }
 
@@ -242,6 +212,7 @@ impl fmt::Display for CoSigErr {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::staking::{Validator, ValidatorKind};
     use rand_chacha::ChaChaRng;
     use rand_core::SeedableRng;
 
@@ -267,44 +238,57 @@ mod test {
     #[test]
     fn staking_cosig() {
         let kps = gen_keypairs(100);
-        let ws = kps.iter().map(|kp| (kp.get_pk(), 999)).collect::<Vec<_>>();
-
-        assert!(CoSigRule::new([200, 100], ws.clone()).is_err());
-        assert!(CoSigRule::new([200, 1 + MAX_TOTAL_POWER as u64], ws.clone()).is_err());
+        let vs = kps
+            .iter()
+            .map(|kp| {
+                Validator::new(
+                    vec![],
+                    999,
+                    kp.get_pk(),
+                    [1, 5],
+                    None,
+                    ValidatorKind::Initor,
+                )
+            })
+            .collect::<Result<Vec<_>>>();
+        let mut vd = pnk!(ValidatorData::new(1, pnk!(vs)));
 
         // threshold: 75%
-        let rule = pnk!(CoSigRule::new([75, 100], ws));
+        vd.cosig_rule = pnk!(CoSigRule::new([75, 100]));
+
+        assert!(CoSigRule::new([200, 100]).is_err());
+        assert!(CoSigRule::new([200, 1 + MAX_TOTAL_POWER as u64]).is_err());
 
         let mut data = CoSigOp::create(Data::default(), no_replay_token());
         pnk!(data.batch_sign(&kps.iter().skip(10).collect::<Vec<_>>()));
-        assert!(data.check_cosigs(&rule).is_ok());
+        assert!(data.check_cosigs(&vd).is_ok());
 
         kps.iter().skip(10).for_each(|kp| {
             pnk!(data.sign(kp));
         });
-        assert!(data.check_cosigs(&rule).is_ok());
+        assert!(data.check_cosigs(&vd).is_ok());
 
         data.data.a = [9; 12];
-        assert!(data.check_cosigs(&rule).is_err());
+        assert!(data.check_cosigs(&vd).is_err());
         data.data.a = [0; 12];
-        assert!(data.check_cosigs(&rule).is_ok());
+        assert!(data.check_cosigs(&vd).is_ok());
 
         let mut data = CoSigOp::create(Data::default(), no_replay_token());
         pnk!(data.batch_sign(&kps.iter().skip(25).collect::<Vec<_>>()));
-        assert!(data.check_cosigs(&rule).is_ok());
+        assert!(data.check_cosigs(&vd).is_ok());
 
         kps.iter().skip(25).for_each(|kp| {
             pnk!(data.sign(kp));
         });
-        assert!(data.check_cosigs(&rule).is_ok());
+        assert!(data.check_cosigs(&vd).is_ok());
 
         let mut data = CoSigOp::create(Data::default(), no_replay_token());
         pnk!(data.batch_sign(&kps.iter().skip(45).collect::<Vec<_>>()));
-        assert!(data.check_cosigs(&rule).is_err());
+        assert!(data.check_cosigs(&vd).is_err());
 
         kps.iter().skip(45).for_each(|kp| {
             pnk!(data.sign(kp));
         });
-        assert!(data.check_cosigs(&rule).is_err());
+        assert!(data.check_cosigs(&vd).is_err());
     }
 }

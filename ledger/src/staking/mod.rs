@@ -48,12 +48,7 @@ use zei::xfr::{
 pub struct Staking {
     // the main logic when updating:
     // - the new validator inherits the original vote power, if any
-    // - all delegate addresss locked on those outdated validators will be unlocked
-    // immediately, and the related delegate income will also be settled immediately
     vi: ValidatorInfo,
-    // all assets owned by these addrs are NOT permitted to be transfered out,
-    // but receiving assets from outer addrs is permitted.
-    //
     // when the end-time of delegations arrived,
     // we will try to paid the rewards until all is successful.
     di: DelegationInfo,
@@ -67,12 +62,10 @@ impl Staking {
     #[inline(always)]
     #[allow(missing_docs)]
     pub fn new() -> Self {
-        let vd = init::get_inital_validators().unwrap_or_default();
-        let cur_height = vd.height;
         Staking {
-            vi: map! {B cur_height => vd },
+            vi: map! {B 1 => ValidatorData::default()},
             di: DelegationInfo::new(),
-            cur_height,
+            cur_height: 0,
             coinbase: CoinBase::gen(),
         }
     }
@@ -1268,7 +1261,7 @@ impl Default for ValidatorData {
     fn default() -> Self {
         ValidatorData {
             height: 1,
-            cosig_rule: pnk!(Self::gen_cosig_rule(&[])),
+            cosig_rule: pnk!(Self::gen_cosig_rule()),
             body: BTreeMap::new(),
             addr_td_to_app: BTreeMap::new(),
         }
@@ -1291,8 +1284,7 @@ impl ValidatorData {
             }
         }
 
-        let cosig_rule =
-            Self::gen_cosig_rule(&body.keys().copied().collect::<Vec<_>>()).c(d!())?;
+        let cosig_rule = Self::gen_cosig_rule().c(d!())?;
 
         Ok(ValidatorData {
             height: h,
@@ -1302,16 +1294,13 @@ impl ValidatorData {
         })
     }
 
-    fn gen_cosig_rule(validator_ids: &[XfrPublicKey]) -> Result<CoSigRule> {
-        CoSigRule::new(
-            COSIG_THRESHOLD_DEFAULT,
-            validator_ids.iter().copied().map(|v| (v, 1)).collect(),
-        )
+    fn gen_cosig_rule() -> Result<CoSigRule> {
+        CoSigRule::new(COSIG_THRESHOLD_DEFAULT)
     }
 
     /// The initial weight of every validators is equal(vote power == 1).
-    pub fn set_cosig_rule(&mut self, validator_ids: &[XfrPublicKey]) -> Result<()> {
-        Self::gen_cosig_rule(validator_ids).c(d!()).map(|rule| {
+    pub fn set_cosig_rule(&mut self) -> Result<()> {
+        Self::gen_cosig_rule().c(d!()).map(|rule| {
             self.cosig_rule = rule;
         })
     }

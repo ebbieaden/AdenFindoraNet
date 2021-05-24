@@ -3,8 +3,7 @@
 //!
 
 use super::{
-    td_addr_to_bytes, BlockHeight, Power, Validator, ValidatorData, ValidatorKind,
-    FRA_TOTAL_AMOUNT,
+    td_addr_to_bytes, BlockHeight, Power, Validator, ValidatorKind, FRA_TOTAL_AMOUNT,
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -49,18 +48,14 @@ impl TryFrom<ValidatorStr> for Validator {
     }
 }
 
-// **Return:**
-// - the initial height when do upgrading
-// - the initial validator-set informations
-pub(super) fn get_inital_validators() -> Result<ValidatorData> {
+/// generate the initial validator-set
+pub fn get_inital_validators() -> Result<Vec<Validator>> {
     get_cfg_data().c(d!()).and_then(|i| {
-        let h = i.height.unwrap_or(1);
         i.valiators
             .into_iter()
             .map(|v| Validator::try_from(v).c(d!()))
             .collect::<Result<Vec<_>>>()
             .c(d!())
-            .and_then(|v| ValidatorData::new(h, v).c(d!()))
     })
 }
 

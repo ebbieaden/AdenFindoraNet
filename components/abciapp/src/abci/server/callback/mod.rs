@@ -29,8 +29,8 @@ lazy_static! {
 pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
     let mut resp = ResponseInfo::new();
     {
-        let la = s.la.read();
-        let state = la.get_committed_state().read();
+        let la = s.la.write();
+        let mut state = la.get_committed_state().write();
         let commitment = state.get_state_commitment();
         if commitment.1 > 0 {
             let tendermint_height = commitment.1 + state.get_pulse_count();
@@ -40,6 +40,10 @@ pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
 
         if let Ok(h) = ruc::info!(pulse_cache::read_height()) {
             resp.set_last_block_height(h);
+        }
+
+        if let Ok(s) = ruc::info!(pulse_cache::read_staking()) {
+            *state.get_staking_mut() = s;
         }
     }
 
@@ -159,17 +163,22 @@ pub fn end_block(
 
 pub fn commit(s: &mut ABCISubmissionServer, _req: &RequestCommit) -> ResponseCommit {
     let mut r = ResponseCommit::new();
-    {
-        let la = s.la.read();
-        // la.begin_commit();
-        let commitment = la.get_committed_state().read().get_state_commitment();
-        // la.end_commit();
-        r.set_data(commitment.0.as_ref().to_vec());
-    }
+    let la = s.la.read();
+
+    // la.begin_commit();
+
+    let state = la.get_committed_state().read();
+    let commitment = state.get_state_commitment();
+
+    // la.end_commit();
+
+    r.set_data(commitment.0.as_ref().to_vec());
 
     pnk!(pulse_cache::write_height(
         TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)
     ));
+
+    pnk!(pulse_cache::write_staking(state.get_staking()));
 
     r
 }

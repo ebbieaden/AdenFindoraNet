@@ -25,28 +25,40 @@
 //!
 
 use lazy_static::lazy_static;
+use ledger::staking::Staking;
 use ruc::*;
 use std::{convert::TryInto, fs};
 
 lazy_static! {
-    static ref PATH: String = format!(
-        "{}/.__tendermint_height__",
-        crate::abci::LEDGER_DIR
-            .as_deref()
-            .map(|ld| {
-                pnk!(fs::create_dir_all(ld));
-                ld
-            })
-            .unwrap_or("/tmp")
-    );
+    static ref PATH: (String, String) = {
+        let ld = crate::abci::LEDGER_DIR.as_deref().unwrap_or("/tmp");
+        pnk!(fs::create_dir_all(ld));
+
+        let height_cache = format!("{}/.__tendermint_height__", &ld);
+        let staking_cache = format!("{}/.____staking____", &ld);
+
+        (height_cache, staking_cache)
+    };
 }
 
 pub(super) fn write_height(h: i64) -> Result<()> {
-    fs::write(&*PATH, i64::to_ne_bytes(h)).c(d!())
+    fs::write(&PATH.0, i64::to_ne_bytes(h)).c(d!())
 }
 
 pub(super) fn read_height() -> Result<i64> {
-    fs::read(&*PATH)
+    fs::read(&PATH.0)
         .c(d!())
         .map(|b| i64::from_ne_bytes(b.try_into().unwrap()))
+}
+
+pub(super) fn write_staking(s: &Staking) -> Result<()> {
+    serde_json::to_vec(s)
+        .c(d!())
+        .and_then(|bytes| fs::write(&PATH.1, bytes).c(d!()))
+}
+
+pub(super) fn read_staking() -> Result<Staking> {
+    fs::read(&PATH.1)
+        .c(d!())
+        .and_then(|bytes| serde_json::from_slice(&bytes).c(d!()))
 }
