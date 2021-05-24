@@ -1217,17 +1217,18 @@ pub const MAX_POWER_PERCENT_PER_VALIDATOR: [u128; 2] = [1, 5];
 /// Block time interval, in seconds.
 pub const BLOCK_INTERVAL: u64 = 15 + 1;
 
-/// The lock time after the delegation expires, about 21 days.
-#[cfg(not(any(feature = "debug_env", feature = "abci_mock")))]
-pub const UNBOND_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
-
-/// used in test env
-#[cfg(feature = "debug_env")]
+// /// The lock time after the delegation expires, about 21 days.
+// #[cfg(not(any(feature = "debug_env", feature = "abci_mock")))]
+// pub const UNBOND_BLOCK_CNT: u64 = 3600 * 24 * 21 / BLOCK_INTERVAL;
+//
+// /// used in test env
+// #[cfg(feature = "debug_env")]
+/// ...
 pub const UNBOND_BLOCK_CNT: u64 = 20;
 
-/// used in mock env
-#[cfg(feature = "abci_mock")]
-pub const UNBOND_BLOCK_CNT: u64 = 10;
+// /// used in mock env
+// #[cfg(feature = "abci_mock")]
+// pub const UNBOND_BLOCK_CNT: u64 = 10;
 
 // minimal number of validators
 pub(crate) const VALIDATORS_MIN: usize = 6;
