@@ -14,9 +14,9 @@ all: build_release
 export CARGO_NET_GIT_FETCH_WITH_CLI = true
 export PROTOC = $(shell which protoc)
 
-export STAKING_INITIAL_VALIDATOR_CONFIG = $(shell pwd)/tools/staking_config.json
-export STAKING_INITIAL_VALIDATOR_CONFIG_DEBUG_ENV = $(shell pwd)/tools/staking_config_debug_env.json
-export STAKING_INITIAL_VALIDATOR_CONFIG_ABCI_MOCK = $(shell pwd)/tools/staking_config_abci_mock.json
+export STAKING_INITIAL_VALIDATOR_CONFIG = $(shell pwd)/ledger/src/staking/init/staking_config.json
+export STAKING_INITIAL_VALIDATOR_CONFIG_DEBUG_ENV = $(shell pwd)/ledger/src/staking/init/staking_config_debug_env.json
+export STAKING_INITIAL_VALIDATOR_CONFIG_ABCI_MOCK = $(shell pwd)/ledger/src/staking/init/staking_config_abci_mock.json
 
 export LEDGER_DIR=/tmp/findora
 export ENABLE_LEDGER_SERVICE = true
