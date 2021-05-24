@@ -72,6 +72,7 @@ fn run() -> Result<()> {
     let subcmd_contribute = SubCommand::with_name("contribute").arg_from_usage(
         "-n, --amount=[Amout] 'contribute some `FRA unit`s to CoinBase'",
     );
+    let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
     let matches = App::new("fns")
         .version(crate_version!())
@@ -84,6 +85,7 @@ fn run() -> Result<()> {
         .subcommand(subcmd_setup)
         .subcommand(subcmd_transfer)
         .subcommand(subcmd_contribute)
+        .subcommand(subcmd_set_initial_validators)
         .get_matches();
 
     if let Some(m) = matches.subcommand_matches("stake") {
@@ -141,6 +143,8 @@ fn run() -> Result<()> {
             let am = m.value_of("amount");
             fns::contribute(am).c(d!())?;
         }
+    } else if matches.is_present("set-initial-validators") {
+        fns::set_initial_validators().c(d!())?;
     } else {
         println!("{}", matches.usage());
     }

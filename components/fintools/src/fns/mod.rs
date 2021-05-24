@@ -17,7 +17,6 @@ use txn_builder::BuildsTransactions;
 use zei::xfr::sig::XfrKeyPair;
 
 pub mod utils;
-pub use self::utils::*;
 
 const CFG_PATH: &str = "/tmp/.____fns_config____";
 
@@ -182,7 +181,8 @@ pub fn transfer_fra(target_addr: &str, am: &str) -> Result<()> {
         .and_then(|kp| utils::transfer(&kp, &ta, am).c(d!()))
 }
 
-/// Mainly for official usage.
+/// Mainly for official usage,
+/// and can be also used in test scenes.
 pub fn contribute(am: Option<&str>) -> Result<()> {
     let am = if let Some(i) = am {
         i.parse::<u64>().c(d!("'amount' must be an integer"))?
@@ -194,6 +194,14 @@ pub fn contribute(am: Option<&str>) -> Result<()> {
     get_keypair()
         .c(d!())
         .and_then(|kp| utils::transfer(&kp, &*COINBASE_PK, am).c(d!()))
+}
+
+/// Mainly for official usage,
+/// and can be also used in test scenes.
+pub fn set_initial_validators() -> Result<()> {
+    get_keypair()
+        .c(d!())
+        .and_then(|kp| utils::set_initial_validators(&kp).c(d!()))
 }
 
 fn get_serv_addr() -> Result<String> {

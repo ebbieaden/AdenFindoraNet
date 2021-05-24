@@ -10,7 +10,7 @@
 #![deny(warnings)]
 
 use clap::{crate_authors, crate_version, App, SubCommand};
-use fintools::fns;
+use fintools::fns::utils as fns;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::Transaction,
@@ -65,6 +65,7 @@ fn run() -> Result<()> {
         .arg_from_usage("-U, --user-list 'show the pre-defined user list'")
         .arg_from_usage("-v, --validator-list 'show the pre-defined validator list'")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'");
+    let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
     let matches = App::new("stt")
         .version(crate_version!())
@@ -76,6 +77,7 @@ fn run() -> Result<()> {
         .subcommand(subcmd_claim)
         .subcommand(subcmd_transfer)
         .subcommand(subcmd_show)
+        .subcommand(subcmd_set_initial_validators)
         .get_matches();
 
     if matches.subcommand_matches("init").is_some() {
@@ -144,6 +146,10 @@ fn run() -> Result<()> {
         } else {
             println!("{}", m.usage());
         }
+    } else if matches.is_present("set-initial-validators") {
+        search_kp("root")
+            .ok_or(eg!())
+            .and_then(|kp| fns::set_initial_validators(kp).c(d!()))?;
     } else {
         println!("{}", matches.usage());
     }
