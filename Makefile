@@ -34,19 +34,11 @@ pick            = target/$(target_dir)
 release_subdirs = $(bin_dir) $(lib_dir)
 
 bin_files = \
-		./$(pick)/findora \
 		./$(pick)/abci_validator_node \
-		./$(pick)/fns \
-		./$(pick)/stt \
-		./$(pick)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
 
 bin_files_musl_debug = \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/findora \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/fns \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/stt \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
 
 WASM_PKG = wasm.tar.gz
