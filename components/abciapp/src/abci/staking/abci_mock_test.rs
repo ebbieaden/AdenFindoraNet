@@ -1272,7 +1272,7 @@ fn staking_scene_2() -> Result<()> {
         .delegation_get_principal(&v_set[0].id)
         .c(d!())?;
 
-    assert_eq!(100 * FRA * 95 / 100 * (950 + 45) / 1000, principal as u64);
+    assert_eq!(100 * FRA * 95 / 100, principal as u64);
 
     // 8. make sure the delegation rewards of regular delegator is punished(1/10)
 

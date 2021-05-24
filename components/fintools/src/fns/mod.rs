@@ -8,8 +8,9 @@
 
 use lazy_static::lazy_static;
 use ledger::staking::{
-    check_delegation_amount, is_valid_tendermint_addr, td_pubkey_to_td_addr_bytes,
-    COINBASE_KP, COINBASE_PK, COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK,
+    check_delegation_amount, td_pubkey_to_bytes, td_pubkey_to_string,
+    td_pubkey_to_td_addr, COINBASE_KP, COINBASE_PK, COINBASE_PRINCIPAL_KP,
+    COINBASE_PRINCIPAL_PK,
 };
 use ruc::*;
 use std::fs;
@@ -23,26 +24,20 @@ const CFG_PATH: &str = "/tmp/.____fns_config____";
 lazy_static! {
     static ref MNEMONIC: Option<String> = fs::read_to_string(&*MNEMONIC_FILE).ok();
     static ref MNEMONIC_FILE: String = format!("{}/mnemonic", CFG_PATH);
-    static ref TD_ADDR: Option<String> = fs::read_to_string(&*TD_ADDR_FILE).ok();
-    static ref TD_ADDR_FILE: String = format!("{}/tendermint_address", CFG_PATH);
+    static ref TD_PUBKEY: Option<String> = fs::read_to_string(&*TD_PUBKEY_FILE).ok();
+    static ref TD_PUBKEY_FILE: String = format!("{}/tendermint_pubkey", CFG_PATH);
     static ref SERV_ADDR: Option<String> = fs::read_to_string(&*SERV_ADDR_FILE).ok();
     static ref SERV_ADDR_FILE: String = format!("{}/serv_addr", CFG_PATH);
 }
 
-pub fn stake(
-    amount: &str,
-    td_pubkey: &str,
-    commission_rate: &str,
-    memo: Option<&str>,
-) -> Result<()> {
+pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<()> {
     let am = amount.parse::<u64>().c(d!("'amount' must be an integer"))?;
     check_delegation_amount(am).c(d!())?;
     let cr = commission_rate
         .parse::<f64>()
         .c(d!("commission rate must be a float number"))
         .and_then(|cr| convert_commission_rate(cr).c(d!()))?;
-    let td_pubkey = base64::decode(td_pubkey).c(d!("invalid tendermint pubkey"))?;
-    let td_addr = td_pubkey_to_td_addr_bytes(&td_pubkey);
+    let td_pubkey = get_td_pubkey().c(d!())?;
 
     let kp = get_keypair().c(d!())?;
 
@@ -54,18 +49,15 @@ pub fn stake(
         .c(d!())
         .map(|principal_op| builder.add_operation(principal_op))?;
 
-    utils::send_tx(&builder.take_transaction())
-        .c(d!())
-        .and_then(|_| {
-            fs::write(&*TD_ADDR_FILE, td_addr).c(d!("fail to cache 'validator-addr'"))
-        })
+    utils::send_tx(&builder.take_transaction()).c(d!())
 }
 
 pub fn stake_append(amount: &str) -> Result<()> {
     let am = amount.parse::<u64>().c(d!("'amount' must be an integer"))?;
     check_delegation_amount(am).c(d!())?;
 
-    let td_addr = get_td_addr().c(d!())?;
+    let td_pubkey = get_td_pubkey().c(d!())?;
+    let td_addr = td_pubkey_to_td_addr(&td_pubkey);
 
     let kp = get_keypair().c(d!())?;
 
@@ -112,19 +104,22 @@ pub fn claim(am: Option<&str>) -> Result<()> {
 pub fn show() -> Result<()> {
     let kp = get_keypair().c(d!())?;
 
-    let servaddr = ruc::info!(get_serv_addr()).map(|i| {
+    let serv_addr = ruc::info!(get_serv_addr()).map(|i| {
         println!("\x1b[31;01mServer URL:\x1b[00m\n{}\n", i);
     });
 
-    let xfrpubkey = ruc::info!(get_keypair()).map(|i| {
+    let xfr_pubkey = ruc::info!(get_keypair()).map(|i| {
         println!(
             "\x1b[31;01mXfrPublicKey:\x1b[00m\n{}\n",
             wallet::public_key_to_base64(&i.get_pk())
         );
     });
 
-    let tdaddr = ruc::info!(get_td_addr()).map(|i| {
-        println!("\x1b[31;01mValidator Node Addr:\x1b[00m\n{}\n", i);
+    let td_pubkey = ruc::info!(get_td_pubkey()).map(|i| {
+        println!(
+            "\x1b[31;01mValidator Node Addr:\x1b[00m\n{}\n",
+            td_pubkey_to_string(&i)
+        );
     });
 
     let cb_balance = ruc::info!(utils::get_balance(&COINBASE_KP)).map(|i| {
@@ -153,9 +148,9 @@ pub fn show() -> Result<()> {
     });
 
     if [
-        servaddr,
-        xfrpubkey,
-        tdaddr,
+        serv_addr,
+        xfr_pubkey,
+        td_pubkey,
         cb_balance,
         cb_principal_balance,
         self_balance,
@@ -173,7 +168,7 @@ pub fn show() -> Result<()> {
 pub fn setup(
     serv_addr: Option<&str>,
     owner_mnemonic_path: Option<&str>,
-    validator_addr: Option<&str>,
+    validator_pubkey: Option<&str>,
 ) -> Result<()> {
     fs::create_dir_all(CFG_PATH).c(d!("fail to create config path"))?;
 
@@ -183,8 +178,8 @@ pub fn setup(
     if let Some(mp) = owner_mnemonic_path {
         fs::write(&*MNEMONIC_FILE, mp).c(d!("fail to cache 'owner-mnemonic-path'"))?;
     }
-    if let Some(addr) = validator_addr {
-        fs::write(&*TD_ADDR_FILE, addr).c(d!("fail to cache 'validator-addr'"))?;
+    if let Some(pubkey) = validator_pubkey {
+        fs::write(&*TD_PUBKEY_FILE, pubkey).c(d!("fail to cache 'validator-pubkey'"))?;
     }
     Ok(())
 }
@@ -222,9 +217,9 @@ pub fn set_initial_validators() -> Result<()> {
         .and_then(|kp| utils::set_initial_validators(&kp).c(d!()))
 }
 
-fn get_serv_addr() -> Result<String> {
+fn get_serv_addr() -> Result<&'static str> {
     if let Some(sa) = SERV_ADDR.as_ref() {
-        Ok(sa.to_owned())
+        Ok(sa)
     } else {
         Err(eg!("'serv-addr' has not been set"))
     }
@@ -243,15 +238,11 @@ fn get_keypair() -> Result<XfrKeyPair> {
     }
 }
 
-fn get_td_addr() -> Result<String> {
-    if let Some(addr) = TD_ADDR.as_ref() {
-        if is_valid_tendermint_addr(addr) {
-            Ok(addr.to_owned())
-        } else {
-            Err(eg!("invalid 'validator-addr'"))
-        }
+fn get_td_pubkey() -> Result<Vec<u8>> {
+    if let Some(pubkey) = TD_PUBKEY.as_ref() {
+        td_pubkey_to_bytes(pubkey).c(d!())
     } else {
-        Err(eg!("'validator-addr' has not been set"))
+        Err(eg!("'validator-pubkey' has not been set"))
     }
 }
 

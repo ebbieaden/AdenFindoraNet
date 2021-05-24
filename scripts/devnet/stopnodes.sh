@@ -29,5 +29,4 @@ then
     echo
 fi
 
-pkill -9 query_server
 exit 0

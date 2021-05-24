@@ -42,12 +42,11 @@ fn main() {
 
 fn run() -> Result<()> {
     let subcmd_stake_arggrp = ArgGroup::with_name("staking_flags")
-        .args(&["validator-pubkey", "commission-rate", "validator-memo"])
+        .args(&["commission-rate", "validator-memo"])
         .multiple(true)
         .conflicts_with("append");
     let subcmd_stake = SubCommand::with_name("stake")
         .arg_from_usage("-n, --amount=<Amount> 'how much `FRA unit`s you want to stake'")
-        .arg_from_usage("-K, --validator-pubkey=[PubKey] 'the tendermint pubkey of your validator node, base64 format'")
         .arg_from_usage("-R, --commission-rate=[Rate] 'the commission rate for your delegators, should be a float number")
         .arg_from_usage("-M, --validator-memo=[Memo] 'the description of your validator node, optional'")
         .arg_from_usage("-a, --append 'stake more FRAs to your node'")
@@ -64,7 +63,7 @@ fn run() -> Result<()> {
             "-O, --owner-mnemonic-path=[Path], 'storage path of your mnemonic words'",
         )
         .arg_from_usage(
-            "-A, --validator-addr=[Addr], 'the tendermint address of your validator node'",
+            "-K, --validator-pubkey=[PubKey], 'the tendermint pubkey of your validator node'",
         );
     let subcmd_transfer = SubCommand::with_name("transfer")
         .arg_from_usage("-t, --target-addr=<Addr> 'wallet address of the receiver'")
@@ -97,16 +96,15 @@ fn run() -> Result<()> {
                 fns::stake_append(am.unwrap()).c(d!())?;
             }
         } else {
-            let va = m.value_of("validator-pubkey");
             let cr = m.value_of("commission-rate");
             let vm = m.value_of("validator-memo");
-            if am.is_none() || va.is_none() || cr.is_none() {
+            if am.is_none() || cr.is_none() {
                 println!("{}", m.usage());
                 println!(
                     "Tips: if you want to raise the power of your node, please use `fns stake --append [OPTIONS]`"
                 );
             } else {
-                fns::stake(am.unwrap(), va.unwrap(), cr.unwrap(), vm).c(d!())?;
+                fns::stake(am.unwrap(), cr.unwrap(), vm).c(d!())?;
             }
         }
     } else if matches.subcommand_matches("unstake").is_some() {
@@ -119,11 +117,11 @@ fn run() -> Result<()> {
     } else if let Some(m) = matches.subcommand_matches("setup") {
         let sa = m.value_of("serv-addr");
         let om = m.value_of("owner-mnemonic-path");
-        let ta = m.value_of("validator-addr");
-        if sa.is_none() && om.is_none() && ta.is_none() {
+        let tp = m.value_of("validator-pubkey");
+        if sa.is_none() && om.is_none() && tp.is_none() {
             println!("{}", m.usage());
         } else {
-            fns::setup(sa, om, ta).c(d!())?;
+            fns::setup(sa, om, tp).c(d!())?;
         }
     } else if let Some(m) = matches.subcommand_matches("transfer") {
         let ta = m.value_of("target-addr");
