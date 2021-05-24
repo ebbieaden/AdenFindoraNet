@@ -63,7 +63,9 @@ impl Staking {
     #[allow(missing_docs)]
     pub fn new() -> Self {
         Staking {
-            vi: map! {B 1 => ValidatorData::default()},
+            // use '0' instead of '1' to
+            // avoid conflicts with initial operations
+            vi: map! {B 0 => ValidatorData::default()},
             di: DelegationInfo::new(),
             cur_height: 0,
             coinbase: CoinBase::gen(),
@@ -165,14 +167,13 @@ impl Staking {
     pub fn validator_apply_current(&mut self) {
         let h = self.cur_height;
         self.validator_apply_at_height(h);
-
-        // clean old data before current height
-        self.validator_clean_before_height(h.saturating_sub(8));
     }
 
     /// Make the validators at a specified height to be effective.
     pub fn validator_apply_at_height(&mut self, h: BlockHeight) {
         if let Some(mut prev) = self.validator_get_effective_at_height(h - 1).cloned() {
+            alt!(prev.body.is_empty(), return);
+
             // inherit the powers of previous settings
             // if new settings were found
             if let Some(vs) = self.validator_get_at_height_mut(h) {
@@ -196,8 +197,12 @@ impl Staking {
             // copy previous settings
             // if new settings were not found.
             else {
+                prev.height = h;
                 self.validator_set_at_height_force(h, prev);
             }
+
+            // clean old data before current height
+            self.validator_clean_before_height(h.saturating_sub(1));
         }
     }
 

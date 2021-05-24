@@ -1112,6 +1112,9 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
         }
 
         // apply staking updates
+        block.staking_simulator.set_custom_block_height(
+            self.get_block_count() as u64 + self.get_pulse_count(),
+        );
         mem::swap(&mut block.staking_simulator, self.get_staking_mut());
 
         self.block_ctx = Some(block);
@@ -2479,7 +2482,7 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
      **/
 
     let template = AssetRecordTemplate::with_no_asset_tracing(
-        FRA_AMOUNT / 10,
+        FRA_AMOUNT / 2,
         fra_code.val,
         AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
         fra_owner_kp.get_pk(),
@@ -2487,7 +2490,7 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
 
     let params = PublicParams::default();
 
-    let outputs = (0..10)
+    let outputs = (0..2)
         .map(|_| {
             let (ba, _, _) = build_blind_asset_record(
                 &mut ChaChaRng::from_entropy(),

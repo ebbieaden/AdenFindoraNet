@@ -30,7 +30,7 @@ impl UpdateValidatorOps {
     pub fn apply(&self, staking: &mut Staking) -> Result<()> {
         self.verify(staking)
             .c(d!())
-            .and_then(|_| self.check_context(staking).c(d!()))
+            .and_then(|_| self.check_context().c(d!()))
             .and_then(|_| {
                 staking
                     .validator_set_at_height(self.data.height, self.data.clone())
@@ -44,18 +44,12 @@ impl UpdateValidatorOps {
     pub fn apply_force(self, staking: &mut Staking) -> Result<()> {
         self.verify(staking)
             .c(d!())
-            .and_then(|_| self.check_context(staking).c(d!()))
+            .and_then(|_| self.check_context().c(d!()))
             .map(|_| staking.validator_set_at_height_force(self.data.height, self.data))
     }
 
     #[inline(always)]
-    fn check_context(&self, staking: &Staking) -> Result<()> {
-        if let Some(v) = staking.validator_get_current() {
-            if self.data.height < v.height {
-                return Err(eg!("invalid height"));
-            }
-        }
-
+    fn check_context(&self) -> Result<()> {
         if VALIDATORS_MIN > self.data.body.len() {
             return Err(eg!("too few validators"));
         }

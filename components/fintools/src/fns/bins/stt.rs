@@ -172,8 +172,7 @@ mod init {
             .values()
             .map(|u| &u.pubkey)
             .chain(VALIDATOR_LIST.values().map(|v| &v.pubkey))
-            .map(|pk| (0..20).map(move |_| (pk, 2_000_000_000_000 / 20)))
-            .flatten()
+            .map(|pk| (pk, 2_000_000_000_000))
             .collect::<Vec<_>>();
 
         target_list.push((&*COINBASE_PK, 4_000_000_000_000));

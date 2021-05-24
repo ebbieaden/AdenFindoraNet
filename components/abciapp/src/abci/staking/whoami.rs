@@ -7,12 +7,10 @@
 use ledger::staking::td_addr_to_bytes;
 use ruc::*;
 use serde::Deserialize;
-use std::env;
+use std::{env, fs};
 
 pub fn get_self_addr() -> Result<Vec<u8>> {
-    from_env()
-        .c(d!())
-        .or_else(|_| from_tendermint_rpc().c(d!()))
+    from_env().c(d!()).or_else(|_| from_config_file().c(d!()))
 }
 
 fn from_env() -> Result<Vec<u8>> {
@@ -22,67 +20,33 @@ fn from_env() -> Result<Vec<u8>> {
         .and_then(|td_addr| td_addr_to_bytes(&td_addr).c(d!()))
 }
 
-fn from_tendermint_rpc() -> Result<Vec<u8>> {
-    const URL: &str = "http://node:26657/status";
+fn from_config_file() -> Result<Vec<u8>> {
+    // the config path in the abci container
+    const CFG_PATH: &str = "/root/.tendermint/config/priv_validator_key.json";
 
-    // when abci container finish the replay work of history txs,
-    // the node container may be in a temporary panic state because
-    // it can not connect to abci container in the last round,
-    // so we should wait and retry some times.
-    for _ in 0..10 {
-        if let Ok(ni) = ruc::info!(http_req(URL)) {
-            return td_addr_to_bytes(&ni.result.validator_info.address).c(d!());
-        }
-        sleep_ms!(6000);
-    }
-
-    Err(eg!())
+    fs::read_to_string(CFG_PATH)
+        .c(d!())
+        .and_then(|cfg| serde_json::from_str::<SelfAddr>(&cfg).c(d!()))
+        .and_then(|sa| td_addr_to_bytes(&sa.address).c(d!()))
 }
 
-// `curl node:26657/status`
+//
+// Structure:
 //
 // ```
 // {
-//   "result": {
-//     "validator_info": {
-//       "address": "52C155268A12B210DE36FFB152A3CB913AFCFB17",
-//       "pub_key": {
-//         "type": "tendermint/PubKeyEd25519",
-//         "value": "c7QbZH/7TNaS//LXyXWcL+ZiEiiZfXv3p57t2eAxB+8="
-//       },
-//       "voting_power": "0"
-//     }
+//   "address": "8DB4CBD00D8E6621826BE6A840A98C28D7F27CD9",
+//   "pub_key": {
+//     "type": "tendermint/PubKeyEd25519",
+//     "value": "BSiMm6HFCzWBPB8s1ZOEqtWm6u6dj2Ftamm1s4msg24="
+//   },
+//   "priv_key": {
+//     "type": "tendermint/PrivKeyEd25519",
+//     "value": "ON4RyK6Pevf5UrXJZ7uoPdH3RmnJUKyJlwuHQcEijHAFKIybocULNYE8HyzVk4Sq1abq7p2PYW1qabWziayDbg=="
 //   }
 // }
 // ```
-fn http_req(url: &str) -> Result<NodeInfo> {
-    attohttpc::get(url)
-        .send()
-        .c(d!())?
-        .error_for_status()
-        .c(d!())?
-        .bytes()
-        .c(d!())
-        .and_then(|b| serde_json::from_slice(&b).c(d!()))
-}
-
 #[derive(Deserialize)]
-struct NodeInfo {
-    result: ValidatorInfo,
-}
-
-#[derive(Deserialize)]
-struct ValidatorInfo {
-    validator_info: ValidatorAddr,
-}
-
-#[derive(Deserialize)]
-struct ValidatorAddr {
+struct SelfAddr {
     address: String,
-    // pub_key: ValidatorPubKey,
 }
-
-// #[derive(Deserialize)]
-// struct ValidatorPubKey {
-//     value: String,
-// }
