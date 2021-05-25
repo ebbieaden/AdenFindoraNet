@@ -210,9 +210,15 @@ where
         self.pending_txns.len()
     }
 
-    pub fn pulse_block(&mut self) {
-        if let Some(block) = &mut self.block {
-            LU::pulse_block(block);
+    pub fn pulse_block(&mut self) -> Option<u64> {
+        self.block.as_mut().map(|b| LU::pulse_block(b))
+    }
+
+    pub fn restore_block_pulse(&mut self, cnt: u64) {
+        if let Some(b) = self.block.as_mut() {
+            (0..cnt).for_each(|_| {
+                LU::pulse_block(b);
+            })
         }
     }
 

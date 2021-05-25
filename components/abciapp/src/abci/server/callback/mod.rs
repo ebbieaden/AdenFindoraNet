@@ -28,23 +28,29 @@ lazy_static! {
 
 pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
     let mut resp = ResponseInfo::new();
-    {
-        let la = s.la.write();
-        let mut state = la.get_committed_state().write();
-        let commitment = state.get_state_commitment();
-        if commitment.1 > 0 {
-            let tendermint_height = commitment.1 + state.get_pulse_count();
-            resp.set_last_block_height(tendermint_height as i64);
-            resp.set_last_block_app_hash(commitment.0.as_ref().to_vec());
-        }
 
-        if let Ok(h) = ruc::info!(pulse_cache::read_height()) {
-            resp.set_last_block_height(h);
-        }
+    let mut la = s.la.write();
 
-        if let Ok(s) = ruc::info!(pulse_cache::read_staking()) {
-            *state.get_staking_mut() = s;
-        }
+    let mut state = la.get_committed_state().write();
+    let commitment = state.get_state_commitment();
+    if commitment.1 > 0 {
+        let tendermint_height = commitment.1 + state.get_pulse_count();
+        resp.set_last_block_height(tendermint_height as i64);
+        resp.set_last_block_app_hash(commitment.0.as_ref().to_vec());
+    }
+
+    if let Ok(h) = ruc::info!(pulse_cache::read_height()) {
+        resp.set_last_block_height(h);
+    }
+
+    if let Ok(s) = ruc::info!(pulse_cache::read_staking()) {
+        *state.get_staking_mut() = s;
+    }
+
+    if let Ok(cnt) = ruc::info!(pulse_cache::read_block_pulse()) {
+        drop(state);
+        la.begin_block();
+        la.restore_block_pulse(cnt);
     }
 
     resp
@@ -179,6 +185,8 @@ pub fn commit(s: &mut ABCISubmissionServer, _req: &RequestCommit) -> ResponseCom
     ));
 
     pnk!(pulse_cache::write_staking(state.get_staking()));
+
+    pnk!(pulse_cache::write_block_pulse(la.block_pulse_count()));
 
     r
 }

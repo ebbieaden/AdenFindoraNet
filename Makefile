@@ -80,6 +80,15 @@ else
 	$(call pack,$(target_dir))
 endif
 
+build_release_musl: tendermint wasm
+ifdef DBG
+	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
+	@ exit 1
+else
+	cargo build --release --bins -p abciapp -p fintools --target=x86_64-unknown-linux-musl
+	$(call pack_musl_debug,$(target_dir))
+endif
+
 build_release_debug: tendermint wasm
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
