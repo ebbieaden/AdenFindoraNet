@@ -740,7 +740,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
         {
             let mut block = state.start_block().unwrap();
-            state.apply_transaction(&mut block, effect).unwrap();
+            state.apply_transaction(&mut block, effect, false).unwrap();
             state.finish_block(block).unwrap();
         }
 
@@ -808,7 +808,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
         {
             let mut block = state.start_block().unwrap();
-            state.apply_transaction(&mut block, effect).unwrap();
+            state.apply_transaction(&mut block, effect, false).unwrap();
             state.finish_block(block).unwrap();
         }
 
@@ -868,7 +868,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
         {
             let mut block = state.start_block().unwrap();
-            state.apply_transaction(&mut block, effect).unwrap();
+            state.apply_transaction(&mut block, effect, false).unwrap();
             state.finish_block(block).unwrap();
         }
 

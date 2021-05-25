@@ -157,6 +157,7 @@ pub trait LedgerUpdate<RNG: RngCore + CryptoRng> {
         &self,
         block: &mut Self::Block,
         txn: TxnEffect,
+        is_loading: bool,
     ) -> Result<TxnTempSID>;
 
     // Abort an in-development block. No effects of the block are reflected
@@ -938,19 +939,24 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
         &self,
         block: &mut BlockEffect,
         txe: TxnEffect,
+        is_loading: bool,
     ) -> Result<TxnTempSID> {
         let tx = txe.txn.clone();
         self.status
             .check_txn_effects(&txe)
             .c(d!())
-            .and_then(|_| block.add_txn_effect(txe).c(d!()))
+            .and_then(|_| block.add_txn_effect(txe, is_loading).c(d!()))
             .and_then(|tmpid| {
                 // NOTE: set at the last position
-                block
-                    .staking_simulator
-                    .coinbase_check_and_pay(&tx)
-                    .c(d!())
-                    .map(|_| tmpid)
+                if is_loading {
+                    Ok(tmpid)
+                } else {
+                    block
+                        .staking_simulator
+                        .coinbase_check_and_pay(&tx)
+                        .c(d!())
+                        .map(|_| tmpid)
+                }
             })
     }
 
@@ -1150,6 +1156,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerStateChecker {
         &self,
         block: &mut BlockEffect,
         txn: TxnEffect,
+        is_loading: bool,
     ) -> Result<TxnTempSID> {
         // inputs must be listed as spent in the bitmap
         for (inp_sid, _) in txn.input_txos.iter() {
@@ -1199,7 +1206,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerStateChecker {
             return Err(eg!(PlatformError::CheckedReplayError(None)));
         }
 
-        self.0.apply_transaction(block, txn).c(d!())
+        self.0.apply_transaction(block, txn, is_loading).c(d!())
     }
 
     // this shouldn't ever be called, since this type should only be used for
@@ -1667,7 +1674,7 @@ impl LedgerState {
                 let eff =
                     TxnEffect::compute_effect(txn).c(d!(PlatformError::Unknown))?;
                 ledger
-                    .apply_transaction(&mut block_builder, eff)
+                    .apply_transaction(&mut block_builder, eff, true)
                     .c(d!(PlatformError::Unknown))?;
             }
             ledger = ledger
@@ -1764,7 +1771,7 @@ impl LedgerState {
                 let eff =
                     TxnEffect::compute_effect(txn).c(d!(PlatformError::Unknown))?;
                 ledger
-                    .apply_transaction(&mut block_builder, eff)
+                    .apply_transaction(&mut block_builder, eff, true)
                     .c(d!(PlatformError::Unknown))?;
             }
             ledger.status.pulse_count = logged_block.state.pulse_count;
@@ -2207,7 +2214,8 @@ pub mod helpers {
         match TxnEffect::compute_effect(tx) {
             Ok(effect) => {
                 let mut block = ledger.start_block().unwrap();
-                let temp_sid = ledger.apply_transaction(&mut block, effect).unwrap();
+                let temp_sid =
+                    ledger.apply_transaction(&mut block, effect, false).unwrap();
                 ledger
                     .finish_block(block)
                     .unwrap()
@@ -2774,7 +2782,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
         {
             let mut block = state.start_block().unwrap();
-            state.apply_transaction(&mut block, effect).unwrap();
+            state.apply_transaction(&mut block, effect, false).unwrap();
             state.finish_block(block).unwrap();
         }
 
@@ -2836,7 +2844,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
         {
             let mut block = ledger.start_block().unwrap();
-            ledger.apply_transaction(&mut block, effect).unwrap();
+            ledger.apply_transaction(&mut block, effect, false).unwrap();
             ledger.finish_block(block).unwrap();
         }
 
@@ -2891,7 +2899,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
 
         let mut block = ledger.start_block().unwrap();
-        let temp_sid = ledger.apply_transaction(&mut block, effect).unwrap();
+        let temp_sid = ledger.apply_transaction(&mut block, effect, false).unwrap();
 
         let (_txn_sid, txos) = ledger
             .finish_block(block)
@@ -2955,7 +2963,7 @@ mod tests {
         // Commit first transfer
         let effect = TxnEffect::compute_effect(tx).unwrap();
         let mut block = ledger.start_block().unwrap();
-        let temp_sid = ledger.apply_transaction(&mut block, effect).unwrap();
+        let temp_sid = ledger.apply_transaction(&mut block, effect, false).unwrap();
 
         let (_txn_sid, _txos) = ledger
             .finish_block(block)
@@ -3034,7 +3042,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
         {
             let mut block = ledger.start_block().unwrap();
-            ledger.apply_transaction(&mut block, effect).unwrap();
+            ledger.apply_transaction(&mut block, effect, false).unwrap();
             ledger.finish_block(block).unwrap();
         }
 
@@ -3074,7 +3082,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
 
         let mut block = ledger.start_block().unwrap();
-        let temp_sid = ledger.apply_transaction(&mut block, effect).unwrap();
+        let temp_sid = ledger.apply_transaction(&mut block, effect, false).unwrap();
 
         let (txn_sid, txos) = ledger
             .finish_block(block)
@@ -3085,7 +3093,7 @@ mod tests {
         // shouldn't be able to replay issuance
         let effect = TxnEffect::compute_effect(second_tx).unwrap();
         let mut block = ledger.start_block().unwrap();
-        let result = ledger.apply_transaction(&mut block, effect);
+        let result = ledger.apply_transaction(&mut block, effect, false);
         assert!(result.is_err());
         ledger.abort_block(block);
 
@@ -3227,7 +3235,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
 
         let mut block = ledger.start_block().unwrap();
-        let res = ledger.apply_transaction(&mut block, effect);
+        let res = ledger.apply_transaction(&mut block, effect, false);
         assert!(res.is_err());
         // Cant transfer by making asset confidential
         let transfer_template = AssetRecordTemplate::with_no_asset_tracing(
@@ -3263,7 +3271,7 @@ mod tests {
         let tx = Transaction::from_operation(Operation::TransferAsset(transfer), seq_id);
         let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
 
-        let res = ledger.apply_transaction(&mut block, effect);
+        let res = ledger.apply_transaction(&mut block, effect, false);
         assert!(res.is_err());
         // Cant transfer non-transferable asset through some intermediate operation
         // In this case, alice attempts to spend her non-transferable asset in the same transaction it
@@ -3306,7 +3314,7 @@ mod tests {
         transfer.sign(&alice);
         tx.body.operations.push(Operation::TransferAsset(transfer));
         let effect = TxnEffect::compute_effect(tx).unwrap();
-        let res = ledger.apply_transaction(&mut block, effect);
+        let res = ledger.apply_transaction(&mut block, effect, false);
         assert!(res.is_err());
     }
 
@@ -3385,7 +3393,7 @@ mod tests {
         );
         let mut block = ledger.start_block().unwrap();
         let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
-        let res = ledger.apply_transaction(&mut block, effect);
+        let res = ledger.apply_transaction(&mut block, effect, false);
         assert!(res.is_err());
 
         // Issue and transfer the asset to with the unmatched tracing policy
@@ -3401,7 +3409,7 @@ mod tests {
             unmatched_tracing_policy,
         );
         let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
-        let res = ledger.apply_transaction(&mut block, effect);
+        let res = ledger.apply_transaction(&mut block, effect, false);
         assert!(res.is_err());
 
         // Issue and transfer the asset with the correct tracing policy
@@ -3417,7 +3425,7 @@ mod tests {
             tracing_policy,
         );
         let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
-        let res = ledger.apply_transaction(&mut block, effect);
+        let res = ledger.apply_transaction(&mut block, effect, false);
         // dbg!(&res);
         assert!(res.is_ok());
     }
@@ -3465,7 +3473,7 @@ mod tests {
             let effect = TxnEffect::compute_effect(tx).unwrap();
 
             let mut block = ledger.start_block().unwrap();
-            let res = ledger.apply_transaction(&mut block, effect);
+            let res = ledger.apply_transaction(&mut block, effect, false);
             assert!(res.is_err());
 
             // Ensure that cap can be reached
@@ -3479,7 +3487,7 @@ mod tests {
                 &issuer,
             );
             let effect = TxnEffect::compute_effect(tx).unwrap();
-            ledger.apply_transaction(&mut block, effect).unwrap();
+            ledger.apply_transaction(&mut block, effect, false).unwrap();
             ledger.finish_block(block).unwrap();
 
             // Cant try to exceed asset cap by issuing confidentially
@@ -3494,7 +3502,7 @@ mod tests {
             );
             let effect = TxnEffect::compute_effect(tx).unwrap();
             let mut block = ledger.start_block().unwrap();
-            let res = ledger.apply_transaction(&mut block, effect);
+            let res = ledger.apply_transaction(&mut block, effect, false);
             assert!(res.is_err());
         }
     }
@@ -3541,7 +3549,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
         {
             let mut block = ledger.start_block().unwrap();
-            ledger.apply_transaction(&mut block, effect).unwrap();
+            ledger.apply_transaction(&mut block, effect, false).unwrap();
             ledger.finish_block(block).unwrap();
         }
 
@@ -3590,7 +3598,7 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
 
         let mut block = ledger.start_block().unwrap();
-        let temp_sid = ledger.apply_transaction(&mut block, effect).unwrap();
+        let temp_sid = ledger.apply_transaction(&mut block, effect, false).unwrap();
 
         let (_txn_sid, txos) = ledger
             .finish_block(block)
@@ -3637,7 +3645,7 @@ mod tests {
         let seq_id = ledger.get_block_commit_count();
         let tx = Transaction::from_operation(Operation::TransferAsset(transfer), seq_id);
         let effect = TxnEffect::compute_effect(tx).unwrap();
-        ledger.apply_transaction(&mut block, effect).is_ok()
+        ledger.apply_transaction(&mut block, effect, false).is_ok()
     }
 
     #[test]
@@ -3905,7 +3913,7 @@ mod tests {
         );
 
         let effect = TxnEffect::compute_effect(tx).unwrap();
-        let result = ledger.apply_transaction(&mut block, effect);
+        let result = ledger.apply_transaction(&mut block, effect, false);
         assert!(result.is_ok());
     }
 
@@ -3979,7 +3987,7 @@ mod tests {
 
         let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
         let mut block = ledger.start_block().unwrap();
-        let tmp_sid = ledger.apply_transaction(&mut block, effect).unwrap();
+        let tmp_sid = ledger.apply_transaction(&mut block, effect, false).unwrap();
         let txo_sid = ledger
             .finish_block(block)
             .unwrap()
@@ -3995,13 +4003,13 @@ mod tests {
 
         let effect = TxnEffect::compute_effect(tx2).unwrap();
         let mut block = ledger.start_block().unwrap();
-        ledger.apply_transaction(&mut block, effect).unwrap();
+        ledger.apply_transaction(&mut block, effect, false).unwrap();
         ledger.finish_block(block).unwrap();
 
         // Ensure that FRA can only be defined only once.
         let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
         let mut block = ledger.start_block().unwrap();
-        assert!(ledger.apply_transaction(&mut block, effect).is_err());
+        assert!(ledger.apply_transaction(&mut block, effect, false).is_err());
         ledger.abort_block(block);
     }
 }

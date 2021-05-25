@@ -7,8 +7,8 @@
 use crate::{
     data_model::{NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA},
     staking::{
-        td_addr_to_string, Amount, Staking, TendermintAddr, Validator,
-        COINBASE_PRINCIPAL_PK, STAKING_VALIDATOR_MIN_POWER,
+        deny_relative_inputs, td_addr_to_string, Amount, Staking, TendermintAddr,
+        Validator, COINBASE_PRINCIPAL_PK, STAKING_VALIDATOR_MIN_POWER,
     },
 };
 use ruc::*;
@@ -194,8 +194,10 @@ fn check_delegation_context_principal(
         .body
         .operations
         .iter()
-        .flat_map(|op| {
+        .map(|op| {
             if let Operation::TransferAsset(ref x) = op {
+                deny_relative_inputs(x).c(d!())?;
+
                 let keynum = x
                     .body
                     .transfer
@@ -232,11 +234,14 @@ fn check_delegation_context_principal(
                         })
                         .sum::<u64>();
 
-                    return Some(am);
+                    return Ok(am);
                 }
             }
-            None
+            Ok(0)
         })
+        .collect::<Result<Vec<_>>>()
+        .c(d!())?
+        .iter()
         .sum();
 
     alt!(0 < am, Ok(am), Err(eg!()))

@@ -23,8 +23,8 @@ FRA_TOTAL_AMOUNT=21000000000000000
 export LEDGER_DIR=/tmp/xx
 export TENDERMINT_PORT=20000
 export ABCI_PORT=10000
-export SUBMISSION_PORT=9998
-export LEDGER_PORT=9999
+export SUBMISSION_PORT=$((9000 + $RANDOM % 1000))
+export LEDGER_PORT=$((8000 + $RANDOM % 1000))
 
 export TD_NODE_SELF_ADDR=8DB4CBD00D8E6621826BE6A840A98C28D7F27CD9
 
@@ -126,9 +126,10 @@ check() {
 
     println "Now we restart all other validators..."
     make -C ../.. start_debug_env
-    start_node
     println "Wait 10s..."
-    sleep 10
+    sleep 2
+    start_node
+    sleep 8
 
     tail nohup.out
     println "Pay attention to its current state..."

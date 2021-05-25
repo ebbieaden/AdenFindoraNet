@@ -1629,7 +1629,7 @@ mod tests {
 
         let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
         let mut block = ledger.start_block().unwrap();
-        let tmp_sid = ledger.apply_transaction(&mut block, effect).unwrap();
+        let tmp_sid = ledger.apply_transaction(&mut block, effect, false).unwrap();
         let txo_sid = ledger
             .finish_block(block)
             .unwrap()
@@ -1680,7 +1680,7 @@ mod tests {
 
         let effect = TxnEffect::compute_effect(tx2.into_transaction()).unwrap();
         let mut block = ledger.start_block().unwrap();
-        let tmp_sid = ledger.apply_transaction(&mut block, effect).unwrap();
+        let tmp_sid = ledger.apply_transaction(&mut block, effect, false).unwrap();
         // txo_sid[0]: fra_owner to bob
         // txo_sid[1]: fra_owner to fee
         // txo_sid[2]: balance to fra_owner
@@ -1714,7 +1714,7 @@ mod tests {
 
         let effect = TxnEffect::compute_effect(tx3.into_transaction()).unwrap();
         let mut block = ledger.start_block().unwrap();
-        let tmp_sid = ledger.apply_transaction(&mut block, effect).unwrap();
+        let tmp_sid = ledger.apply_transaction(&mut block, effect, false).unwrap();
         // txo_sid[0]: fra_owner to bob
         // txo_sid[1]: balance to fra_owner
         // txo_sid[2]: bob to fee
@@ -1748,7 +1748,7 @@ mod tests {
 
         let effect = TxnEffect::compute_effect(tx4.into_transaction()).unwrap();
         let mut block = ledger.start_block().unwrap();
-        ledger.apply_transaction(&mut block, effect).unwrap();
+        ledger.apply_transaction(&mut block, effect, false).unwrap();
         ledger.finish_block(block).unwrap();
 
         // Ensure that FRA can only be defined only once.
@@ -1756,7 +1756,7 @@ mod tests {
             NoReplayToken::new(&mut ChaChaRng::from_entropy(), 100);
         let effect = TxnEffect::compute_effect(tx).unwrap();
         let mut block = ledger.start_block().unwrap();
-        assert!(ledger.apply_transaction(&mut block, effect).is_err());
+        assert!(ledger.apply_transaction(&mut block, effect, false).is_err());
         ledger.abort_block(block);
     }
 }

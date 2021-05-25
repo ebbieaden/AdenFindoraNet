@@ -16,7 +16,7 @@ pub mod init;
 pub mod ops;
 
 use crate::data_model::{
-    Operation, Transaction, TransferAsset, ASSET_TYPE_FRA, FRA_DECIMALS,
+    Operation, Transaction, TransferAsset, TxoRef, ASSET_TYPE_FRA, FRA_DECIMALS,
 };
 use cosig::CoSigRule;
 use cryptohash::sha256::{self, Digest};
@@ -327,12 +327,8 @@ impl Staking {
             return Err(eg!("malicious behavior: attempting to delegate CoinBase"));
         }
 
-        if let Some(d) = self.delegation_get(&validator) {
-            if BLOCK_HEIGHT_MAX != d.end_height {
-                unreachable!();
-            }
-        } else if owner == validator {
-            // do self-delegation
+        if self.delegation_has_addr(&validator) || owner == validator {
+            // `normal scene` or `do self-delegation`
         } else {
             return Err(eg!("self-delegation has not been finished"));
         }
@@ -820,10 +816,11 @@ impl Staking {
     // Check if this is a valid coinbase operation.
     //
     // - only `TransferAsset` operations are allowed
-    // - all inputs must be owned by `CoinBase`
+    // - all inputs must be owned by `CoinBase` or `CoinBasePrincipal`
     // - all inputs and outputs must be `NonConfidential`
     // - only FRA are involved in this transaction
     // - all outputs must be owned by addresses in 'fra distribution' or 'delegation'
+    // - `Relative` inputs are not allowed
     //
     // **NOTE:** amount is not checked in this function !
     fn seems_valid_coinbase_ops(&self, tx: &Transaction, is_principal: bool) -> bool {
@@ -834,7 +831,8 @@ impl Staking {
         );
 
         let inputs_is_valid = |o: &TransferAsset| {
-            o.body.transfer.inputs.iter().all(|i| i.public_key == cbpk)
+            !has_relative_inputs(o)
+                && o.body.transfer.inputs.iter().all(|i| i.public_key == cbpk)
         };
 
         let outputs_is_valid = |o: &TransferAsset| {
@@ -1172,11 +1170,13 @@ pub const FRA: Amount = 10_u64.pow(FRA_DECIMALS as u32);
 /// Total amount of FRA-units issuance.
 pub const FRA_TOTAL_AMOUNT: Amount = 210_0000_0000 * FRA;
 
-const MIN_DELEGATION_AMOUNT: Amount = 32 * FRA;
-const MAX_DELEGATION_AMOUNT: Amount = FRA_TOTAL_AMOUNT / 10;
+/// Minimum allowable delegation amount.
+pub const MIN_DELEGATION_AMOUNT: Amount = 32 * FRA;
+/// Maximum allowable delegation amount.
+pub const MAX_DELEGATION_AMOUNT: Amount = FRA_TOTAL_AMOUNT / 100;
 
 /// The minimum investment to become a validator through staking.
-pub const STAKING_VALIDATOR_MIN_POWER: Power = 1_000_000_000_000;
+pub const STAKING_VALIDATOR_MIN_POWER: Power = 100_0000 * FRA;
 
 /// The highest height in the context of tendermint.
 pub const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
@@ -1712,6 +1712,25 @@ pub fn is_valid_tendermint_addr(addr: TendermintAddrRef) -> bool {
 
     TENDERMINT_HEX_ADDR_LEN == addr.len()
         && addr.chars().all(|i| i.is_numeric() || i.is_uppercase())
+}
+
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn has_relative_inputs(x: &TransferAsset) -> bool {
+    x.body
+        .inputs
+        .iter()
+        .any(|i| matches!(i, TxoRef::Relative(_)))
+}
+
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn deny_relative_inputs(x: &TransferAsset) -> Result<()> {
+    if has_relative_inputs(x) {
+        Err(eg!("Relative inputs are not allowed"))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

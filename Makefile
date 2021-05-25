@@ -174,7 +174,7 @@ debug_env: stop_debug_env build_release_debug
 	@ cd $(LEDGER_DIR) && tar -xpf debug_env.tar.gz && mv debug_env devnet
 	@ ./scripts/devnet/startnodes.sh
 
-run_demo:
+run_staking_demo:
 	bash tools/staking/demo.sh
 
 start_debug_env:
