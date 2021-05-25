@@ -73,7 +73,9 @@ fn is_default<T: Default + PartialEq>(x: &T) -> bool {
 
 const UTF8_ASSET_TYPES_WORK: bool = false;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Ord, PartialOrd, Serialize,
+)]
 pub struct AssetTypeCode {
     pub val: ZeiAssetType,
 }
@@ -321,7 +323,9 @@ impl Hash for XfrAddress {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize,
+)]
 pub struct IssuerPublicKey {
     pub key: XfrPublicKey,
 }

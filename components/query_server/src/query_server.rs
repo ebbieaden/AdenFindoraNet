@@ -174,10 +174,11 @@ where
     // Add created asset
     pub fn add_created_asset(&mut self, creation: &DefineAsset) {
         let issuer = creation.pubkey;
-        self.created_assets
-            .entry(issuer)
-            .or_insert_with(Vec::new)
-            .push(creation.clone());
+        let set = self.created_assets.entry(issuer).or_insert_with(Vec::new);
+
+        set.push(creation.clone());
+        set.sort_by_key(|i| i.pubkey);
+        set.dedup_by_key(|i| i.pubkey);
     }
 
     // Add traced asset
@@ -186,10 +187,11 @@ where
         if !tracing_policies.is_empty() {
             let issuer = creation.pubkey;
             let new_asset_code = creation.body.asset.code;
-            self.traced_assets
-                .entry(issuer)
-                .or_insert_with(Vec::new)
-                .push(new_asset_code);
+            let set = self.traced_assets.entry(issuer).or_insert_with(Vec::new);
+
+            set.push(new_asset_code);
+            set.sort_by_key(|i| i.val);
+            set.dedup_by_key(|i| i.val);
         }
     }
 

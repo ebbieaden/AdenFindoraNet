@@ -23,25 +23,13 @@ FRA_TOTAL_AMOUNT=21000000000000000
 export LEDGER_DIR=/tmp/xx
 export TENDERMINT_PORT=20000
 export ABCI_PORT=10000
-export SUBMISSION_PORT=9998
-export LEDGER_PORT=9999
+export SUBMISSION_PORT=$((9000 + $RANDOM % 1000))
+export LEDGER_PORT=$((8000 + $RANDOM % 1000))
 
 export TD_NODE_SELF_ADDR=8DB4CBD00D8E6621826BE6A840A98C28D7F27CD9
 
 println() {
     echo -e "\n\x1b[31;01m*===> ${1}\x1b[0m"
-}
-
-init() {
-    make -C ../.. debug_env || exit 1
-
-    printf "bright poem guard trade airport artist soon mountain shoe satisfy fox adapt garden decline uncover when pilot person flat bench connect coach planet hidden" > ${RWD_KEY_PATH}
-
-    fns setup -S ${SERVER_HOST} || exit 1
-    fns setup -O ${RWD_KEY_PATH} || exit 1
-    fns setup -K ${TD_NODE_PUBKEY} || exit 1
-
-    stt init || exit 1
 }
 
 stop_node() {
@@ -57,6 +45,23 @@ start_node() {
 
     find ~/.tendermint -name LOCK | xargs rm -f
     nohup tendermint node --db_backend cleveldb &
+}
+
+init() {
+    stop_node
+    make -C ../.. stop_debug_env
+    pkill -9 tendermint
+    pkill -9 abci_validator_node
+
+    make -C ../.. debug_env || exit 1
+
+    printf "bright poem guard trade airport artist soon mountain shoe satisfy fox adapt garden decline uncover when pilot person flat bench connect coach planet hidden" > ${RWD_KEY_PATH}
+
+    fns setup -S ${SERVER_HOST} || exit 1
+    fns setup -O ${RWD_KEY_PATH} || exit 1
+    fns setup -K ${TD_NODE_PUBKEY} || exit 1
+
+    stt init || exit 1
 }
 
 add_new_validator() {
@@ -105,11 +110,31 @@ check() {
 
     println "Now we unstake..."
     fns unstake
-    println "Wait 60s..."
-    sleep 60
+    println "Wait 30s..."
+    sleep 30
+
     curl ${SERVER_HOST}:26657/validators || exit 1
     println "Our validator has been removed from the validator set..."
     println "The validator set has been restored to its original state..."
+
+    println "Now we stop all other validators..."
+    make -C ../.. stop_debug_env
+    tail nohup.out
+    println "Pay attention to its last state..."
+    println "Wait 10s..."
+    sleep 10
+
+    println "Now we restart all other validators..."
+    make -C ../.. start_debug_env
+    println "Wait 10s..."
+    sleep 2
+    start_node
+    sleep 8
+
+    tail nohup.out
+    println "Pay attention to its current state..."
+    println "YES! All is well..."
+    println "Enjoy..."
 }
 
 init

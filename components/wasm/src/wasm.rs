@@ -18,7 +18,10 @@ use ledger::{
         ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
     },
     policies::{DebtMemo, Fraction},
-    staking::{TendermintAddr, COINBASE_PRINCIPAL_PK},
+    staking::{
+        TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK, MAX_DELEGATION_AMOUNT,
+        MIN_DELEGATION_AMOUNT,
+    },
 };
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
@@ -1428,7 +1431,31 @@ pub fn fra_get_dest_pubkey() -> XfrPublicKey {
 /// The system address used to reveive delegation principals.
 #[wasm_bindgen]
 pub fn get_delegation_target_address() -> String {
+    get_coinbase_principal_address()
+}
+
+#[wasm_bindgen]
+#[allow(missing_docs)]
+pub fn get_coinbase_address() -> String {
+    wallet::public_key_to_base64(&COINBASE_PK)
+}
+
+#[wasm_bindgen]
+#[allow(missing_docs)]
+pub fn get_coinbase_principal_address() -> String {
     wallet::public_key_to_base64(&COINBASE_PRINCIPAL_PK)
+}
+
+#[wasm_bindgen]
+#[allow(missing_docs)]
+pub fn get_delegation_min_amount() -> u64 {
+    MIN_DELEGATION_AMOUNT
+}
+
+#[wasm_bindgen]
+#[allow(missing_docs)]
+pub fn get_delegation_max_amount() -> u64 {
+    MAX_DELEGATION_AMOUNT
 }
 
 #[cfg(test)]
