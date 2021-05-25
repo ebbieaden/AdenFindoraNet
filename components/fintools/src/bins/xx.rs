@@ -725,7 +725,7 @@ mod test {
 
         // will panic because of index overflow,
         // this will only occur in `DeliverTx` of ABCI
-        pnk!(ledger.apply_transaction(&mut block, effect));
+        pnk!(ledger.apply_transaction(&mut block, effect, false));
 
         pnk!(ledger.finish_block(block));
     }
@@ -738,7 +738,7 @@ mod test {
 
         let effect = pnk!(TxnEffect::compute_effect(tx));
         let mut block = pnk!(ledger.start_block());
-        pnk!(ledger.apply_transaction(&mut block, effect));
+        pnk!(ledger.apply_transaction(&mut block, effect, false));
         pnk!(ledger.finish_block(block));
     }
 
@@ -752,7 +752,7 @@ mod test {
 
         let effect = pnk!(TxnEffect::compute_effect(tx));
         let mut block = pnk!(ledger.start_block());
-        pnk!(ledger.apply_transaction(&mut block, effect));
+        pnk!(ledger.apply_transaction(&mut block, effect, false));
         pnk!(ledger.finish_block(block));
     }
 
@@ -823,7 +823,9 @@ mod test {
         let tx = fra_gen_initial_tx(&fra_owner_kp);
         let effect = TxnEffect::compute_effect(tx).c(d!())?;
         let mut block = ledger.start_block().c(d!())?;
-        let tmp_sid = ledger.apply_transaction(&mut block, effect).c(d!())?;
+        let tmp_sid = ledger
+            .apply_transaction(&mut block, effect, false)
+            .c(d!())?;
         let txo_sid = ledger
             .finish_block(block)
             .c(d!())?

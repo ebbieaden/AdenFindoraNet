@@ -327,12 +327,8 @@ impl Staking {
             return Err(eg!("malicious behavior: attempting to delegate CoinBase"));
         }
 
-        if let Some(d) = self.delegation_get(&validator) {
-            if BLOCK_HEIGHT_MAX != d.end_height {
-                unreachable!();
-            }
-        } else if owner == validator {
-            // do self-delegation
+        if self.delegation_has_addr(&validator) || owner == validator {
+            // `normal scene` or `do self-delegation`
         } else {
             return Err(eg!("self-delegation has not been finished"));
         }

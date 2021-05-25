@@ -733,7 +733,11 @@ impl BlockEffect {
     //       new temp SID representing the transaction.
     //   Otherwise, Err(...)
     #[allow(clippy::cognitive_complexity)]
-    pub fn add_txn_effect(&mut self, txn_effect: TxnEffect) -> Result<TxnTempSID> {
+    pub fn add_txn_effect(
+        &mut self,
+        txn_effect: TxnEffect,
+        is_loading: bool,
+    ) -> Result<TxnTempSID> {
         // Check that no inputs are consumed twice
         for (input_sid, _) in txn_effect.input_txos.iter() {
             if self.input_txos.contains_key(&input_sid) {
@@ -782,7 +786,9 @@ impl BlockEffect {
         }
 
         // NOTE: set at the last position
-        self.check_staking(&txn_effect).c(d!())?;
+        if !is_loading {
+            self.check_staking(&txn_effect).c(d!())?;
+        }
 
         ///////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////

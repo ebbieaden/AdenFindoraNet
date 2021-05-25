@@ -239,7 +239,9 @@ where
             TxnEffect::compute_effect(txn.clone())
                 .c(d!())
                 .and_then(|txn_effect| {
-                    ledger.apply_transaction(&mut block, txn_effect).c(d!())
+                    ledger
+                        .apply_transaction(&mut block, txn_effect, false)
+                        .c(d!())
                 });
         match temp_sid {
             Ok(temp_sid) => {
