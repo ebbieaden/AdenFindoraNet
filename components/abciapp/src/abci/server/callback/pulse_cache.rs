@@ -30,14 +30,15 @@ use ruc::*;
 use std::{convert::TryInto, fs};
 
 lazy_static! {
-    static ref PATH: (String, String) = {
+    static ref PATH: (String, String, String) = {
         let ld = crate::abci::LEDGER_DIR.as_deref().unwrap_or("/tmp");
         pnk!(fs::create_dir_all(ld));
 
         let height_cache = format!("{}/.__tendermint_height__", &ld);
         let staking_cache = format!("{}/.____staking____", &ld);
+        let block_pulse_cache = format!("{}/.__block_pulse__", &ld);
 
-        (height_cache, staking_cache)
+        (height_cache, staking_cache, block_pulse_cache)
     };
 }
 
@@ -61,4 +62,14 @@ pub(super) fn read_staking() -> Result<Staking> {
     fs::read(&PATH.1)
         .c(d!())
         .and_then(|bytes| serde_json::from_slice(&bytes).c(d!()))
+}
+
+pub(super) fn write_block_pulse(cnt: u64) -> Result<()> {
+    fs::write(&PATH.2, u64::to_ne_bytes(cnt)).c(d!())
+}
+
+pub(super) fn read_block_pulse() -> Result<u64> {
+    fs::read(&PATH.2)
+        .c(d!())
+        .map(|b| u64::from_ne_bytes(b.try_into().unwrap()))
 }
