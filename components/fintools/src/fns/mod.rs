@@ -8,9 +8,8 @@
 
 use lazy_static::lazy_static;
 use ledger::staking::{
-    check_delegation_amount, td_pubkey_to_bytes, td_pubkey_to_string,
-    td_pubkey_to_td_addr, COINBASE_KP, COINBASE_PK, COINBASE_PRINCIPAL_KP,
-    COINBASE_PRINCIPAL_PK,
+    check_delegation_amount, td_pubkey_to_bytes, td_pubkey_to_td_addr, COINBASE_KP,
+    COINBASE_PK, COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK,
 };
 use ruc::*;
 use std::fs;
@@ -118,7 +117,7 @@ pub fn show() -> Result<()> {
     let td_pubkey = ruc::info!(get_td_pubkey()).map(|i| {
         println!(
             "\x1b[31;01mValidator Node Addr:\x1b[00m\n{}\n",
-            td_pubkey_to_string(&i)
+            td_pubkey_to_td_addr(&i)
         );
     });
 

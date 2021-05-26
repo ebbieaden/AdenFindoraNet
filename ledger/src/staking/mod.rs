@@ -401,6 +401,12 @@ impl Staking {
             } else {
                 return Err(eg!("delegator is not bonded"));
             }
+            if self.addr_is_validator(addr) {
+                // clear its power when a validator do undelegation
+                //
+                // > `panic` should not happen without bug
+                pnk!(self.validator_change_power(addr, u64::MAX, true));
+            }
         } else {
             return Err(eg!("delegator not found"));
         }
@@ -655,7 +661,7 @@ impl Staking {
             .c(d!())?;
 
         if self.addr_is_validator(addr) {
-            // punish vote power if if is a validator
+            // punish vote power if it is a validator
             self.validator_get_power(addr).c(d!()).and_then(|power| {
                 self.validator_change_power(addr, power * percent[0] / percent[1], true)
                     .c(d!())
@@ -1330,13 +1336,15 @@ impl ValidatorData {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn get_validator_by_key(
-        &self,
-        xfr_public_key: &XfrPublicKey,
-    ) -> Result<&Validator> {
-        self.body
-            .get(xfr_public_key)
-            .ok_or(eg!("invalid validator"))
+    pub fn get_validator_by_id(&self, id: &XfrPublicKey) -> Option<&Validator> {
+        self.body.get(id)
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_powered_validator_by_id(&self, id: &XfrPublicKey) -> Option<&Validator> {
+        self.get_validator_by_id(id)
+            .and_then(|v| alt!(0 == v.td_power, None, Some(v)))
     }
 
     #[inline(always)]

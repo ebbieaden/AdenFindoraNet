@@ -12,7 +12,7 @@
 
 ```shell
 # use `make` directly in production env
-make build_release_debug
+make build DBG=1
 
 # you should set up a cluster
 # instead of a raw node in production env

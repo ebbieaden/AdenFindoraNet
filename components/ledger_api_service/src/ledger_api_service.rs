@@ -358,7 +358,7 @@ where
         let validators_list = validators
             .iter()
             .flat_map(|(tendermint_addr, pk)| {
-                validator_data.get_validator_by_key(pk).map(|v| {
+                validator_data.get_powered_validator_by_id(pk).map(|v| {
                     Validator::new(
                         tendermint_addr.clone(),
                         v.td_power,
