@@ -318,7 +318,7 @@ impl Staking {
         validator: TendermintAddrRef,
         am: Amount,
     ) -> Result<()> {
-        let validator = self.td_addr_to_app_pk(validator).c(d!())?;
+        let validator = self.validator_td_addr_to_app_pk(validator).c(d!())?;
         let end_height = BLOCK_HEIGHT_MAX;
 
         check_delegation_amount(am).c(d!())?;
@@ -640,7 +640,7 @@ impl Staking {
         addr: TendermintAddrRef,
         percent: [u64; 2],
     ) -> Result<()> {
-        self.td_addr_to_app_pk(addr)
+        self.validator_td_addr_to_app_pk(addr)
             .c(d!())
             .and_then(|pk| self.governance_penalty_by_pubkey(&pk, percent).c(d!()))
     }
@@ -717,10 +717,13 @@ impl Staking {
         Ok(())
     }
 
-    // Look up the `XfrPublicKey`
-    // co-responding to a specified 'tendermint node address'.
+    /// Look up the `XfrPublicKey`
+    /// co-responding to a specified 'tendermint node address'.
     #[inline(always)]
-    fn td_addr_to_app_pk(&self, addr: TendermintAddrRef) -> Result<XfrPublicKey> {
+    pub fn validator_td_addr_to_app_pk(
+        &self,
+        addr: TendermintAddrRef,
+    ) -> Result<XfrPublicKey> {
         self.validator_get_current()
             .ok_or(eg!())
             .and_then(|vd| vd.addr_td_to_app.get(addr).copied().ok_or(eg!()))
@@ -1005,7 +1008,7 @@ impl Staking {
         addr: TendermintAddrRef,
         block_vote_percent: Option<[Power; 2]>,
     ) -> Result<()> {
-        let pk = self.td_addr_to_app_pk(addr).c(d!())?;
+        let pk = self.validator_td_addr_to_app_pk(addr).c(d!())?;
 
         let commission_rate = if let Some(Some(v)) =
             self.validator_get_current().map(|vd| vd.body.get(&pk))
@@ -1348,7 +1351,7 @@ impl ValidatorData {
     #[allow(missing_docs)]
     pub fn get_powered_validator_by_id(&self, id: &XfrPublicKey) -> Option<&Validator> {
         self.get_validator_by_id(id)
-            .and_then(|v| alt!(0 == v.td_power, None, Some(v)))
+            .and_then(|v| alt!(0 < v.td_power, Some(v), None))
     }
 
     #[inline(always)]

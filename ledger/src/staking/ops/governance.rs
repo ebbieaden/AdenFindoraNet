@@ -156,9 +156,12 @@ pub fn governance_penalty_tendermint_auto(
     bz_kind: &ByzantineKind,
 ) -> Result<()> {
     let rule = RULES.get(bz_kind).ok_or(eg!())?;
-    staking.td_addr_to_app_pk(addr).c(d!()).and_then(|pk| {
-        staking
-            .governance_penalty_by_pubkey(&pk, rule.gen_penalty_percent())
-            .c(d!())
-    })
+    staking
+        .validator_td_addr_to_app_pk(addr)
+        .c(d!())
+        .and_then(|pk| {
+            staking
+                .governance_penalty_by_pubkey(&pk, rule.gen_penalty_percent())
+                .c(d!())
+        })
 }

@@ -1104,6 +1104,18 @@ impl Validator {
     }
 }
 
+#[allow(missing_docs)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ValidatorDetail {
+    pub addr: TendermintAddr,
+    pub is_online: bool,
+    pub voting_power: u64,
+    pub voting_power_rank: usize,
+    pub commission_rate: [u64; 2],
+    pub self_staking: u64,
+    pub fra_rewards: u64,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DelegationInfo {
     pub bond: u64,
