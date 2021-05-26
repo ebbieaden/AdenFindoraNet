@@ -2,7 +2,6 @@ use super::data_model::{
     ClientAssetRecord as RawClientAssetRecord, OwnerMemo as RawOwnerMemo,
     TxoRef as RawTxoRef,
 };
-use super::transaction::{FeeInputs as RawFeeInputs, TransactionBuilder as TxBuilder};
 use ledger::data_model::AuthenticatedKVLookup as AuthKVLookup;
 use std::ops::{Deref, DerefMut};
 use zei::xfr::sig::XfrKeyPair as RawXfrKeyPair;
@@ -49,53 +48,6 @@ impl Deref for XfrPublicKey {
 }
 
 impl DerefMut for XfrPublicKey {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-pub struct TransactionBuilder(TxBuilder);
-
-impl From<TxBuilder> for TransactionBuilder {
-    fn from(v: TxBuilder) -> TransactionBuilder {
-        TransactionBuilder(v)
-    }
-}
-
-impl Deref for TransactionBuilder {
-    type Target = TxBuilder;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for TransactionBuilder {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-pub struct FeeInputs(RawFeeInputs);
-
-impl From<RawFeeInputs> for FeeInputs {
-    fn from(v: RawFeeInputs) -> FeeInputs {
-        FeeInputs(v)
-    }
-}
-
-impl Deref for FeeInputs {
-    type Target = RawFeeInputs;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for FeeInputs {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

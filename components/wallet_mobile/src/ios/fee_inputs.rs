@@ -1,8 +1,8 @@
-use crate::rust::transaction::FeeInputs as RawFeeInputs;
+use crate::rust::transaction::FeeInputs;
 use crate::rust::types::*;
 
 pub extern "C" fn findora_ffi_fee_inputs_new() -> *mut FeeInputs {
-    Box::into_raw(Box::new(RawFeeInputs::new().into()))
+    Box::into_raw(Box::new(FeeInputs::new()))
 }
 
 #[no_mangle]

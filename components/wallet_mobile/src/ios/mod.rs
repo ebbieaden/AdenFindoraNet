@@ -1,13 +1,11 @@
 pub mod fee_inputs;
 pub mod free;
 pub mod tx_builder;
+pub mod tx_op_builder;
 
 use crate::rust::types;
-use ledger::data_model::{
-    AssetRules as PlatformAssetRules, AssetType as PlatformAssetType,
-};
-
 use crate::rust::*;
+use ledger::data_model::AssetType as PlatformAssetType;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr;
@@ -350,4 +348,80 @@ pub unsafe extern "C" fn findora_ffi_base64_to_bech32(pk: *const c_char) -> *mut
     } else {
         ptr::null_mut()
     }
+}
+
+#[no_mangle]
+/// Builds an asset type from a JSON-encoded JavaScript value.
+pub extern "C" fn findora_ffi_asset_type_from_json(
+    asset_type_json: *const c_char,
+) -> *mut AssetType {
+    let asset_type_json = unsafe { CStr::from_ptr(asset_type_json) };
+    let asset_type: PlatformAssetType =
+        serde_json::from_str(asset_type_json.to_str().unwrap_or("")).unwrap();
+
+    if let Ok(info) = AssetType::from_json(asset_type) {
+        Box::into_raw(Box::new(info))
+    } else {
+        ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+/// Fetch the tracing policies associated with this asset type.
+pub unsafe extern "C" fn findora_ffi_asset_type_get_tracing_policies(
+    asset_type: *const AssetType,
+) -> *mut TracingPolicies {
+    assert!(!asset_type.is_null());
+    Box::into_raw(Box::new((*asset_type).get_tracing_policies()))
+}
+
+#[no_mangle]
+/// Converts a base64 encoded public key string to a public key.
+pub extern "C" fn findora_ffi_public_key_from_base64(
+    pk: *const c_char,
+) -> *mut types::XfrPublicKey {
+    let pk = unsafe { CStr::from_ptr(pk) };
+    if let Ok(info) = rs_public_key_from_base64(pk.to_str().unwrap_or("")) {
+        Box::into_raw(Box::new(types::XfrPublicKey::from(info)))
+    } else {
+        ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+/// Creates a relative txo reference as a JSON string. Relative txo references are offset
+/// backwards from the operation they appear in -- 0 is the most recent, (n-1) is the first output
+/// of the transaction.
+///
+/// Use relative txo indexing when referring to outputs of intermediate operations (e.g. a
+/// transaction containing both an issuance and a transfer).
+///
+/// # Arguments
+/// @param {BigInt} idx -  Relative TXO (transaction output) SID.
+pub extern "C" fn findora_ffi_txo_ref_relative(idx: u64) -> *mut TxoRef {
+    Box::into_raw(Box::new(TxoRef::relative(idx)))
+}
+
+#[no_mangle]
+/// Creates an absolute transaction reference as a JSON string.
+///
+/// Use absolute txo indexing when referring to an output that has been assigned a utxo index (i.e.
+/// when the utxo has been committed to the ledger in an earlier transaction).
+///
+/// # Arguments
+/// @param {BigInt} idx -  Txo (transaction output) SID.
+pub extern "C" fn findora_ffi_txo_ref_absolute(idx: u64) -> *mut TxoRef {
+    Box::into_raw(Box::new(TxoRef::absolute(idx)))
+}
+
+#[no_mangle]
+/// Fee smaller than this value will be denied.
+pub extern "C" fn findora_ffi_fra_get_minimal_fee() -> u64 {
+    fra_get_minimal_fee()
+}
+
+#[no_mangle]
+/// The destination for fee to be transfered to.
+pub extern "C" fn findora_ffi_fra_get_dest_pubkey() -> *mut types::XfrPublicKey {
+    Box::into_raw(Box::new(types::XfrPublicKey::from(fra_get_dest_pubkey())))
 }

@@ -8,9 +8,44 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+/**
+ * Object representing an asset definition. Used to fetch tracing policies and any other
+ * information that may be required to construct a valid transfer or issuance.
+ */
+typedef struct AssetType AssetType;
+
 typedef struct AuthenticatedKVLookup AuthenticatedKVLookup;
 
+/**
+ * This object represents an asset record owned by a ledger key pair.
+ * @see {@link module:Findora-Wasm.open_client_asset_record|open_client_asset_record} for information about how to decrypt an encrypted asset
+ * record.
+ */
+typedef struct ClientAssetRecord ClientAssetRecord;
+
 typedef struct FeeInputs FeeInputs;
+
+/**
+ * Asset owner memo. Contains information needed to decrypt an asset record.
+ * @see {@link module:Findora-Wasm.ClientAssetRecord|ClientAssetRecord} for more details about asset records.
+ */
+typedef struct OwnerMemo OwnerMemo;
+
+/**
+ * A collection of tracing policies. Use this object when constructing asset transfers to generate
+ * the correct tracing proofs for traceable assets.
+ */
+typedef struct TracingPolicies TracingPolicies;
+
+/**
+ * Structure that enables clients to construct complex transfers.
+ */
+typedef struct TransferOperationBuilder TransferOperationBuilder;
+
+/**
+ * Indicates whether the TXO ref is an absolute or relative value.
+ */
+typedef struct TxoRef TxoRef;
 
 typedef struct XfrKeyPair XfrKeyPair;
 
@@ -136,10 +171,145 @@ char *findora_ffi_bech32_to_base64(const char *pk);
 
 char *findora_ffi_base64_to_bech32(const char *pk);
 
+/**
+ * Builds an asset type from a JSON-encoded JavaScript value.
+ */
+struct AssetType *findora_ffi_asset_type_from_json(const char *asset_type_json);
+
+/**
+ * Fetch the tracing policies associated with this asset type.
+ */
+struct TracingPolicies *findora_ffi_asset_type_get_tracing_policies(const struct AssetType *asset_type);
+
+/**
+ * Converts a base64 encoded public key string to a public key.
+ */
+struct XfrPublicKey *findora_ffi_public_key_from_base64(const char *pk);
+
+/**
+ * Creates a relative txo reference as a JSON string. Relative txo references are offset
+ * backwards from the operation they appear in -- 0 is the most recent, (n-1) is the first output
+ * of the transaction.
+ *
+ * Use relative txo indexing when referring to outputs of intermediate operations (e.g. a
+ * transaction containing both an issuance and a transfer).
+ *
+ * # Arguments
+ * @param {BigInt} idx -  Relative TXO (transaction output) SID.
+ */
+struct TxoRef *findora_ffi_txo_ref_relative(uint64_t idx);
+
+/**
+ * Creates an absolute transaction reference as a JSON string.
+ *
+ * Use absolute txo indexing when referring to an output that has been assigned a utxo index (i.e.
+ * when the utxo has been committed to the ledger in an earlier transaction).
+ *
+ * # Arguments
+ * @param {BigInt} idx -  Txo (transaction output) SID.
+ */
+struct TxoRef *findora_ffi_txo_ref_absolute(uint64_t idx);
+
+/**
+ * Fee smaller than this value will be denied.
+ */
+uint64_t findora_ffi_fra_get_minimal_fee(void);
+
+/**
+ * The destination for fee to be transfered to.
+ */
+struct XfrPublicKey *findora_ffi_fra_get_dest_pubkey(void);
+
 void findora_ffi_fee_inputs_free(struct FeeInputs *ptr);
 
 void findora_ffi_authenticated_kv_lookup_free(struct AuthenticatedKVLookup *ptr);
 
 void findora_ffi_xfr_public_key_free(struct XfrPublicKey *ptr);
+
+/**
+ * Create a new transfer operation builder.
+ */
+struct TransferOperationBuilder *findora_ffi_transfer_operation_builder_new(void);
+
+/**
+ * Debug function that does not need to go into the docs.
+ */
+char *findora_ffi_transfer_operation_builder_debug(const struct TransferOperationBuilder *builder);
+
+/**
+ * Wraps around TransferOperationBuilder to add an input to a transfer operation builder.
+ */
+struct TransferOperationBuilder *findora_ffi_transfer_operation_builder_add_input_with_tracing(const struct TransferOperationBuilder *builder,
+                                                                                               const struct TxoRef *txo_ref,
+                                                                                               const struct ClientAssetRecord *asset_record,
+                                                                                               const struct OwnerMemo *owner_memo,
+                                                                                               const struct TracingPolicies *tracing_policies,
+                                                                                               const struct XfrKeyPair *key,
+                                                                                               uint64_t amount);
+
+/**
+ * Wraps around TransferOperationBuilder to add an input to a transfer operation builder.
+ */
+struct TransferOperationBuilder *findora_ffi_transfer_operation_builder_add_input_no_tracing(const struct TransferOperationBuilder *builder,
+                                                                                             const struct TxoRef *txo_ref,
+                                                                                             const struct ClientAssetRecord *asset_record,
+                                                                                             const struct OwnerMemo *owner_memo,
+                                                                                             const struct XfrKeyPair *key,
+                                                                                             uint64_t amount);
+
+/**
+ * Wraps around TransferOperationBuilder to add an output to a transfer operation builder.
+ */
+struct TransferOperationBuilder *findora_ffi_transfer_operation_builder_add_output_with_tracing(const struct TransferOperationBuilder *builder,
+                                                                                                uint64_t amount,
+                                                                                                const struct XfrPublicKey *recipient,
+                                                                                                const struct TracingPolicies *tracing_policies,
+                                                                                                const char *code,
+                                                                                                bool conf_amount,
+                                                                                                bool conf_type);
+
+/**
+ * Wraps around TransferOperationBuilder to add an output to a transfer operation builder.
+ */
+struct TransferOperationBuilder *findora_ffi_transfer_operation_builder_add_output_no_tracing(const struct TransferOperationBuilder *builder,
+                                                                                              uint64_t amount,
+                                                                                              const struct XfrPublicKey *recipient,
+                                                                                              const char *code,
+                                                                                              bool conf_amount,
+                                                                                              bool conf_type);
+
+/**
+ * Wraps around TransferOperationBuilder to ensure the transfer inputs and outputs are balanced.
+ * This function will add change outputs for all unspent portions of input records.
+ * @throws Will throw an error if the transaction cannot be balanced.
+ */
+struct TransferOperationBuilder *findora_ffi_transfer_operation_builder_balance(const struct TransferOperationBuilder *builder);
+
+/**
+ * Wraps around TransferOperationBuilder to finalize the transaction.
+ */
+struct TransferOperationBuilder *findora_ffi_transfer_operation_builder_create(const struct TransferOperationBuilder *builder);
+
+/**
+ * Wraps around TransferOperationBuilder to add a signature to the operation.
+ *
+ * All input owners must sign.
+ */
+struct TransferOperationBuilder *findora_ffi_transfer_operation_builder_sign(const struct TransferOperationBuilder *builder,
+                                                                             const struct XfrKeyPair *kp);
+
+/**
+ * Co-sign an input index
+ */
+struct TransferOperationBuilder *findora_ffi_transfer_operation_builder_add_cosignature(const struct TransferOperationBuilder *builder,
+                                                                                        const struct XfrKeyPair *kp,
+                                                                                        uintptr_t input_idx);
+
+char *findora_ffi_transfer_operation_builder_builder(const struct TransferOperationBuilder *builder);
+
+/**
+ * Wraps around TransferOperationBuilder to extract an operation expression as JSON.
+ */
+char *findora_ffi_transfer_operation_builder_transaction(const struct TransferOperationBuilder *builder);
 
 #endif /* wallet_mobile_ffi_h */

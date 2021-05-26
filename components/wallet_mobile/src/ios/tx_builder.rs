@@ -1,4 +1,4 @@
-use crate::rust::types::TransactionBuilder;
+use crate::rust::TransactionBuilder;
 
 pub extern "C" fn findora_ffi_transaction_builder_add_fee_relative_auto() {}
 
