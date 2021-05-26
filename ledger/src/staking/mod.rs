@@ -700,7 +700,8 @@ impl Staking {
         if DelegationState::Paid == d.state {
             return Err(eg!("delegation has been paid"));
         } else {
-            // NOTE: use amount field, not rwd_amount
+            // NOTE:
+            // punish principal first
             d.entries.values_mut().for_each(|v| {
                 if 0 < am {
                     let i = *v;
@@ -708,6 +709,9 @@ impl Staking {
                     am = am.saturating_sub(i);
                 }
             });
+            // NOTE:
+            // punish rewards if principal is not enough
+            d.rwd_amount = d.rwd_amount.saturating_sub(am);
         }
 
         Ok(())

@@ -34,7 +34,6 @@ pick            = target/$(target_dir)
 release_subdirs = $(bin_dir) $(lib_dir)
 
 bin_files = \
-		./$(pick)/findora \
 		./$(pick)/abci_validator_node \
 		./$(pick)/fns \
 		./$(pick)/stt \
@@ -42,7 +41,6 @@ bin_files = \
 		$(shell go env GOPATH)/bin/tendermint
 
 bin_files_musl_debug = \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/findora \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/fns \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/stt \
@@ -72,7 +70,7 @@ endef
 
 build: tendermint wasm
 ifdef DBG
-	cargo build --bins -p abciapp -p cli2 -p fintools
+	cargo build --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
 else
 	@ echo -e "\x1b[31;01m\$$(DBG) must be defined !\x1b[00m"
