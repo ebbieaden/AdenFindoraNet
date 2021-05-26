@@ -1,3 +1,4 @@
 [submodule "tools/tendermint"]
 	path = tools/tendermint
-	url = https://gitee.com/kt10/tendermint.git
+	url = https://github.com/tendermint/tendermint.git
+	branch = v0.33.5

@@ -7,6 +7,7 @@ extern crate serde_json;
 
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer};
+use ledger::staking::TendermintAddr;
 use ledger::{
     data_model::*,
     staking::{DelegationState, UNBOND_BLOCK_CNT},
@@ -374,6 +375,49 @@ where
     Ok(web::Json(ValidatorList::new(vec![])))
 }
 
+async fn query_validator_detail<SA>(
+    data: web::Data<Arc<RwLock<SA>>>,
+    addr: web::Path<TendermintAddr>,
+) -> actix_web::Result<web::Json<ValidatorDetail>>
+where
+    SA: LedgerAccess,
+{
+    let read = data.read();
+
+    let staking = read.get_staking();
+    let v_id = staking
+        .validator_td_addr_to_app_pk(addr.as_ref())
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+    let v_self_delegation = staking
+        .delegation_get(&v_id)
+        .ok_or_else(|| error::ErrorBadRequest("not exists"))?;
+
+    if let Some(vd) = staking.validator_get_current() {
+        if let Some(v) = vd.body.get(&v_id) {
+            if 0 < v.td_power {
+                let mut power_list =
+                    vd.body.values().map(|v| v.td_power).collect::<Vec<_>>();
+                power_list.sort_unstable();
+                let voting_power_rank =
+                    power_list.len() - power_list.binary_search(&v.td_power).unwrap();
+                let resp = ValidatorDetail {
+                    addr: addr.into_inner(),
+                    is_online: v.signed_last_block,
+                    voting_power: v.td_power,
+                    voting_power_rank,
+                    commission_rate: v.get_commission_rate(),
+                    self_staking: v_self_delegation.amount(),
+                    fra_rewards: v_self_delegation.rwd_amount,
+                };
+                return Ok(web::Json(resp));
+            }
+        }
+    }
+
+    Err(error::ErrorNotFound("not exists"))
+}
+
 async fn query_delegation_info<SA>(
     data: web::Data<Arc<RwLock<SA>>>,
     address: web::Path<String>,
@@ -471,6 +515,7 @@ enum AccessApi {
 pub enum StakingAccessRoutes {
     ValidatorList,
     DelegationInfo,
+    ValidatorDetail,
 }
 
 impl NetworkRoute for StakingAccessRoutes {
@@ -478,6 +523,7 @@ impl NetworkRoute for StakingAccessRoutes {
         let endpoint = match *self {
             StakingAccessRoutes::ValidatorList => "validator_list",
             StakingAccessRoutes::DelegationInfo => "delegation_info",
+            StakingAccessRoutes::ValidatorDetail => "validator_detail",
         };
         "/".to_owned() + endpoint
     }
@@ -651,6 +697,10 @@ where
         .route(
             &StakingAccessRoutes::DelegationInfo.with_arg_template("XfrPublicKey"),
             web::get().to(query_delegation_info::<SA>),
+        )
+        .route(
+            &StakingAccessRoutes::ValidatorDetail.with_arg_template("NodeAddress"),
+            web::get().to(query_validator_detail::<SA>),
         )
     }
 }
