@@ -1233,7 +1233,7 @@ pub const BLOCK_INTERVAL: u64 = 15 + 1;
 pub const BLOCK_INTERVAL: u64 = 5 + 1;
 
 /// ...
-pub const UNBOND_BLOCK_CNT: u64 = 20;
+pub const UNBOND_BLOCK_CNT: u64 = 5;
 
 // minimal number of validators
 pub(crate) const VALIDATORS_MIN: usize = 6;
