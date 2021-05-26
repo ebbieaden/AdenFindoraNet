@@ -16,6 +16,11 @@ typedef struct XfrKeyPair XfrKeyPair;
 
 typedef struct XfrPublicKey XfrPublicKey;
 
+typedef struct ByteBuffer {
+  int64_t len;
+  uint8_t *data;
+} ByteBuffer;
+
 /**
  * Returns the git commit hash and commit date of the commit this library was built against.
  */
@@ -82,7 +87,8 @@ char *findora_ffi_generate_mnemonic_custom(uint8_t words_len,
 
 char *findora_ffi_decryption_pbkdf2_aes256gcm(char *enc_key_pair, const char *password);
 
-char *findora_ffi_encryption_pbkdf2_aes256gcm(const char *key_pair, const char *password);
+struct ByteBuffer findora_ffi_encryption_pbkdf2_aes256gcm(const char *key_pair,
+                                                          const char *password);
 
 /**
  * Constructs a transfer key pair from a hex-encoded string.

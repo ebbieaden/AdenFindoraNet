@@ -3,6 +3,9 @@ pub mod free;
 pub mod tx_builder;
 
 use crate::rust::types;
+use ledger::data_model::{
+    AssetRules as PlatformAssetRules, AssetType as PlatformAssetType,
+};
 
 use crate::rust::*;
 use std::ffi::{CStr, CString};
@@ -171,11 +174,51 @@ pub extern "C" fn findora_ffi_decryption_pbkdf2_aes256gcm(
     string_to_c_char(plaintext)
 }
 
+#[repr(C)]
+pub struct ByteBuffer {
+    len: i64,
+    data: *mut u8,
+}
+
+impl From<Vec<u8>> for ByteBuffer {
+    #[inline]
+    fn from(bytes: Vec<u8>) -> Self {
+        Self::from_vec(bytes)
+    }
+}
+
+impl ByteBuffer {
+    #[inline]
+    pub fn from_vec(bytes: Vec<u8>) -> Self {
+        use std::convert::TryFrom;
+        let mut buf = bytes.into_boxed_slice();
+        let data = buf.as_mut_ptr();
+        let len =
+            i64::try_from(buf.len()).expect("buffer length cannot fit into a i64.");
+        std::mem::forget(buf);
+        Self { data, len }
+    }
+}
+
+#[no_mangle]
+extern "C" fn findora_ffi_free_buffer(buf: ByteBuffer) {
+    use std::convert::TryInto;
+    let len = buf
+        .len
+        .try_into()
+        .expect("ByteBuffer length negative or overflowed");
+    let s = unsafe { std::slice::from_raw_parts_mut(buf.data, len) };
+    let s = s.as_mut_ptr();
+    unsafe {
+        Box::from_raw(s);
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn findora_ffi_encryption_pbkdf2_aes256gcm(
     key_pair: *const c_char,
     password: *const c_char,
-) -> *mut c_char {
+) -> ByteBuffer {
     assert!(!key_pair.is_null());
     assert!(!password.is_null());
 
@@ -184,11 +227,7 @@ pub extern "C" fn findora_ffi_encryption_pbkdf2_aes256gcm(
         c_char_to_string(password),
     );
 
-    if let Ok(s) = String::from_utf8(res) {
-        string_to_c_char(s)
-    } else {
-        ptr::null_mut()
-    }
+    ByteBuffer::from_vec(res)
 }
 
 #[no_mangle]
@@ -240,7 +279,7 @@ pub unsafe extern "C" fn findora_ffi_get_priv_key_str(
 pub unsafe extern "C" fn findora_ffi_restore_keypair_from_mnemonic_default(
     phrase: *const c_char,
 ) -> *mut types::XfrKeyPair {
-    assert!(!phrase.is_null());
+    // assert!(!phrase.is_null());
 
     if let Ok(info) =
         rs_restore_keypair_from_mnemonic_default(c_char_to_string(phrase).as_str())
@@ -258,7 +297,7 @@ pub unsafe extern "C" fn findora_ffi_restore_keypair_from_mnemonic_default(
 pub unsafe extern "C" fn findora_ffi_keypair_to_str(
     key_pair: *const types::XfrKeyPair,
 ) -> *mut c_char {
-    assert!(!key_pair.is_null());
+    // assert!(!key_pair.is_null());
 
     string_to_c_char(keypair_to_str(&*key_pair))
 }

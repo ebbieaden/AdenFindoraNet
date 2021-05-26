@@ -442,7 +442,7 @@ impl TransactionBuilder {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 /// Structure that enables clients to construct complex transfers.
 pub struct TransferOperationBuilder {
     op_builder: PlatformTransferOperationBuilder,
