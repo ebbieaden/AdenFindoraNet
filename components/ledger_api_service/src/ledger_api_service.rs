@@ -383,8 +383,8 @@ where
     SA: LedgerAccess,
 {
     let read = data.read();
-
     let staking = read.get_staking();
+
     let v_id = staking
         .validator_td_addr_to_app_pk(addr.as_ref())
         .c(d!())
@@ -407,7 +407,12 @@ where
                     voting_power: v.td_power,
                     voting_power_rank,
                     commission_rate: v.get_commission_rate(),
-                    self_staking: v_self_delegation.amount(),
+                    self_staking: v_self_delegation
+                        .entries
+                        .iter()
+                        .filter(|(k, _)| **k == v_id)
+                        .map(|(_, n)| n)
+                        .sum(),
                     fra_rewards: v_self_delegation.rwd_amount,
                 };
                 return Ok(web::Json(resp));
