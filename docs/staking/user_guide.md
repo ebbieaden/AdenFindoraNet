@@ -12,6 +12,7 @@
 
 ```shell
 # use `make` directly in production env
+# switch to the `feat-staking-v2-DebugEnv` branch
 make build DBG=1
 
 # you should set up a cluster
@@ -22,6 +23,7 @@ make build DBG=1
 #   - <NODE ID>@https://prod-mainnet-us-west-2-sentry-000-public.prod.findora.org:<PORT>
 #   - <NODE ID>@https://prod-mainnet-us-west-2-sentry-001-public.prod.findora.org:<PORT>
 #
+rm -rf /tmp/findora ~/.tendermint
 tendermint init
 
 curl https://dev-qa01.dev.findora.org:26657/genesis \
