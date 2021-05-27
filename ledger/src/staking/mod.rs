@@ -26,7 +26,7 @@ use ruc::*;
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     convert::TryFrom,
     mem,
 };
@@ -208,7 +208,7 @@ impl Staking {
             }
 
             // clean old data before current height
-            self.validator_clean_before_height(h.saturating_sub(1));
+            self.validator_clean_before_height(h.saturating_sub(1 + UNBOND_BLOCK_CNT));
         }
     }
 
@@ -218,18 +218,29 @@ impl Staking {
         self.vi = self.vi.split_off(&h);
     }
 
-    /// Clean validators with zero power
-    /// after they have been removed from tendermint core.
-    pub fn validator_clean_invalid_items(&mut self) {
-        if let Some(vd) = self.validator_get_current_mut() {
-            vd.body = mem::take(&mut vd.body)
-                .into_iter()
-                .filter(|(_, v)| 0 < v.td_power)
-                .collect();
-            vd.addr_td_to_app = mem::take(&mut vd.addr_td_to_app)
-                .into_iter()
-                .filter(|(_, xfr_pk)| vd.body.contains_key(xfr_pk))
-                .collect();
+    // Clean validators with zero power
+    // after they have been removed from tendermint core.
+    fn validator_clean_invalid_items(&mut self) {
+        if let Some(old) = self
+            .validator_get_effective_at_height(self.cur_height - UNBOND_BLOCK_CNT)
+            .map(|ovd| {
+                ovd.body
+                    .iter()
+                    .filter(|(_, v)| 0 == v.td_power)
+                    .map(|(k, _)| *k)
+                    .collect::<HashSet<_>>()
+            })
+        {
+            if let Some(vd) = self.validator_get_current_mut() {
+                vd.body = mem::take(&mut vd.body)
+                    .into_iter()
+                    .filter(|(k, _)| !old.contains(k))
+                    .collect();
+                vd.addr_td_to_app = mem::take(&mut vd.addr_td_to_app)
+                    .into_iter()
+                    .filter(|(_, xfr_pk)| vd.body.contains_key(xfr_pk))
+                    .collect();
+            }
         }
     }
 
@@ -629,6 +640,8 @@ impl Staking {
             });
 
         self.delegation_process_finished_before_height(h.saturating_sub(4));
+
+        self.validator_clean_invalid_items();
     }
 
     // call this when:
@@ -1131,7 +1144,11 @@ impl Staking {
     /// new validators from public staking operations
     pub fn validator_add_staker(&mut self, h: BlockHeight, v: Validator) -> Result<()> {
         if let Some(vd) = self.validator_get_effective_at_height(h) {
-            if vd.body.contains_key(&v.id) {
+            if vd.body.contains_key(&v.id)
+                || vd
+                    .addr_td_to_app
+                    .contains_key(&td_addr_to_string(&v.td_addr))
+            {
                 return Err(eg!("already exists"));
             }
 

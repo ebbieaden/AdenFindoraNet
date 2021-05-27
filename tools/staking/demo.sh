@@ -73,6 +73,7 @@ add_new_validator() {
 
     rm -rf ${LEDGER_DIR}
     tendermint unsafe_reset_all || exit 1
+    tendermint init || exit 1
     tar -xpf demo_config.tar.gz || exit 1
     mv config.toml genesis.json node_key.json priv_validator_key.json ~/.tendermint/config/ || exit 1
     rm nohup.out 2>/dev/null

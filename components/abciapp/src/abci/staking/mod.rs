@@ -223,9 +223,6 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
         // Therefore, paying every 4 blocks seems to be a good compromise.
         ruc::info_omit!(system_pay(la, &header.proposer_address, fwder));
     }
-
-    // clean validators with zero power
-    clean_outdated_validators(la.get_staking_mut());
 }
 
 // Get the actual voted power of last block.
@@ -463,11 +460,6 @@ fn gen_offline_punish_list(
         .filter(|v| 0 < v.1 && offline_list.contains(&v.0))
         .map(|(id, _)| id.clone())
         .collect())
-}
-
-// call this func after each round of ValidatorUpdate
-fn clean_outdated_validators(staking: &mut Staking) {
-    staking.validator_clean_invalid_items();
 }
 
 #[cfg(feature = "abci_mock")]
