@@ -221,8 +221,14 @@ impl Staking {
     // Clean validators with zero power
     // after they have been removed from tendermint core.
     fn validator_clean_invalid_items(&mut self) {
+        let h = self.cur_height;
+
+        if UNBOND_BLOCK_CNT > h {
+            return;
+        }
+
         if let Some(old) = self
-            .validator_get_effective_at_height(self.cur_height - UNBOND_BLOCK_CNT)
+            .validator_get_effective_at_height(h - UNBOND_BLOCK_CNT)
             .map(|ovd| {
                 ovd.body
                     .iter()
@@ -267,7 +273,7 @@ impl Staking {
                             v.td_power.saturating_add(power)
                         );
                     })
-                    .ok_or(eg!())
+                    .ok_or(eg!("validator not exists"))
             })
     }
 

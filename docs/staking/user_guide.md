@@ -13,7 +13,19 @@
 ```shell
 # use `make` directly in production env
 # switch to the `feat-staking-v2-DebugEnv` branch
-make build DBG=1
+
+You can download:
+- Linux
+    - https://github.com/FindoraNetwork/iii/releases/download/fnstest/fns.linux
+    - https://github.com/FindoraNetwork/iii/releases/download/fnstest/tendermint.linux
+    - https://github.com/FindoraNetwork/iii/releases/download/fnstest/abci_validator_node.linux
+- MacOS
+    - https://github.com/FindoraNetwork/iii/releases/download/fnstest/fns.macos
+    - https://github.com/FindoraNetwork/iii/releases/download/fnstest/tendermint.macos
+    - https://github.com/FindoraNetwork/iii/releases/download/fnstest/abci_validator_node.macos
+
+Or compile from scratch:
+- make build DBG=1
 
 # you should set up a cluster
 # instead of a raw node in production env
