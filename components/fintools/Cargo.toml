@@ -13,6 +13,10 @@ name = "stt"
 path = "src/bins/stt.rs"
 
 [[bin]]
+name = "key_generator"
+path = "src/bins/key_generator.rs"
+
+[[bin]]
 name = "staking_cfg_generator"
 path = "src/bins/cfg_generator.rs"
 

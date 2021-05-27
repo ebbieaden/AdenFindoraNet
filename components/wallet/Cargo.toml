@@ -4,10 +4,6 @@ version = "0.1.0"
 authors = [ "FindoraNetwork" ]
 edition = "2018"
 
-[[bin]]
-name = "key_generator"
-path = "src/key_generator.rs"
-
 [dependencies]
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 rand = "0.8"
