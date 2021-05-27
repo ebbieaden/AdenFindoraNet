@@ -60,6 +60,7 @@ pub(super) fn read_height() -> Result<i64> {
                     .as_str()
                     .ok_or(eg!())
                     .and_then(|h_str| h_str.parse::<i64>().c(d!()))
+                    .and_then(|h| alt!(2 > h, Err(eg!()), Ok(h)))
             })
     };
 
