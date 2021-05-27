@@ -27,6 +27,7 @@
 use lazy_static::lazy_static;
 use ledger::staking::Staking;
 use ruc::*;
+use serde_json::Value;
 use std::{convert::TryInto, fs};
 
 lazy_static! {
@@ -47,9 +48,25 @@ pub(super) fn write_height(h: i64) -> Result<()> {
 }
 
 pub(super) fn read_height() -> Result<i64> {
+    let read_tendermint_state_height = || {
+        // the real-time state path in the abci container
+        const STATE_PATH: &str = "/root/.tendermint/data/priv_validator_state.json";
+
+        fs::read(STATE_PATH)
+            .c(d!())
+            .and_then(|s| serde_json::from_slice::<Value>(&s).c(d!()))
+            .and_then(|v| {
+                v["height"]
+                    .as_str()
+                    .ok_or(eg!())
+                    .and_then(|h_str| h_str.parse::<i64>().c(d!()))
+            })
+    };
+
     fs::read(&PATH.0)
         .c(d!())
         .map(|b| i64::from_ne_bytes(b.try_into().unwrap()))
+        .or_else(|e| read_tendermint_state_height().c(d!(e)))
 }
 
 pub(super) fn write_staking(s: &Staking) -> Result<()> {
