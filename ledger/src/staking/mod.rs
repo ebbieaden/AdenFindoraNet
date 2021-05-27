@@ -123,6 +123,12 @@ impl Staking {
         self.validator_get_effective_at_height(self.cur_height)
     }
 
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn validator_get_current_mut(&mut self) -> Option<&mut ValidatorData> {
+        self.validator_get_effective_at_height_mut(self.cur_height)
+    }
+
     /// Get the validators that will be used for the specified height.
     #[inline(always)]
     pub fn validator_get_effective_at_height(
