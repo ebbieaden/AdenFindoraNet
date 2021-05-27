@@ -218,6 +218,21 @@ impl Staking {
         self.vi = self.vi.split_off(&h);
     }
 
+    /// Clean validators with zero power
+    /// after they have been removed from tendermint core.
+    pub fn validator_clean_invalid_items(&mut self) {
+        if let Some(vd) = self.validator_get_current_mut() {
+            vd.body = mem::take(&mut vd.body)
+                .into_iter()
+                .filter(|(_, v)| 0 < v.td_power)
+                .collect();
+            vd.addr_td_to_app = mem::take(&mut vd.addr_td_to_app)
+                .into_iter()
+                .filter(|(_, xfr_pk)| vd.body.contains_key(xfr_pk))
+                .collect();
+        }
+    }
+
     /// increase/decrease the power of a specified validator.
     fn validator_change_power(
         &mut self,
