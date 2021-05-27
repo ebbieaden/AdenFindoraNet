@@ -10,12 +10,13 @@ fn main() {
     );
     (0..n).for_each(|_| {
         let mnemonic = pnk!(wallet::generate_mnemonic_custom(24, "en"));
-        let pubkey =
-            pnk!(wallet::restore_keypair_from_mnemonic_default(&mnemonic)).get_pk();
-        let pubkey = wallet::public_key_to_base64(&pubkey);
+        let key = wallet::restore_keypair_from_mnemonic_default(&mnemonic)
+            .c(d!())
+            .and_then(|kp| serde_json::to_string_pretty(&kp).c(d!()));
         println!(
-            "\x1b[31;01mMnemonic:\x1b[00m {}\n\x1b[31;01mPubKey:\x1b[00m {}\n",
-            mnemonic, pubkey
+            "\x1b[31;01mMnemonic:\x1b[00m {}\n\x1b[31;01mKey:\x1b[00m {}\n",
+            mnemonic,
+            pnk!(key)
         );
     });
 }
