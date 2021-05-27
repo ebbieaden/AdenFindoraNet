@@ -1,22 +1,18 @@
-use super::data_model::{
-    ClientAssetRecord as RawClientAssetRecord, OwnerMemo as RawOwnerMemo,
-    TxoRef as RawTxoRef,
-};
-use ledger::data_model::AuthenticatedKVLookup as AuthKVLookup;
+use ledger::data_model::AuthenticatedKVLookup as PlatformAuthenticatedKVLookup;
 use std::ops::{Deref, DerefMut};
-use zei::xfr::sig::XfrKeyPair as RawXfrKeyPair;
-use zei::xfr::sig::XfrPublicKey as PublicKey;
+use zei::xfr::sig::{XfrKeyPair as ZeiXfrKeyPair, XfrPublicKey as ZeiXfrPublicKey};
+use zei::xfr::structs::OpenAssetRecord as ZeiOpenAssetRecord;
 
-pub struct AuthenticatedKVLookup(AuthKVLookup);
+pub struct AuthenticatedKVLookup(PlatformAuthenticatedKVLookup);
 
-impl From<AuthKVLookup> for AuthenticatedKVLookup {
-    fn from(v: AuthKVLookup) -> AuthenticatedKVLookup {
+impl From<PlatformAuthenticatedKVLookup> for AuthenticatedKVLookup {
+    fn from(v: PlatformAuthenticatedKVLookup) -> AuthenticatedKVLookup {
         AuthenticatedKVLookup(v)
     }
 }
 
 impl Deref for AuthenticatedKVLookup {
-    type Target = AuthKVLookup;
+    type Target = PlatformAuthenticatedKVLookup;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -31,16 +27,16 @@ impl DerefMut for AuthenticatedKVLookup {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-pub struct XfrPublicKey(PublicKey);
+pub struct XfrPublicKey(ZeiXfrPublicKey);
 
-impl From<PublicKey> for XfrPublicKey {
-    fn from(v: PublicKey) -> XfrPublicKey {
+impl From<ZeiXfrPublicKey> for XfrPublicKey {
+    fn from(v: ZeiXfrPublicKey) -> XfrPublicKey {
         XfrPublicKey(v)
     }
 }
 
 impl Deref for XfrPublicKey {
-    type Target = PublicKey;
+    type Target = ZeiXfrPublicKey;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -55,91 +51,17 @@ impl DerefMut for XfrPublicKey {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Copy, Clone)]
-pub struct TxoRef(RawTxoRef);
-
-impl From<RawTxoRef> for TxoRef {
-    fn from(v: RawTxoRef) -> TxoRef {
-        TxoRef(v)
-    }
-}
-
-impl Deref for TxoRef {
-    type Target = RawTxoRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for TxoRef {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
 #[derive(Clone)]
-pub struct ClientAssetRecord(RawClientAssetRecord);
+pub struct XfrKeyPair(ZeiXfrKeyPair);
 
-impl From<RawClientAssetRecord> for ClientAssetRecord {
-    fn from(v: RawClientAssetRecord) -> ClientAssetRecord {
-        ClientAssetRecord(v)
-    }
-}
-
-impl Deref for ClientAssetRecord {
-    type Target = RawClientAssetRecord;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for ClientAssetRecord {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Clone)]
-pub struct OwnerMemo(RawOwnerMemo);
-
-impl From<RawOwnerMemo> for OwnerMemo {
-    fn from(v: RawOwnerMemo) -> OwnerMemo {
-        OwnerMemo(v)
-    }
-}
-
-impl Deref for OwnerMemo {
-    type Target = RawOwnerMemo;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for OwnerMemo {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Clone)]
-pub struct XfrKeyPair(RawXfrKeyPair);
-
-impl From<RawXfrKeyPair> for XfrKeyPair {
-    fn from(v: RawXfrKeyPair) -> XfrKeyPair {
+impl From<ZeiXfrKeyPair> for XfrKeyPair {
+    fn from(v: ZeiXfrKeyPair) -> XfrKeyPair {
         XfrKeyPair(v)
     }
 }
 
 impl Deref for XfrKeyPair {
-    type Target = RawXfrKeyPair;
+    type Target = ZeiXfrKeyPair;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -147,6 +69,31 @@ impl Deref for XfrKeyPair {
 }
 
 impl DerefMut for XfrKeyPair {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Clone)]
+pub struct OpenAssetRecord(ZeiOpenAssetRecord);
+
+impl From<ZeiOpenAssetRecord> for OpenAssetRecord {
+    fn from(v: ZeiOpenAssetRecord) -> OpenAssetRecord {
+        OpenAssetRecord(v)
+    }
+}
+
+impl Deref for OpenAssetRecord {
+    type Target = ZeiOpenAssetRecord;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for OpenAssetRecord {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

@@ -25,6 +25,8 @@ typedef struct ClientAssetRecord ClientAssetRecord;
 
 typedef struct FeeInputs FeeInputs;
 
+typedef struct OpenAssetRecord OpenAssetRecord;
+
 /**
  * Asset owner memo. Contains information needed to decrypt an asset record.
  * @see {@link module:Findora-Wasm.ClientAssetRecord|ClientAssetRecord} for more details about asset records.
@@ -211,6 +213,20 @@ struct TxoRef *findora_ffi_txo_ref_relative(uint64_t idx);
 struct TxoRef *findora_ffi_txo_ref_absolute(uint64_t idx);
 
 /**
+ * Returns a object containing decrypted owner record information,
+ * where `amount` is the decrypted asset amount, and `asset_type` is the decrypted asset type code.
+ *
+ * @param {ClientAssetRecord} record - Owner record.
+ * @param {OwnerMemo} owner_memo - Owner memo of the associated record.
+ * @param {XfrKeyPair} keypair - Keypair of asset owner.
+ * @see {@link module:Findora-Wasm~ClientAssetRecord#from_json_record|ClientAssetRecord.from_json_record} for information about how to construct an asset record object
+ * from a JSON result returned from the ledger server.
+ */
+struct OpenAssetRecord *findora_ffi_open_client_asset_record(const struct ClientAssetRecord *record,
+                                                             const struct OwnerMemo *owner_memo,
+                                                             const struct XfrKeyPair *keypair);
+
+/**
  * Fee smaller than this value will be denied.
  */
 uint64_t findora_ffi_fra_get_minimal_fee(void);
@@ -220,11 +236,20 @@ uint64_t findora_ffi_fra_get_minimal_fee(void);
  */
 struct XfrPublicKey *findora_ffi_fra_get_dest_pubkey(void);
 
-void findora_ffi_fee_inputs_free(struct FeeInputs *ptr);
+struct FeeInputs *findora_ffi_fee_inputs_new(void);
+
+void findora_ffi_fee_inputs_append(struct FeeInputs *ptr,
+                                   uint64_t am,
+                                   const struct TxoRef *tr,
+                                   const struct ClientAssetRecord *ar,
+                                   const struct OwnerMemo *om,
+                                   const struct XfrKeyPair *kp);
 
 void findora_ffi_authenticated_kv_lookup_free(struct AuthenticatedKVLookup *ptr);
 
 void findora_ffi_xfr_public_key_free(struct XfrPublicKey *ptr);
+
+void findora_ffi_fee_inputs_free(struct FeeInputs *ptr);
 
 /**
  * Create a new transfer operation builder.

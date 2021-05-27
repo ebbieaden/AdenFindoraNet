@@ -1,4 +1,4 @@
-pub mod fee_inputs;
+pub mod fee;
 pub mod free;
 pub mod tx_builder;
 pub mod tx_op_builder;
@@ -415,13 +415,28 @@ pub extern "C" fn findora_ffi_txo_ref_absolute(idx: u64) -> *mut TxoRef {
 }
 
 #[no_mangle]
-/// Fee smaller than this value will be denied.
-pub extern "C" fn findora_ffi_fra_get_minimal_fee() -> u64 {
-    fra_get_minimal_fee()
-}
-
-#[no_mangle]
-/// The destination for fee to be transfered to.
-pub extern "C" fn findora_ffi_fra_get_dest_pubkey() -> *mut types::XfrPublicKey {
-    Box::into_raw(Box::new(types::XfrPublicKey::from(fra_get_dest_pubkey())))
+/// Returns a object containing decrypted owner record information,
+/// where `amount` is the decrypted asset amount, and `asset_type` is the decrypted asset type code.
+///
+/// @param {ClientAssetRecord} record - Owner record.
+/// @param {OwnerMemo} owner_memo - Owner memo of the associated record.
+/// @param {XfrKeyPair} keypair - Keypair of asset owner.
+/// @see {@link module:Findora-Wasm~ClientAssetRecord#from_json_record|ClientAssetRecord.from_json_record} for information about how to construct an asset record object
+/// from a JSON result returned from the ledger server.
+pub unsafe extern "C" fn findora_ffi_open_client_asset_record(
+    record: *const ClientAssetRecord,
+    owner_memo: *const OwnerMemo,
+    keypair: *const types::XfrKeyPair,
+) -> *mut types::OpenAssetRecord {
+    let memo;
+    if owner_memo.is_null() {
+        memo = None
+    } else {
+        memo = Some((*owner_memo).clone())
+    }
+    if let Ok(info) = rs_open_client_asset_record(&*record, memo, &**keypair) {
+        Box::into_raw(Box::new(info.into()))
+    } else {
+        std::ptr::null_mut()
+    }
 }

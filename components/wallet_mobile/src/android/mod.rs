@@ -317,3 +317,32 @@ pub extern "system" fn Java_com_findora_JniApi_base64ToBech32(
     let output = env.new_string(bs).expect("Couldn't create java string!");
     output.into_inner()
 }
+
+#[no_mangle]
+/// Returns a object containing decrypted owner record information,
+/// where `amount` is the decrypted asset amount, and `asset_type` is the decrypted asset type code.
+///
+/// @param {ClientAssetRecord} record - Owner record.
+/// @param {OwnerMemo} owner_memo - Owner memo of the associated record.
+/// @param {XfrKeyPair} keypair - Keypair of asset owner.
+/// @see {@link module:Findora-Wasm~ClientAssetRecord#from_json_record|ClientAssetRecord.from_json_record} for information about how to construct an asset record object
+/// from a JSON result returned from the ledger server.
+pub unsafe extern "system" fn Java_com_findora_JniApi_openClientAssetRecord(
+    _env: JNIEnv,
+    _: JClass,
+    record_ptr: jlong,
+    owner_memo_ptr: jlong,
+    keypair_ptr: jlong,
+) -> jlong {
+    let record = &*(record_ptr as *mut ClientAssetRecord);
+    let owner_memo;
+    if 0 == owner_memo_ptr {
+        owner_memo = None;
+    } else {
+        let memo = &*(owner_memo_ptr as *mut OwnerMemo);
+        owner_memo = Some(memo.clone());
+    }
+    let keypair = &*(keypair_ptr as *mut types::XfrKeyPair);
+    let oar = rs_open_client_asset_record(record, owner_memo, keypair).unwrap();
+    Box::into_raw(Box::new(oar)) as jlong
+}
