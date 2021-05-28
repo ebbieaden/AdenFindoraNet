@@ -11,10 +11,8 @@
 ## Example
 
 ```shell
-# use `make` directly in production env
-# switch to the `feat-staking-v2-DebugEnv` branch
+**You can download**:
 
-You can download:
 - Linux
     - https://github.com/FindoraNetwork/iii/releases/download/fnstest/fns.linux
     - https://github.com/FindoraNetwork/iii/releases/download/fnstest/tendermint.linux
@@ -24,7 +22,10 @@ You can download:
     - https://github.com/FindoraNetwork/iii/releases/download/fnstest/tendermint.macos
     - https://github.com/FindoraNetwork/iii/releases/download/fnstest/abci_validator_node.macos
 
-Or compile from scratch:
+**Or compile from scratch**:
+
+# use `make` directly in production env
+# switch to the `feat-staking-v2-DebugEnv` branch
 - make build DBG=1
 
 # you should set up a cluster

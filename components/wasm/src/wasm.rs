@@ -1431,7 +1431,7 @@ pub fn fra_get_dest_pubkey() -> XfrPublicKey {
 /// The system address used to reveive delegation principals.
 #[wasm_bindgen]
 pub fn get_delegation_target_address() -> String {
-    get_coinbase_principal_address()
+    wallet::public_key_to_base64(&COINBASE_PRINCIPAL_PK)
 }
 
 #[wasm_bindgen]
