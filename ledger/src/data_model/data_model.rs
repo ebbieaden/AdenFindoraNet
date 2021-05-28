@@ -1688,6 +1688,7 @@ pub struct StateCommitmentData {
     pub txns_in_block_hash: HashOf<Vec<Transaction>>, // The hash of the transactions in the block
     pub previous_state_commitment: HashOf<Option<StateCommitmentData>>, // The prior global block hash
     pub transaction_merkle_commitment: HashValue, // The root hash of the transaction Merkle tree
+    pub air_commitment: BitDigest, // for compatible with old data of mainnet
     pub txo_count: u64, // Number of transaction outputs. Used to provide proof that a utxo does not exist
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]

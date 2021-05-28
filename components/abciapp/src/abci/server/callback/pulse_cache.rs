@@ -75,16 +75,27 @@ pub(super) fn read_height() -> Result<i64> {
             })
     };
 
+    let read_recover_height = || {
+        const RECOVER_PATH: &str = "/root/.tendermint/data/recover_block_height";
+
+        fs::read_to_string(RECOVER_PATH).c(d!()).and_then(|h_str| {
+            h_str
+                .parse::<i64>()
+                .c(d!())
+                .and_then(|h| alt!(2 > h, Err(eg!()), Ok(h)))
+        })
+    };
+
     fs::read(&PATH.0)
         .c(d!())
         .map(|b| i64::from_ne_bytes(b.try_into().unwrap()))
         .or_else(|e| {
             e.print();
-            read_recover_height().c(d!())
+            read_tendermint_state_height().c(d!(e))
         })
         .or_else(|e| {
             e.print();
-            read_tendermint_state_height().c(d!(e))
+            read_recover_height().c(d!())
         })
 }
 
