@@ -1471,6 +1471,7 @@ impl LedgerState {
 
     fn compute_and_save_state_commitment_data(&mut self) {
         let prev_commitment = HashOf::new(&self.status.state_commitment_data);
+
         self.status.state_commitment_data = Some(StateCommitmentData {
             bitmap: self.utxo_map.compute_checksum(),
             block_merkle: self.block_merkle.get_root_hash(),
@@ -1482,9 +1483,11 @@ impl LedgerState {
                 .cloned()
                 .unwrap(),
             previous_state_commitment: prev_commitment,
+            air_commitment: BitDigest::from_slice(&[0; 32][..]).unwrap(),
             txo_count: self.status.next_txo.0,
             pulse_count: self.status.pulse_count,
         });
+
         self.status.state_commitment_versions.push(
             self.status
                 .state_commitment_data
@@ -1492,6 +1495,7 @@ impl LedgerState {
                 .unwrap()
                 .compute_commitment(),
         );
+
         self.status.incr_block_commit_count();
     }
 
@@ -2600,6 +2604,7 @@ mod tests {
             txns_in_block_hash: HashOf::new(&vec![]),
             previous_state_commitment: HashOf::new(&None),
             transaction_merkle_commitment: ledger_state.txn_merkle.get_root_hash(),
+            air_commitment: BitDigest::from_slice(&[0; 32][..]).unwrap(),
             txo_count: 0,
             pulse_count: 0,
         };
