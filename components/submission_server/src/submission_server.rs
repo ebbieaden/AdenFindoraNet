@@ -216,7 +216,7 @@ where
 
     pub fn restore_block_pulse(&mut self, cnt: u64) {
         if let Some(b) = self.block.as_mut() {
-            (0..cnt).for_each(|_| {
+            (0..cnt.saturating_sub(LU::block_pulse_count(b))).for_each(|_| {
                 LU::pulse_block(b);
             })
         }

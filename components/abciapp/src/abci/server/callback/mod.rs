@@ -49,7 +49,9 @@ pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
 
     if let Ok(cnt) = ruc::info!(pulse_cache::read_block_pulse()) {
         drop(state);
-        la.begin_block();
+        if la.all_commited() {
+            la.begin_block();
+        }
         la.restore_block_pulse(cnt);
     }
 
