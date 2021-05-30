@@ -440,3 +440,53 @@ pub unsafe extern "C" fn findora_ffi_open_client_asset_record(
         std::ptr::null_mut()
     }
 }
+
+#[no_mangle]
+/// Builds a client record from a JSON-encoded JavaScript value.
+///
+/// @param {JsValue} val - JSON-encoded autehtnicated asset record fetched from ledger server with the `utxo_sid/{sid}` route,
+/// where `sid` can be fetched from the query server with the `get_owned_utxos/{address}` route.
+/// Note: The first field of an asset record is `utxo`. See the example below.
+///
+/// @example
+/// "utxo":{
+///   "amount":{
+///     "NonConfidential":5
+///   },
+///  "asset_type":{
+///     "NonConfidential":[113,168,158,149,55,64,18,189,88,156,133,204,156,46,106,46,232,62,69,233,157,112,240,132,164,120,4,110,14,247,109,127]
+///   },
+///   "public_key":"Glf8dKF6jAPYHzR_PYYYfzaWqpYcMvnrIcazxsilmlA="
+/// }
+///
+/// @see {@link module:Findora-Network~Network#getUtxo|Network.getUtxo} for information about how to
+/// fetch an asset record from the ledger server.
+pub unsafe extern "C" fn findora_ffi_client_asset_record_from_json(
+    val: *const c_char,
+) -> *mut ClientAssetRecord {
+    if let Ok(info) = ClientAssetRecord::from_json(c_char_to_string(val).as_str()) {
+        Box::into_raw(Box::new(info.into()))
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+/// Builds an owner memo from a JSON-serialized JavaScript value.
+/// @param {JsValue} val - JSON owner memo fetched from query server with the `get_owner_memo/{sid}` route,
+/// where `sid` can be fetched from the query server with the `get_owned_utxos/{address}` route. See the example below.
+///
+/// @example
+/// {
+///   "blind_share":[91,251,44,28,7,221,67,155,175,213,25,183,70,90,119,232,212,238,226,142,159,200,54,19,60,115,38,221,248,202,74,248],
+///   "lock":{"ciphertext":[119,54,117,136,125,133,112,193],"encoded_rand":"8KDql2JphPB5WLd7-aYE1bxTQAcweFSmrqymLvPDntM="}
+/// }
+pub unsafe extern "C" fn findora_ffi_owner_memo_from_json(
+    val: *const c_char,
+) -> *mut OwnerMemo {
+    if let Ok(info) = serde_json::from_str(c_char_to_string(val).as_str()) {
+        Box::into_raw(Box::new(OwnerMemo::from_json(info).unwrap()))
+    } else {
+        std::ptr::null_mut()
+    }
+}
