@@ -6,6 +6,7 @@ use crate::rust::*;
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jbyteArray, jint, jlong, jstring};
 use jni::JNIEnv;
+use ledger::data_model::AssetTypeCode;
 use zei::xfr::structs::ASSET_TYPE_LENGTH;
 
 #[no_mangle]
@@ -344,5 +345,58 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_openClientAssetRecord(
     }
     let keypair = &*(keypair_ptr as *mut types::XfrKeyPair);
     let oar = rs_open_client_asset_record(record, owner_memo, keypair).unwrap();
-    Box::into_raw(Box::new(oar)) as jlong
+    Box::into_raw(Box::new(types::OpenAssetRecord::from(oar))) as jlong
+}
+
+#[no_mangle]
+/// pub enum AssetRecordType {
+///     NonConfidentialAmount_ConfidentialAssetType = 0,
+///     ConfidentialAmount_NonConfidentialAssetType = 1,
+///     ConfidentialAmount_ConfidentialAssetType = 2,
+///     NonConfidentialAmount_NonConfidentialAssetType = 3,
+/// }
+pub extern "system" fn Java_com_findora_JniApi_openClientAssetRecordGetRecordType(
+    _env: JNIEnv,
+    _: JClass,
+    record_ptr: jlong,
+) -> jint {
+    let record = unsafe { &*(record_ptr as *mut types::OpenAssetRecord) };
+    record.get_record_type() as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_findora_JniApi_openClientAssetRecordGetAssetType(
+    env: JNIEnv,
+    _: JClass,
+    record_ptr: jlong,
+) -> jstring {
+    let record = unsafe { &*(record_ptr as *mut types::OpenAssetRecord) };
+    let asset_type = AssetTypeCode {
+        val: *record.get_asset_type(),
+    }
+    .to_base64();
+    let output = env
+        .new_string(asset_type)
+        .expect("Couldn't create java string!");
+    output.into_inner()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_findora_JniApi_openClientAssetRecordGetAmount(
+    _env: JNIEnv,
+    _: JClass,
+    record_ptr: jlong,
+) -> jint {
+    let record = unsafe { &*(record_ptr as *mut types::OpenAssetRecord) };
+    *record.get_amount() as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_findora_JniApi_openClientAssetRecordGetPubKey(
+    _env: JNIEnv,
+    _: JClass,
+    record_ptr: jlong,
+) -> jlong {
+    let record = unsafe { &*(record_ptr as *mut types::OpenAssetRecord) };
+    Box::into_raw(Box::new(types::XfrPublicKey::from(*record.get_pub_key()))) as jlong
 }

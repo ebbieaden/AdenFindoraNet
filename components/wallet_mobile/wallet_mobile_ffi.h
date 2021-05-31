@@ -227,6 +227,22 @@ struct OpenAssetRecord *findora_ffi_open_client_asset_record(const struct Client
                                                              const struct XfrKeyPair *keypair);
 
 /**
+ * pub enum AssetRecordType {
+ *     NonConfidentialAmount_ConfidentialAssetType = 0,
+ *     ConfidentialAmount_NonConfidentialAssetType = 1,
+ *     ConfidentialAmount_ConfidentialAssetType = 2,
+ *     NonConfidentialAmount_NonConfidentialAssetType = 3,
+ * }
+ */
+int32_t findora_ffi_open_client_asset_record_get_record_type(const struct OpenAssetRecord *record);
+
+char *findora_ffi_open_client_asset_record_get_asset_type(const struct OpenAssetRecord *record);
+
+uint64_t findora_ffi_open_client_asset_record_get_amount(const struct OpenAssetRecord *record);
+
+struct XfrPublicKey *findora_ffi_open_client_asset_record_get_pub_key(const struct OpenAssetRecord *record);
+
+/**
  * Builds a client record from a JSON-encoded JavaScript value.
  *
  * @param {JsValue} val - JSON-encoded autehtnicated asset record fetched from ledger server with the `utxo_sid/{sid}` route,

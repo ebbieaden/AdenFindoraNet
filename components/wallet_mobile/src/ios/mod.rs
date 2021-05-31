@@ -5,7 +5,7 @@ pub mod tx_op_builder;
 
 use crate::rust::types;
 use crate::rust::*;
-use ledger::data_model::AssetType as PlatformAssetType;
+use ledger::data_model::{AssetType as PlatformAssetType, AssetTypeCode};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr;
@@ -439,6 +439,46 @@ pub unsafe extern "C" fn findora_ffi_open_client_asset_record(
     } else {
         std::ptr::null_mut()
     }
+}
+
+#[no_mangle]
+/// pub enum AssetRecordType {
+///     NonConfidentialAmount_ConfidentialAssetType = 0,
+///     ConfidentialAmount_NonConfidentialAssetType = 1,
+///     ConfidentialAmount_ConfidentialAssetType = 2,
+///     NonConfidentialAmount_NonConfidentialAssetType = 3,
+/// }
+pub unsafe extern "C" fn findora_ffi_open_client_asset_record_get_record_type(
+    record: *const types::OpenAssetRecord,
+) -> i32 {
+    (&*record).get_record_type() as i32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn findora_ffi_open_client_asset_record_get_asset_type(
+    record: *const types::OpenAssetRecord,
+) -> *mut c_char {
+    let asset_type = AssetTypeCode {
+        val: *(&*record).get_asset_type(),
+    }
+    .to_base64();
+    string_to_c_char(asset_type)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn findora_ffi_open_client_asset_record_get_amount(
+    record: *const types::OpenAssetRecord,
+) -> u64 {
+    *(&*record).get_amount()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn findora_ffi_open_client_asset_record_get_pub_key(
+    record: *const types::OpenAssetRecord,
+) -> *mut types::XfrPublicKey {
+    Box::into_raw(Box::new(types::XfrPublicKey::from(
+        *(&*record).get_pub_key(),
+    )))
 }
 
 #[no_mangle]
