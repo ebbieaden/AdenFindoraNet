@@ -150,6 +150,7 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
     last_commit_info: Option<&LastCommitInfo>,
     evs: &[Evidence],
     fwder: &str,
+    is_replaying: bool,
 ) {
     // trigger system staking process
     la.get_staking_mut().delegation_process();
@@ -210,7 +211,9 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
         }
     }
 
-    if 0 == TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed) % COINBASE_PAYMENT_BLOCK_ITV
+    if !is_replaying
+        && 0 == TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)
+            % COINBASE_PAYMENT_BLOCK_ITV
     {
         // In a real consensus cluster, there is no guarantee that
         // transactions sent by CoinBase will be confirmed in the next block due to asynchronous delays.

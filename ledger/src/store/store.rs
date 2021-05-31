@@ -1268,6 +1268,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerStateChecker {
 
         Ok(temp_sid_map)
     }
+
     fn pulse_block(block: &mut BlockEffect) -> u64 {
         block.add_pulse()
     }
@@ -1471,31 +1472,30 @@ impl LedgerState {
 
     fn compute_and_save_state_commitment_data(&mut self) {
         let prev_commitment = HashOf::new(&self.status.state_commitment_data);
+        let bitmap = self.utxo_map.compute_checksum();
+        let block_merkle = self.block_merkle.get_root_hash();
+        let transaction_merkle_commitment = self.txn_merkle.get_root_hash();
+        let txns_in_block_hash =
+            self.status.txns_in_block_hash.as_ref().cloned().unwrap();
+        let previous_state_commitment = prev_commitment;
+        let txo_count = self.status.next_txo.0;
 
-        self.status.state_commitment_data = Some(StateCommitmentData {
-            bitmap: self.utxo_map.compute_checksum(),
-            block_merkle: self.block_merkle.get_root_hash(),
-            transaction_merkle_commitment: self.txn_merkle.get_root_hash(),
-            txns_in_block_hash: self
-                .status
-                .txns_in_block_hash
-                .as_ref()
-                .cloned()
-                .unwrap(),
-            previous_state_commitment: prev_commitment,
+        let mut state_commitment_data = StateCommitmentData {
+            bitmap,
+            block_merkle,
+            transaction_merkle_commitment,
+            txns_in_block_hash,
+            previous_state_commitment,
             air_commitment: BitDigest::from_slice(&[0; 32][..]).unwrap(),
-            txo_count: self.status.next_txo.0,
+            txo_count,
             pulse_count: self.status.pulse_count,
-        });
+        };
+        let state_commitment_data_hash = state_commitment_data.compute_commitment();
 
-        self.status.state_commitment_versions.push(
-            self.status
-                .state_commitment_data
-                .as_ref()
-                .unwrap()
-                .compute_commitment(),
-        );
-
+        self.status.state_commitment_data = Some(state_commitment_data);
+        self.status
+            .state_commitment_versions
+            .push(state_commitment_data_hash);
         self.status.incr_block_commit_count();
     }
 
