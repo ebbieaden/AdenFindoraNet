@@ -1,4 +1,3 @@
-#![allow(warnings)]
 extern crate byteorder;
 extern crate tempdir;
 
@@ -8,6 +7,7 @@ use crate::policies::{calculate_fee, DebtMemo};
 use crate::policy_script::policy_check_txn;
 use crate::staking::Staking;
 use crate::{inp_fail, inv_fail};
+use aoko::std_ext::KtStd;
 use bitmap::{BitMap, SparseMap};
 use cryptohash::sha256::Digest as BitDigest;
 use log::info;
@@ -17,7 +17,6 @@ use rand_core::{CryptoRng, RngCore, SeedableRng};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use sliding_set::SlidingSet;
-use sparse_merkle_tree::{Key, SmtMap256};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -25,7 +24,7 @@ use std::mem;
 use std::path::Path;
 use std::path::PathBuf;
 use utils::HasInvariants;
-use utils::{HashOf, ProofOf, Serialized, SignatureOf};
+use utils::{HashOf, ProofOf, SignatureOf};
 use zei::setup::PublicParams;
 use zei::xfr::lib::XfrNotePolicies;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
@@ -624,14 +623,7 @@ impl LedgerStatus {
             // We could re-check that self.issuance_num doesn't contain `code`,
             // but currently it's redundant with the new-asset-type checks
             } else {
-                let curr_seq_num_limit = self
-                    .issuance_num
-                    .get(&code)
-                    // If a transaction defines and then issues, it should pass.
-                    // However, if there is a bug elsewhere in validation, panicking
-                    // is better than allowing incorrect issuances to pass through.
-                    .or_else(|| Some(&0))
-                    .c(d!())?;
+                let curr_seq_num_limit = self.issuance_num.get(&code).unwrap_or(&0);
                 let min_seq_num = seq_nums.first().c(d!())?;
                 if min_seq_num < curr_seq_num_limit {
                     return Err(eg!(inp_fail!("Minimum seq num is less than limit")));
@@ -650,11 +642,7 @@ impl LedgerStatus {
                 .c(d!(PlatformError::InputsError(None)))?;
             // (1)
             if let Some(cap) = asset_type.properties.asset_rules.max_units {
-                let current_amount = self
-                    .issuance_amounts
-                    .get(code)
-                    .or_else(|| Some(&0))
-                    .c(d!())?;
+                let current_amount = self.issuance_amounts.get(code).unwrap_or(&0);
                 if current_amount
                     .checked_add(*amount)
                     .c(d!(PlatformError::InputsError(None)))?
@@ -1089,7 +1077,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
             block.pulse_count = 0;
 
             // Checkpoint
-            let block_merkle_id = self.checkpoint(&block);
+            let block_merkle_id = self.checkpoint(&block).c(d!())?;
             block.temp_sids.clear();
             block.txns.clear();
 
@@ -1431,7 +1419,7 @@ impl LedgerState {
                     v.push(next_block);
                 }
                 Err(e) => {
-                    if l != "" {
+                    if !l.is_empty() {
                         return Err(eg!(PlatformError::DeserializationError(Some(
                             format!("{:?} (deserializing '{:?}')", e, &l)
                         ))));
@@ -1480,7 +1468,7 @@ impl LedgerState {
         let previous_state_commitment = prev_commitment;
         let txo_count = self.status.next_txo.0;
 
-        let mut state_commitment_data = StateCommitmentData {
+        let state_commitment_data = StateCommitmentData {
             bitmap,
             block_merkle,
             transaction_merkle_commitment,
@@ -1841,18 +1829,15 @@ impl LedgerState {
         })
     }
 
-    pub fn checkpoint(&mut self, block: &BlockEffect) -> u64 {
+    pub fn checkpoint(&mut self, block: &BlockEffect) -> Result<u64> {
         self.save_utxo_map_version();
         let merkle_id = self.compute_and_append_txns_hash(&block);
         self.compute_and_save_state_commitment_data();
-        self.utxo_map.write();
-        self.txn_merkle.write();
-        self.block_merkle.write();
-        // TODO: START https://github.com/findoraorg/platform/issues/307
-        // self.txn_merkle.flush().c(d!())?;
-        // self.block_merkle.flush().c(d!())?;
-        // TODO: END This is being disabled as we decide what to do about about logging, archival, etc
-        merkle_id
+        self.utxo_map.write().c(d!())?;
+        self.txn_merkle.write().c(d!())?;
+        self.block_merkle.write().c(d!())?;
+
+        Ok(merkle_id)
     }
 
     pub fn get_pulse_count(&self) -> u64 {
@@ -1866,7 +1851,7 @@ impl LedgerStatus {
         self.utxos
             .iter()
             .filter(|(_, utxo)| &utxo.0.record.public_key == addr)
-            .map(|(sid, _)| sid.clone())
+            .map(|(sid, _)| *sid)
             .collect()
     }
 
@@ -1902,8 +1887,8 @@ impl LedgerAccess for LedgerState {
                 utxo,
                 authenticated_txn,
                 authenticated_spent_status,
-                state_commitment_data,
                 utxo_location,
+                state_commitment_data,
             })
         } else {
             None
@@ -1935,21 +1920,21 @@ impl LedgerAccess for LedgerState {
         let mut utxos = vec![];
         for sid in sid_list.iter() {
             let utxo = self.status.get_utxo(*sid);
-            if let Some(utxo) = utxo {
+            if let Some(utxo) = utxo.cloned() {
                 let txn_location = *self.status.txo_to_txn_location.get(sid).unwrap();
                 let authenticated_txn = self.get_transaction(txn_location.0).unwrap();
                 let authenticated_spent_status = self.get_utxo_status(*sid);
                 let state_commitment_data =
                     self.status.state_commitment_data.as_ref().unwrap().clone();
                 let utxo_location = txn_location.1;
-                let authUtxo = AuthenticatedUtxo {
-                    utxo: utxo.clone(),
+                let auth_utxo = AuthenticatedUtxo {
+                    utxo,
                     authenticated_txn,
                     authenticated_spent_status,
-                    state_commitment_data,
                     utxo_location,
+                    state_commitment_data,
                 };
-                utxos.push(Some(authUtxo))
+                utxos.push(Some(auth_utxo))
             } else {
                 utxos.push(None)
             } // Should we just change this to return  Vec<AuthenticatedUtxo> ? and not return None for unknown utxos.
@@ -2136,6 +2121,7 @@ pub mod helpers {
         Asset, AssetRules, ConfidentialMemo, DefineAsset, DefineAssetBody,
         IssuerPublicKey, Memo,
     };
+    use std::fmt::Debug;
     use zei::setup::PublicParams;
     use zei::xfr::asset_record::AssetRecordType;
     use zei::xfr::asset_record::{build_blind_asset_record, open_blind_asset_record};
@@ -2175,25 +2161,26 @@ pub mod helpers {
         memo: Option<Memo>,
         confidential_memo: Option<ConfidentialMemo>,
     ) -> DefineAssetBody {
-        let mut token_properties: Asset = Default::default();
-        token_properties.code = *token_code;
-        token_properties.issuer = IssuerPublicKey { key: *issuer_key };
-        token_properties.asset_rules = asset_rules;
+        let mut token = Asset::default().also_mut(|t| {
+            t.code = *token_code;
+            t.issuer = IssuerPublicKey { key: *issuer_key };
+            t.asset_rules = asset_rules;
+        });
 
         if let Some(memo) = memo {
-            token_properties.memo = memo;
+            token.memo = memo;
         } else {
-            token_properties.memo = Memo(String::from(""));
+            token.memo = Memo(String::from(""));
         }
 
         if let Some(confidential_memo) = confidential_memo {
-            token_properties.confidential_memo = confidential_memo;
+            token.confidential_memo = confidential_memo;
         } else {
-            token_properties.confidential_memo = ConfidentialMemo {};
+            token.confidential_memo = ConfidentialMemo {};
         }
 
         DefineAssetBody {
-            asset: Box::new(token_properties),
+            asset: Box::new(token),
         }
     }
 
@@ -2226,10 +2213,12 @@ pub mod helpers {
                     .remove(&temp_sid)
                     .unwrap()
             }
-            Err(e) => panic!(format!(
-                "apply_transaction: error in compute_effect {:?}",
-                e
-            )),
+            Err(e) => {
+                fn unwrap_failed(msg: &str, error: impl Debug) -> ! {
+                    panic!("{}: {:?}", msg, error)
+                }
+                unwrap_failed("apply_transaction: error in compute_effect", e)
+            }
         }
     }
 
@@ -2537,14 +2526,8 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
 mod tests {
     use super::helpers::*;
     use super::*;
-    use crate::data_model::{
-        ASSET_TYPE_FRA, ASSET_TYPE_FRA_BYTES, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
-    };
+    use crate::data_model::{ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN};
     use crate::policies::{calculate_fee, Fraction};
-    use credentials::{
-        credential_commit, credential_issuer_key_gen, credential_sign,
-        credential_user_key_gen, Credential,
-    };
     use rand_core::SeedableRng;
     use tempfile::tempdir;
     use zei::serialization::ZeiFromToBytes;
@@ -2699,7 +2682,7 @@ mod tests {
                 .collect();
 
         // Verify that checkpoint increases the size of utxo_map_versions by 1 if its length < MAX_VERSION
-        ledger_state.checkpoint(&BlockEffect::new());
+        pnk!(ledger_state.checkpoint(&BlockEffect::new()));
         assert_eq!(ledger_state.status.utxo_map_versions.len(), MAX_VERSION);
 
         let count_original = ledger_state.status.block_commit_count;
@@ -2711,7 +2694,7 @@ mod tests {
             .utxo_map_versions
             .push_back((TxnSID(0), digest));
         assert_eq!(ledger_state.status.utxo_map_versions.len(), MAX_VERSION + 1);
-        ledger_state.checkpoint(&BlockEffect::new());
+        pnk!(ledger_state.checkpoint(&BlockEffect::new()));
         assert_eq!(ledger_state.status.utxo_map_versions.len(), MAX_VERSION + 1);
         let (commitment2, v2) = ledger_state.get_state_commitment();
 
@@ -2926,7 +2909,7 @@ mod tests {
         let input_bar_proof = ledger.get_utxo(txo_sid).unwrap();
         let input_bar = (input_bar_proof.clone().utxo.0).record;
         let input_oar = open_blind_asset_record(&input_bar, &None, &key_pair).unwrap();
-        assert!(input_bar_proof.is_valid(state_commitment.clone()));
+        assert!(input_bar_proof.is_valid(state_commitment));
 
         let output_template = AssetRecordTemplate::with_no_asset_tracing(
             100,
@@ -2939,8 +2922,7 @@ mod tests {
             &output_template,
         )
         .unwrap();
-        let input_ar =
-            AssetRecord::from_open_asset_record_no_asset_tracing(input_oar.clone());
+        let input_ar = AssetRecord::from_open_asset_record_no_asset_tracing(input_oar);
 
         let mut transfer = TransferAsset::new(
             TransferAssetBody::new(
@@ -3147,8 +3129,8 @@ mod tests {
         // but this will save the empty checksum, which is
         // enough for a bit of a test.
         assert!(
-            &state_commitment_and_version
-                == &(
+            state_commitment_and_version
+                == (
                     ledger
                         .status
                         .state_commitment_data
@@ -3202,13 +3184,13 @@ mod tests {
         let (_, sids) = apply_transaction(&mut ledger, tx);
         let sid = sids[0];
 
-        let bar = ((ledger.get_utxo(sid).unwrap().utxo.0).record).clone();
+        let bar = ledger.get_utxo(sid).unwrap().utxo.0.record;
 
         let transfer_template = AssetRecordTemplate::with_no_asset_tracing(
             100,
             code.val,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            bob.get_pk_ref().clone(),
+            bob.get_pk(),
         );
         let record = AssetRecord::from_template_no_identity_tracing(
             ledger.get_prng(),
@@ -3224,7 +3206,7 @@ mod tests {
                 &[AssetRecord::from_open_asset_record_no_asset_tracing(
                     open_blind_asset_record(&bar, &None, &alice).unwrap(),
                 )],
-                &[record.clone()],
+                &[record],
                 None,
                 vec![],
                 TransferType::Standard,
@@ -3235,7 +3217,7 @@ mod tests {
         transfer.sign(&alice);
         let seq_id = ledger.get_block_commit_count();
         let tx = Transaction::from_operation(Operation::TransferAsset(transfer), seq_id);
-        let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
+        let effect = TxnEffect::compute_effect(tx).unwrap();
 
         let mut block = ledger.start_block().unwrap();
         let res = ledger.apply_transaction(&mut block, effect, false);
@@ -3245,7 +3227,7 @@ mod tests {
             100,
             code.val,
             AssetRecordType::ConfidentialAmount_ConfidentialAssetType,
-            bob.get_pk_ref().clone(),
+            bob.get_pk(),
         );
         let record = AssetRecord::from_template_no_identity_tracing(
             ledger.get_prng(),
@@ -3261,7 +3243,7 @@ mod tests {
                 &[AssetRecord::from_open_asset_record_no_asset_tracing(
                     open_blind_asset_record(&bar, &None, &alice).unwrap(),
                 )],
-                &[record.clone()],
+                &[record],
                 None,
                 vec![],
                 TransferType::Standard,
@@ -3272,7 +3254,7 @@ mod tests {
         transfer.sign(&alice);
         let seq_id = ledger.get_block_commit_count();
         let tx = Transaction::from_operation(Operation::TransferAsset(transfer), seq_id);
-        let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
+        let effect = TxnEffect::compute_effect(tx).unwrap();
 
         let res = ledger.apply_transaction(&mut block, effect, false);
         assert!(res.is_err());
@@ -3283,7 +3265,7 @@ mod tests {
             100,
             code.val,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            bob.get_pk_ref().clone(),
+            bob.get_pk(),
         );
         let second_record = AssetRecord::from_template_no_identity_tracing(
             ledger.get_prng(),
@@ -3337,7 +3319,7 @@ mod tests {
             identity_tracing: None,
         };
         let unmatched_tracing_policy = TracingPolicy {
-            enc_keys: tracer_kp.enc_key.clone(),
+            enc_keys: tracer_kp.enc_key,
             asset_tracing: false,
             identity_tracing: None,
         };
@@ -3395,7 +3377,7 @@ mod tests {
             0,
         );
         let mut block = ledger.start_block().unwrap();
-        let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
+        let effect = TxnEffect::compute_effect(tx).unwrap();
         let res = ledger.apply_transaction(&mut block, effect, false);
         assert!(res.is_err());
 
@@ -3411,7 +3393,7 @@ mod tests {
             0,
             unmatched_tracing_policy,
         );
-        let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
+        let effect = TxnEffect::compute_effect(tx).unwrap();
         let res = ledger.apply_transaction(&mut block, effect, false);
         assert!(res.is_err());
 
@@ -3427,9 +3409,9 @@ mod tests {
             0,
             tracing_policy,
         );
-        let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
+        let effect = TxnEffect::compute_effect(tx).unwrap();
         let res = ledger.apply_transaction(&mut block, effect, false);
-        // dbg!(&res);
+
         assert!(res.is_ok());
     }
 
@@ -3612,7 +3594,7 @@ mod tests {
 
         // Construct transfer operation
         let mut block = ledger.start_block().unwrap();
-        let input_bar = ((ledger.get_utxo(txo_sid).unwrap().utxo.0).record).clone();
+        let input_bar = ledger.get_utxo(txo_sid).unwrap().utxo.0.record;
         let input_oar = open_blind_asset_record(&input_bar, &None, &alice).unwrap();
 
         let output_template =
@@ -3781,13 +3763,13 @@ mod tests {
             loan_amount,
             debt_code.val,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            lender_key_pair.get_pk_ref().clone(),
+            lender_key_pair.get_pk(),
         );
         let fiat_transfer_template = AssetRecordTemplate::with_no_asset_tracing(
             fiat_amount,
             fiat_code.val,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            borrower_key_pair.get_pk_ref().clone(),
+            borrower_key_pair.get_pk(),
         );
 
         let loan_transfer_record = AssetRecord::from_template_no_identity_tracing(
@@ -3802,8 +3784,8 @@ mod tests {
         )
         .unwrap();
 
-        let fiat_bar = ((ledger.get_utxo(fiat_sid).unwrap().utxo.0).record).clone();
-        let debt_bar = ((ledger.get_utxo(debt_sid).unwrap().utxo.0).record).clone();
+        let fiat_bar = (ledger.get_utxo(fiat_sid).unwrap().utxo.0).record;
+        let debt_bar = (ledger.get_utxo(debt_sid).unwrap().utxo.0).record;
 
         let mut transfer = pnk!(TransferAsset::new(pnk!(TransferAssetBody::new(
             ledger.get_prng(),
@@ -3834,14 +3816,14 @@ mod tests {
         // Attempt to pay off debt with correct interest payment
         let null_public_key = XfrPublicKey::zei_from_bytes(&[0; 32]).unwrap();
         let mut block = ledger.start_block().unwrap();
-        let fiat_bar = ((ledger.get_utxo(fiat_sid).unwrap().utxo.0).record).clone();
-        let debt_bar = ((ledger.get_utxo(debt_sid).unwrap().utxo.0).record).clone();
+        let fiat_bar = ledger.get_utxo(fiat_sid).unwrap().utxo.0.record;
+        let debt_bar = ledger.get_utxo(debt_sid).unwrap().utxo.0.record;
 
         let payment_template = AssetRecordTemplate::with_no_asset_tracing(
             payment_amount,
             fiat_code.val,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            lender_key_pair.get_pk_ref().clone(),
+            lender_key_pair.get_pk(),
         );
         let payment_record = AssetRecord::from_template_no_identity_tracing(
             ledger.get_prng(),
@@ -3865,7 +3847,7 @@ mod tests {
             loan_amount - loan_burn_amount,
             debt_code.val,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            lender_key_pair.get_pk_ref().clone(),
+            lender_key_pair.get_pk(),
         );
         let returned_debt_record = AssetRecord::from_template_no_identity_tracing(
             ledger.get_prng(),
@@ -3877,7 +3859,7 @@ mod tests {
             fiat_amount - payment_amount,
             fiat_code.val,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            borrower_key_pair.get_pk_ref().clone(),
+            borrower_key_pair.get_pk(),
         );
 
         let returned_fiat_record = AssetRecord::from_template_no_identity_tracing(
@@ -3958,8 +3940,7 @@ mod tests {
         )
         .unwrap();
 
-        let input_ar =
-            AssetRecord::from_open_asset_record_no_asset_tracing(input_oar.clone());
+        let input_ar = AssetRecord::from_open_asset_record_no_asset_tracing(input_oar);
 
         let mut transfer = TransferAsset::new(
             TransferAssetBody::new(
@@ -3985,7 +3966,7 @@ mod tests {
         let mut ledger = LedgerState::test_ledger();
         let fra_owner_kp = XfrKeyPair::generate(&mut ChaChaRng::from_entropy());
 
-        let mut tx = fra_gen_initial_tx(&fra_owner_kp);
+        let tx = fra_gen_initial_tx(&fra_owner_kp);
         assert!(tx.check_fee());
 
         let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
@@ -4010,7 +3991,7 @@ mod tests {
         ledger.finish_block(block).unwrap();
 
         // Ensure that FRA can only be defined only once.
-        let effect = TxnEffect::compute_effect(tx.clone()).unwrap();
+        let effect = TxnEffect::compute_effect(tx).unwrap();
         let mut block = ledger.start_block().unwrap();
         assert!(ledger.apply_transaction(&mut block, effect, false).is_err());
         ledger.abort_block(block);

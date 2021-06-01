@@ -9,6 +9,7 @@ build = "build.rs"
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 arrayref = "0.3.5"
 air = { path = "../libs/ads/air" }
+aoko = "0.1"
 base64 = "0.10"
 bincode = "1.3.1"
 bitmap = { path = "../libs/bitmap" }
@@ -21,7 +22,6 @@ credentials = { path = "../libs/credentials"}
 curve25519-dalek = { version =  "2.0.0", features = ["serde"] }
 ed25519-dalek = "1.0.0-pre3"
 hex = "0.3.2"
-itertools = "0.8.0"
 lazy_static = { version = "1.2.0" }
 log = "0.4.8"
 merkle_tree = { path = "../libs/ads/merkle_tree" }
