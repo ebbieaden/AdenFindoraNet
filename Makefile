@@ -148,7 +148,7 @@ tendermint:
 		git submodule update --init --recursive; \
 	else \
 		if [ -d "tools/tendermint" ]; then rm -rf tools/tendermint; fi; \
-		git clone -b v0.33.5 --depth=1 https://github.com/tendermint/tendermint.git tools/tendermint; \
+		git clone -b feat-findora --depth=1 https://gitee.com/kt10/tendermint.git tools/tendermint; \
 	fi
 	# cd tools/tendermint && make install
 	cd tools/tendermint && make build TENDERMINT_BUILD_OPTIONS=cleveldb && cp build/tendermint ~/go/bin/

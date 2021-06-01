@@ -151,11 +151,15 @@ pub fn end_block(
     let begin_block_req = REQ_BEGIN_BLOCK.lock();
     let header = pnk!(begin_block_req.header.as_ref());
 
-    if let Ok(Some(vs)) = ruc::info!(staking::get_validators(
-        la.get_committed_state().read().get_staking(),
-        begin_block_req.last_commit_info.as_ref()
-    )) {
-        resp.set_validator_updates(RepeatedField::from_vec(vs));
+    let is_replaying = !begin_block_req.appHashCurReplay.is_empty();
+
+    if !is_replaying {
+        if let Ok(Some(vs)) = ruc::info!(staking::get_validators(
+            la.get_committed_state().read().get_staking(),
+            begin_block_req.last_commit_info.as_ref()
+        )) {
+            resp.set_validator_updates(RepeatedField::from_vec(vs));
+        }
     }
 
     staking::system_ops(
@@ -163,7 +167,8 @@ pub fn end_block(
         &header,
         begin_block_req.last_commit_info.as_ref(),
         &begin_block_req.byzantine_validators.as_slice(),
-        la.get_fwder().unwrap().as_ref(),
+        la.get_fwder().as_ref(),
+        is_replaying,
     );
 
     resp

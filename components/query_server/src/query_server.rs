@@ -178,7 +178,7 @@ where
 
         set.push(creation.clone());
         set.sort_by_key(|i| i.pubkey);
-        set.dedup_by_key(|i| i.pubkey);
+        set.dedup_by_key(|i| i.body.asset.code);
     }
 
     // Add traced asset

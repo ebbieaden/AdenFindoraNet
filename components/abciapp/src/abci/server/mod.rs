@@ -33,7 +33,7 @@ impl ABCISubmissionServer {
                 SubmissionServer::new_no_auto_commit(
                     prng,
                     Arc::new(RwLock::new(ledger_state)),
-                    Some(TendermintForward { tendermint_reply }),
+                    TendermintForward { tendermint_reply },
                 )
                 .c(d!())?,
             )),
