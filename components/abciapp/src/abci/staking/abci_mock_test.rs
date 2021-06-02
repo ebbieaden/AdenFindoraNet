@@ -1,8 +1,6 @@
 //!
 //! # Integration Testing
 //!
-//! The content of on-chain governance is not covered.
-//!
 
 #![allow(warnings)]
 
@@ -1306,7 +1304,7 @@ fn staking_scene_2() -> Result<()> {
     Ok(())
 }
 
-// Staking to be validator
+// Staking to be a validator
 //
 // 0. issue FRA
 // 1. update validators

@@ -108,7 +108,8 @@ pub fn get_validators(
                 0 < v.td_power
             }
         })
-        .map(|v| (&v.td_pubkey, v.td_power))
+        // this conversion is safe in the context of tendermint
+        .map(|v| (&v.td_pubkey, v.td_power as i64))
         .collect::<Vec<_>>();
 
     if vs.is_empty() {
@@ -120,19 +121,19 @@ pub fn get_validators(
 
     // set the power of every extra validators to zero,
     // then tendermint can remove them from consensus logic.
-    vs.iter_mut().skip(VALIDATOR_LIMIT).for_each(|(_, power)| {
-        *power = 0;
+    vs.iter_mut().skip(VALIDATOR_LIMIT).for_each(|(k, power)| {
+        alt!(cur_entries.contains_key(k), *power = 0, *power = -1);
     });
 
     Ok(Some(
         vs.iter()
+            .filter(|(_, power)| -1 < *power)
             .map(|(pubkey, power)| {
                 let mut vu = ValidatorUpdate::new();
                 let mut pk = PubKey::new();
                 pk.set_field_type("ed25519".to_owned());
                 pk.set_data(pubkey.to_vec());
-                // this conversion is safe in the context of tendermint
-                vu.set_power(*power as i64);
+                vu.set_power(*power);
                 vu.set_pub_key(pk);
                 vu
             })
@@ -277,7 +278,7 @@ fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
     governance_penalty_tendermint_auto(staking, bz.addr, &kind).c(d!())
 }
 
-// Pay for unbond 'Delegations' and 'FraDistributions'.
+// Pay for freed 'Delegations' and 'FraDistributions'.
 fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()> {
     if *TD_NODE_SELF_ADDR != proposer {
         return Ok(());
@@ -285,7 +286,9 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
 
     let staking = la.get_staking();
 
-    // at most 256 items to pay per block
+    // at most `2 * NUM_TO_PAY` items to pay per block
+    const NUM_TO_PAY: usize = 256;
+
     let mut paylist = staking
         .delegation_get_global_rewards()
         .into_iter()
@@ -295,13 +298,13 @@ fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()
                 .iter()
                 .map(|(k, v)| (*k, *v)),
         )
-        .take(512)
+        .take(NUM_TO_PAY)
         .collect::<Vec<_>>();
 
     let mut principal_paylist = staking
         .delegation_get_global_principal()
         .into_iter()
-        .take(512)
+        .take(NUM_TO_PAY)
         .collect::<Vec<_>>();
 
     // sort by amount
