@@ -952,21 +952,23 @@ impl Staking {
             }
         }
 
-        let delegation = delegation
-            .into_iter()
-            .filter(|(addr, am)| {
-                let d = self.delegation_get(addr).unwrap();
-                0 < *am && (d.rwd_amount == *am || d.amount() == *am)
-            })
-            .collect::<HashMap<_, _>>();
+        let delegation_is_valid = delegation.iter().all(|(addr, am)| {
+            let d = self.delegation_get(addr).unwrap();
+            0 < *am && (d.rwd_amount == *am || d.amount() == *am)
+        });
 
+        let distribution_is_valid = distribution.iter().all(|(addr, am)| {
+            0 < *am && self.coinbase.distribution_plan.get(addr).unwrap() == am
+        });
+
+        if !delegation_is_valid || !distribution_is_valid {
+            return Err(eg!("invalid payments"));
+        }
+
+        // avoid double payments by a same tx
         let distribution = distribution
             .into_iter()
-            .filter(|(addr, am)| {
-                0 < *am
-                    && self.coinbase.distribution_plan.get(addr).unwrap() == am
-                    && !delegation.contains_key(addr)
-            })
+            .filter(|(addr, _)| !delegation.contains_key(addr))
             .collect();
 
         Ok((distribution, delegation))
