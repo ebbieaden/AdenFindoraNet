@@ -29,7 +29,7 @@ utils = { path = "../../libs/utils" }
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
 
 [build-dependencies]
-vergen = "3.1.0"
+vergen = "=3.1.0"
 
 [features]
 debug_env = [ "ledger/debug_env", "query_server/debug_env" ]

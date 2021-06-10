@@ -1114,6 +1114,12 @@ pub struct ValidatorDetail {
     pub commission_rate: [u64; 2],
     pub self_staking: u64,
     pub fra_rewards: u64,
+    pub memo: String,
+    pub start_height: u64,
+    pub cur_height: u64,
+    pub block_signed_cnt: u64,
+    pub block_proposed_cnt: u64,
+    pub expected_annualization: [u128; 2],
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

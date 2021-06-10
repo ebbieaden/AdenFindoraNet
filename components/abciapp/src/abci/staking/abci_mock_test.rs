@@ -336,7 +336,7 @@ fn gen_new_validators(n: u8) -> (Vec<StakingValidator>, Vec<XfrKeyPair>) {
                 kp.get_pk(),
                 [50, 100],
                 None,
-                ValidatorKind::Initor
+                ValidatorKind::Staker
             ))
         })
         .collect::<Vec<_>>();
@@ -676,13 +676,6 @@ fn staking_scene_1() -> Result<()> {
         assert!(is_successful(&tx_hash));
     }
 
-    // validators are not allowed to do undelegation
-    for kp in kps.iter() {
-        let tx_hash = undelegate(kp).c(d!())?;
-        wait_one_block();
-        assert!(is_failed(&tx_hash));
-    }
-
     // 6. use `x` to propose a delegation
 
     let tx_hash =
@@ -885,7 +878,7 @@ fn staking_scene_1() -> Result<()> {
 
     // 20. make sure no rewards will be paid
 
-    for _ in 0..(2 + UNBOND_BLOCK_CNT) {
+    for _ in 0..(4 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
         wait_one_block();
     }
@@ -898,13 +891,13 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    for _ in 0..(2 + UNBOND_BLOCK_CNT) {
+    for _ in 0..(4 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
         wait_one_block();
     }
 
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
-    assert!((old_balance - 2 * TX_FEE_MIN) < (41 * FRA + new_balance));
+    assert!((old_balance - 2 * TX_FEE_MIN) < new_balance);
 
     // 21. transfer FRAs from CoinBase to out-plan addr, and make sure it will fail
 

@@ -401,6 +401,14 @@ where
                 power_list.sort_unstable();
                 let voting_power_rank =
                     power_list.len() - power_list.binary_search(&v.td_power).unwrap();
+                let realtime_rate = staking.get_block_rewards_rate();
+                let expected_annualization = [
+                    realtime_rate[0] as u128
+                        * v_self_delegation.proposer_rwd_cnt as u128,
+                    realtime_rate[1] as u128
+                        * (1 + staking.cur_height() - v_self_delegation.start_height)
+                            as u128,
+                ];
                 let resp = ValidatorDetail {
                     addr: addr.into_inner(),
                     is_online: v.signed_last_block,
@@ -414,6 +422,12 @@ where
                         .map(|(_, n)| n)
                         .sum(),
                     fra_rewards: v_self_delegation.rwd_amount,
+                    memo: v.memo.clone().unwrap_or_default(),
+                    start_height: v_self_delegation.start_height,
+                    cur_height: staking.cur_height(),
+                    block_signed_cnt: v.signed_cnt,
+                    block_proposed_cnt: v_self_delegation.proposer_rwd_cnt,
+                    expected_annualization,
                 };
                 return Ok(web::Json(resp));
             }
