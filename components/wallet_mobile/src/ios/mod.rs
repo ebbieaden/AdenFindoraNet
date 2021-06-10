@@ -1,3 +1,4 @@
+pub mod asset_rules;
 pub mod fee;
 pub mod free;
 pub mod tx_builder;
@@ -24,10 +25,20 @@ pub extern "C" fn findora_ffi_random_asset_type() -> *mut c_char {
 
 #[no_mangle]
 /// Generates asset type as a Base64 string from a JSON-serialized JavaScript value.
-pub extern "C" fn findora_ffi_asset_type_from_value(code: *const c_char) -> *mut c_char {
+pub extern "C" fn findora_ffi_asset_type_from_value(code: ByteBuffer) -> *mut c_char {
+    println!(
+        "code ByteBuffer: data_ptr:{:?}, data_len:{:?}",
+        code.data, code.len
+    );
+    use std::convert::TryInto;
+    let len = code
+        .len
+        .try_into()
+        .expect("ByteBuffer length negative or overflowed");
+    let s = unsafe { std::slice::from_raw_parts(code.data, len) };
+    println!("read code: {:?}", s);
     let mut dst = [0u8; ASSET_TYPE_LENGTH];
-    let c_str = unsafe { CStr::from_ptr(code) };
-    dst.copy_from_slice(c_str.to_bytes());
+    dst.copy_from_slice(s);
     string_to_c_char(rs_asset_type_from_value(dst))
 }
 

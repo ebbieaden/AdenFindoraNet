@@ -169,6 +169,7 @@ impl AuthenticatedAssetRecord {
 /// This object represents an asset record owned by a ledger key pair.
 /// @see {@link module:Findora-Wasm.open_client_asset_record|open_client_asset_record} for information about how to decrypt an encrypted asset
 /// record.
+#[repr(C)]
 #[derive(Clone)]
 pub struct ClientAssetRecord {
     pub(crate) txo: TxOutput,
@@ -684,6 +685,7 @@ impl CredentialUserKeyPair {
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 /// Stores threshold and weights for a multisignature requirement.
 pub struct SignatureRules {
     pub(crate) sig_rules: PlatformSignatureRules,
@@ -812,7 +814,7 @@ impl TracingPolicy {
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-#[derive(Default)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 /// When an asset is defined, several options governing the assets must be
 /// specified:
 /// 1. **Traceable**: Records and identities of traceable assets can be decrypted by a provided tracing key. By defaults, assets do not have

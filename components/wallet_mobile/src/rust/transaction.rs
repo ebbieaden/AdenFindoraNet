@@ -109,6 +109,7 @@ pub fn rs_create_debt_memo(
     Ok(serde_json::to_string(&memo).unwrap())
 }
 
+#[derive(Clone)]
 struct FeeInput {
     // Amount
     am: u64,
@@ -135,7 +136,7 @@ impl From<FeeInput> for PlatformFeeInput {
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct FeeInputs {
     inner: Vec<FeeInput>,
 }
@@ -180,6 +181,7 @@ impl FeeInputs {
     }
 }
 
+#[derive(Clone)]
 /// Structure that allows users to construct arbitrary transactions.
 pub struct TransactionBuilder {
     transaction_builder: PlatformTransactionBuilder,

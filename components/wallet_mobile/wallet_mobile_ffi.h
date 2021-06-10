@@ -9,6 +9,27 @@
 #include <stdlib.h>
 
 /**
+ * When an asset is defined, several options governing the assets must be
+ * specified:
+ * 1. **Traceable**: Records and identities of traceable assets can be decrypted by a provided tracing key. By defaults, assets do not have
+ * any tracing policies.
+ * 2. **Transferable**: Non-transferable assets can only be transferred once from the issuer to another user. By default, assets are transferable.
+ * 3. **Updatable**: Whether the asset memo can be updated. By default, assets are not updatable.
+ * 4. **Transfer signature rules**: Signature weights and threshold for a valid transfer. By
+ *    default, there are no special signature requirements.
+ * 5. **Max units**: Optional limit on the total number of units of this asset that can be issued.
+ *    By default, assets do not have issuance caps.
+ * @see {@link module:Findora-Wasm~TracingPolicies|TracingPolicies} for more information about tracing policies.
+ * @see {@link module:Findora-Wasm~TransactionBuilder#add_operation_update_memo|add_operation_update_memo} for more information about how to add
+ * a memo update operation to a transaction.
+ * @see {@link module:Findora-Wasm~SignatureRules|SignatureRules} for more information about co-signatures.
+ * @see {@link
+ * module:Findora-Wasm~TransactionBuilder#add_operation_create_asset|add_operation_create_asset}
+ * for information about how to add asset rules to an asset definition.
+ */
+typedef struct AssetRules AssetRules;
+
+/**
  * Object representing an asset definition. Used to fetch tracing policies and any other
  * information that may be required to construct a valid transfer or issuance.
  */
@@ -17,13 +38,31 @@ typedef struct AssetType AssetType;
 typedef struct AuthenticatedKVLookup AuthenticatedKVLookup;
 
 /**
- * This object represents an asset record owned by a ledger key pair.
- * @see {@link module:Findora-Wasm.open_client_asset_record|open_client_asset_record} for information about how to decrypt an encrypted asset
- * record.
+ * Commitment to a credential record.
+ * @see {@link module:Findora-Wasm.wasm_credential_verify_commitment|wasm_credential_verify_commitment} for information about how to verify a
+ * credential commitment.
  */
-typedef struct ClientAssetRecord ClientAssetRecord;
+typedef struct CredentialCommitment CredentialCommitment;
+
+/**
+ * Proof that a credential is a valid re-randomization of a credential signed by a certain asset
+ * issuer.
+ * @see {@link module:Findora-Wasm.wasm_credential_verify_commitment|wasm_credential_verify_commitment} for information about how to verify a
+ * credential commitment.
+ */
+typedef struct CredentialPoK CredentialPoK;
 
 typedef struct FeeInputs FeeInputs;
+
+/**
+ * Hash that can be stored in the ledger's custom data store.
+ */
+typedef struct KVHash KVHash;
+
+/**
+ * Key for hashes in the ledger's custom data store.
+ */
+typedef struct Key Key;
 
 typedef struct OpenAssetRecord OpenAssetRecord;
 
@@ -34,10 +73,34 @@ typedef struct OpenAssetRecord OpenAssetRecord;
 typedef struct OwnerMemo OwnerMemo;
 
 /**
+ * Public parameters necessary for generating asset records. Generating this is expensive and
+ * should be done as infrequently as possible.
+ * @see {@link module:Findora-Wasm~TransactionBuilder#add_basic_issue_asset|add_basic_issue_asset}
+ * for information using public parameters to create issuance asset records.
+ */
+typedef struct PublicParams PublicParams;
+
+/**
+ * Stores threshold and weights for a multisignature requirement.
+ */
+typedef struct SignatureRules SignatureRules;
+
+/**
  * A collection of tracing policies. Use this object when constructing asset transfers to generate
  * the correct tracing proofs for traceable assets.
  */
 typedef struct TracingPolicies TracingPolicies;
+
+/**
+ * Tracing policy for asset transfers. Can be configured to track credentials, the asset type and
+ * amount, or both.
+ */
+typedef struct TracingPolicy TracingPolicy;
+
+/**
+ * Structure that allows users to construct arbitrary transactions.
+ */
+typedef struct TransactionBuilder TransactionBuilder;
 
 /**
  * Structure that enables clients to construct complex transfers.
@@ -49,6 +112,8 @@ typedef struct TransferOperationBuilder TransferOperationBuilder;
  */
 typedef struct TxoRef TxoRef;
 
+typedef struct Vec_ClientAssetRecord Vec_ClientAssetRecord;
+
 typedef struct XfrKeyPair XfrKeyPair;
 
 typedef struct XfrPublicKey XfrPublicKey;
@@ -57,6 +122,15 @@ typedef struct ByteBuffer {
   int64_t len;
   uint8_t *data;
 } ByteBuffer;
+
+/**
+ * This object represents an asset record owned by a ledger key pair.
+ * @see {@link module:Findora-Wasm.open_client_asset_record|open_client_asset_record} for information about how to decrypt an encrypted asset
+ * record.
+ */
+typedef struct ClientAssetRecord {
+  TxOutput txo;
+} ClientAssetRecord;
 
 /**
  * Returns the git commit hash and commit date of the commit this library was built against.
@@ -68,7 +142,7 @@ char *findora_ffi_random_asset_type(void);
 /**
  * Generates asset type as a Base64 string from a JSON-serialized JavaScript value.
  */
-char *findora_ffi_asset_type_from_value(const char *code);
+char *findora_ffi_asset_type_from_value(struct ByteBuffer code);
 
 /**
  * Given a serialized state commitment and transaction, returns true if the transaction correctly
@@ -279,6 +353,58 @@ struct ClientAssetRecord *findora_ffi_client_asset_record_from_json(const char *
 struct OwnerMemo *findora_ffi_owner_memo_from_json(const char *val);
 
 /**
+ * Create a default set of asset rules. See class description for defaults.
+ */
+struct AssetRules *findora_ffi_asset_rules_new(void);
+
+/**
+ * Adds an asset tracing policy.
+ * @param {TracingPolicy} policy - Tracing policy for the new asset.
+ */
+struct AssetRules *findora_ffi_asset_rules_add_tracing_policy(const struct AssetRules *ar,
+                                                              const struct TracingPolicy *policy);
+
+/**
+ * Set a cap on the number of units of this asset that can be issued.
+ * @param {BigInt} max_units - Maximum number of units that can be issued.
+ */
+struct AssetRules *findora_ffi_asset_rules_set_max_units(const struct AssetRules *ar,
+                                                         uint64_t max_units);
+
+/**
+ * Transferability toggle. Assets that are not transferable can only be transferred by the asset
+ * issuer.
+ * @param {boolean} transferable - Boolean indicating whether asset can be transferred.
+ */
+struct AssetRules *findora_ffi_asset_rules_set_transferable(const struct AssetRules *ar,
+                                                            bool transferable);
+
+/**
+ * The updatable flag determines whether the asset memo can be updated after issuance.
+ * @param {boolean} updatable - Boolean indicating whether asset memo can be updated.
+ * @see {@link module:Findora-Wasm~TransactionBuilder#add_operation_update_memo|add_operation_update_memo} for more information about how to add
+ * a memo update operation to a transaction.
+ */
+struct AssetRules *findora_ffi_asset_rules_set_updatable(const struct AssetRules *ar,
+                                                         bool updatable);
+
+/**
+ * Co-signature rules. Assets with co-signatue rules require additional weighted signatures to
+ * be transferred.
+ * @param {SignatureRules} multisig_rules - Co-signature restrictions.
+ */
+struct AssetRules *findora_ffi_asset_rules_set_transfer_multisig_rules(const struct AssetRules *ar,
+                                                                       const struct SignatureRules *multisig_rules);
+
+/**
+ * Set the decimal number of asset. Return error string if failed, otherwise return changed asset.
+ * #param {Number} decimals - The number of decimals used to set its user representation.
+ * Decimals should be 0 ~ 255.
+ */
+struct AssetRules *findora_ffi_asset_rules_set_decimals(const struct AssetRules *ar,
+                                                        uint8_t decimals);
+
+/**
  * Fee smaller than this value will be denied.
  */
 uint64_t findora_ffi_fra_get_minimal_fee(void);
@@ -302,6 +428,125 @@ void findora_ffi_authenticated_kv_lookup_free(struct AuthenticatedKVLookup *ptr)
 void findora_ffi_xfr_public_key_free(struct XfrPublicKey *ptr);
 
 void findora_ffi_fee_inputs_free(struct FeeInputs *ptr);
+
+struct TransactionBuilder *findora_ffi_transaction_builder_add_fee_relative_auto(const struct TransactionBuilder *builder,
+                                                                                 uint64_t am,
+                                                                                 const struct XfrKeyPair *kp);
+
+struct Vec_ClientAssetRecord findora_ffi_transaction_builder_get_relative_outputs(const struct TransactionBuilder *builder);
+
+/**
+ * As the last operation of any transaction,
+ * add a static fee to the transaction.
+ */
+struct TransactionBuilder *findora_ffi_transaction_builder_add_fee(const struct TransactionBuilder *builder,
+                                                                   const struct FeeInputs *inputs);
+
+/**
+ * A simple fee checker for mainnet v1.0.
+ *
+ * SEE [check_fee](ledger::data_model::Transaction::check_fee)
+ */
+bool findora_ffi_transaction_builder_check_fee(const struct TransactionBuilder *builder);
+
+/**
+ * Create a new transaction builder.
+ */
+struct TransactionBuilder *findora_ffi_transaction_builder_new(uint64_t seq_id);
+
+/**
+ * Wraps around TransactionBuilder to add an asset definition operation to a transaction builder instance.
+ */
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_create_asset(const struct TransactionBuilder *builder,
+                                                                                      const struct XfrKeyPair *key_pair,
+                                                                                      const char *memo,
+                                                                                      const char *token_code,
+                                                                                      const struct AssetRules *asset_rules);
+
+/**
+ * Wraps around TransactionBuilder to add an asset issuance to a transaction builder instance.
+ *
+ * Use this function for simple one-shot issuances.
+ */
+struct TransactionBuilder *findora_ffi_transaction_builder_add_basic_issue_asset(const struct TransactionBuilder *builder,
+                                                                                 const struct XfrKeyPair *key_pair,
+                                                                                 const char *code,
+                                                                                 uint64_t seq_num,
+                                                                                 uint64_t amount,
+                                                                                 bool conf_amount,
+                                                                                 const struct PublicParams *zei_params);
+
+/**
+ * Adds an operation to the transaction builder that appends a credential commitment to the address
+ * identity registry.
+ */
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_air_assign(const struct TransactionBuilder *builder,
+                                                                                    const struct XfrKeyPair *key_pair,
+                                                                                    const CredUserPublicKey *user_public_key,
+                                                                                    const CredIssuerPublicKey *issuer_public_key,
+                                                                                    const struct CredentialCommitment *commitment,
+                                                                                    const struct CredentialPoK *pok);
+
+/**
+ * Adds an operation to the transaction builder that removes a hash from ledger's custom data
+ * store.
+ */
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_kv_update_no_hash(const struct TransactionBuilder *builder,
+                                                                                           const struct XfrKeyPair *auth_key_pair,
+                                                                                           const struct Key *key,
+                                                                                           uint64_t seq_num);
+
+/**
+ * Adds an operation to the transaction builder that adds a hash to the ledger's custom data
+ * store.
+ */
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_kv_update_with_hash(const struct TransactionBuilder *builder,
+                                                                                             const struct XfrKeyPair *auth_key_pair,
+                                                                                             const struct Key *key,
+                                                                                             uint64_t seq_num,
+                                                                                             const struct KVHash *kv_hash);
+
+/**
+ * Adds an operation to the transaction builder that adds a hash to the ledger's custom data
+ * store.
+ */
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_update_memo(const struct TransactionBuilder *builder,
+                                                                                     const struct XfrKeyPair *auth_key_pair,
+                                                                                     const char *code,
+                                                                                     const char *new_memo);
+
+/**
+ * Adds a serialized transfer asset operation to a transaction builder instance.
+ */
+struct TransactionBuilder *findora_ffi_transaction_builder_add_transfer_operation(const struct TransactionBuilder *builder,
+                                                                                  const char *op);
+
+struct TransactionBuilder *findora_ffi_transaction_builder_sign(const struct TransactionBuilder *builder,
+                                                                const struct XfrKeyPair *kp);
+
+/**
+ * Extracts the serialized form of a transaction.
+ */
+char *findora_ffi_transaction_builder_transaction(const struct TransactionBuilder *builder);
+
+/**
+ * Calculates transaction handle.
+ */
+char *findora_ffi_transaction_builder_transaction_handle(const struct TransactionBuilder *builder);
+
+/**
+ * Fetches a client record from a transaction.
+ * @param {number} idx - Record to fetch. Records are added to the transaction builder sequentially.
+ */
+struct ClientAssetRecord *findora_ffi_transaction_builder_get_owner_record(const struct TransactionBuilder *builder,
+                                                                           uintptr_t idx);
+
+/**
+ * Fetches an owner memo from a transaction
+ * @param {number} idx - Owner memo to fetch. Owner memos are added to the transaction builder sequentially.
+ */
+struct OwnerMemo *findora_ffi_transaction_builder_get_owner_memo(const struct TransactionBuilder *builder,
+                                                                 uintptr_t idx);
 
 /**
  * Create a new transfer operation builder.
