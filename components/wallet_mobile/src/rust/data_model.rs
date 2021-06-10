@@ -169,7 +169,6 @@ impl AuthenticatedAssetRecord {
 /// This object represents an asset record owned by a ledger key pair.
 /// @see {@link module:Findora-Wasm.open_client_asset_record|open_client_asset_record} for information about how to decrypt an encrypted asset
 /// record.
-#[repr(C)]
 #[derive(Clone)]
 pub struct ClientAssetRecord {
     pub(crate) txo: TxOutput,

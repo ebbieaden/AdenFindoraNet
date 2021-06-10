@@ -38,11 +38,31 @@ typedef struct AssetType AssetType;
 typedef struct AuthenticatedKVLookup AuthenticatedKVLookup;
 
 /**
+ * This object represents an asset record owned by a ledger key pair.
+ * @see {@link module:Findora-Wasm.open_client_asset_record|open_client_asset_record} for information about how to decrypt an encrypted asset
+ * record.
+ */
+typedef struct ClientAssetRecord ClientAssetRecord;
+
+typedef struct CredIssuerPublicKey CredIssuerPublicKey;
+
+typedef struct CredIssuerSecretKey CredIssuerSecretKey;
+
+typedef struct CredUserPublicKey CredUserPublicKey;
+
+typedef struct CredUserSecretKey CredUserSecretKey;
+
+/**
  * Commitment to a credential record.
  * @see {@link module:Findora-Wasm.wasm_credential_verify_commitment|wasm_credential_verify_commitment} for information about how to verify a
  * credential commitment.
  */
 typedef struct CredentialCommitment CredentialCommitment;
+
+/**
+ * Key pair of a credential issuer.
+ */
+typedef struct CredentialIssuerKeyPair CredentialIssuerKeyPair;
 
 /**
  * Proof that a credential is a valid re-randomization of a credential signed by a certain asset
@@ -51,6 +71,11 @@ typedef struct CredentialCommitment CredentialCommitment;
  * credential commitment.
  */
 typedef struct CredentialPoK CredentialPoK;
+
+/**
+ * Key pair of a credential user.
+ */
+typedef struct CredentialUserKeyPair CredentialUserKeyPair;
 
 typedef struct FeeInputs FeeInputs;
 
@@ -122,15 +147,6 @@ typedef struct ByteBuffer {
   int64_t len;
   uint8_t *data;
 } ByteBuffer;
-
-/**
- * This object represents an asset record owned by a ledger key pair.
- * @see {@link module:Findora-Wasm.open_client_asset_record|open_client_asset_record} for information about how to decrypt an encrypted asset
- * record.
- */
-typedef struct ClientAssetRecord {
-  TxOutput txo;
-} ClientAssetRecord;
 
 /**
  * Returns the git commit hash and commit date of the commit this library was built against.
@@ -353,6 +369,42 @@ struct ClientAssetRecord *findora_ffi_client_asset_record_from_json(const char *
 struct OwnerMemo *findora_ffi_owner_memo_from_json(const char *val);
 
 /**
+ * Generates a new credential issuer key.
+ * @param {JsValue} attributes - Array of attribute types of the form `[{name: "credit_score",
+ * size: 3}]`. The size refers to byte-size of the credential. In this case, the "credit_score"
+ * attribute is represented as a 3 byte string "760". `attributes` is the list of attribute types
+ * that the issuer can sign off on.
+ */
+struct CredentialIssuerKeyPair *findora_ffi_credential_issuer_key_gen(const char *attributes);
+
+/**
+ * Returns the credential issuer's public key.
+ */
+struct CredIssuerPublicKey *findora_ffi_credential_issuer_key_pair_get_pk(const struct CredentialIssuerKeyPair *pair);
+
+/**
+ * Returns the credential issuer's secret key.
+ */
+struct CredIssuerSecretKey *findora_ffi_credential_issuer_key_pair_get_sk(const struct CredentialIssuerKeyPair *pair);
+
+/**
+ * Generates a new credential user key.
+ * @param {CredIssuerPublicKey} issuer_pub_key - The credential issuer that can sign off on this
+ * user's attributes.
+ */
+struct CredentialUserKeyPair *findora_ffi_credential_user_key_gen(const struct CredIssuerPublicKey *issuer_pub_key);
+
+/**
+ * Returns the credential issuer's public key.
+ */
+struct CredUserPublicKey *findora_ffi_cred_issuer_public_key_get_pk(const struct CredentialUserKeyPair *pair);
+
+/**
+ * Returns the credential issuer's secret key.
+ */
+struct CredUserSecretKey *findora_ffi_cred_issuer_public_key_get_sk(const struct CredentialUserKeyPair *pair);
+
+/**
  * Create a default set of asset rules. See class description for defaults.
  */
 struct AssetRules *findora_ffi_asset_rules_new(void);
@@ -433,6 +485,9 @@ struct TransactionBuilder *findora_ffi_transaction_builder_add_fee_relative_auto
                                                                                  uint64_t am,
                                                                                  const struct XfrKeyPair *kp);
 
+/**
+ * Use this func to get the necessary infomations for generating `Relative Inputs`
+ */
 struct Vec_ClientAssetRecord findora_ffi_transaction_builder_get_relative_outputs(const struct TransactionBuilder *builder);
 
 /**
@@ -482,8 +537,8 @@ struct TransactionBuilder *findora_ffi_transaction_builder_add_basic_issue_asset
  */
 struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_air_assign(const struct TransactionBuilder *builder,
                                                                                     const struct XfrKeyPair *key_pair,
-                                                                                    const CredUserPublicKey *user_public_key,
-                                                                                    const CredIssuerPublicKey *issuer_public_key,
+                                                                                    const struct CredUserPublicKey *user_public_key,
+                                                                                    const struct CredIssuerPublicKey *issuer_public_key,
                                                                                     const struct CredentialCommitment *commitment,
                                                                                     const struct CredentialPoK *pok);
 

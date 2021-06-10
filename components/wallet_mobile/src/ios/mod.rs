@@ -7,6 +7,8 @@ pub mod tx_op_builder;
 use crate::rust::types;
 use crate::rust::*;
 use ledger::data_model::{AssetType as PlatformAssetType, AssetTypeCode};
+use rand_chacha::ChaChaRng;
+use rand_core::SeedableRng;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr;
@@ -540,4 +542,62 @@ pub unsafe extern "C" fn findora_ffi_owner_memo_from_json(
     } else {
         std::ptr::null_mut()
     }
+}
+
+/// Generates a new credential issuer key.
+/// @param {JsValue} attributes - Array of attribute types of the form `[{name: "credit_score",
+/// size: 3}]`. The size refers to byte-size of the credential. In this case, the "credit_score"
+/// attribute is represented as a 3 byte string "760". `attributes` is the list of attribute types
+/// that the issuer can sign off on.
+#[no_mangle]
+pub extern "C" fn findora_ffi_credential_issuer_key_gen(
+    attributes: *const c_char,
+) -> *mut CredentialIssuerKeyPair {
+    let attributes: Vec<AttributeDefinition> =
+        serde_json::from_str(c_char_to_string(attributes).as_str()).unwrap();
+    Box::into_raw(Box::new(rs_wasm_credential_issuer_key_gen(attributes)))
+}
+
+/// Returns the credential issuer's public key.
+#[no_mangle]
+pub extern "C" fn findora_ffi_credential_issuer_key_pair_get_pk(
+    pair: &CredentialIssuerKeyPair,
+) -> *mut types::CredIssuerPublicKey {
+    Box::into_raw(Box::new(types::CredIssuerPublicKey::from(pair.get_pk())))
+}
+
+/// Returns the credential issuer's secret key.
+#[no_mangle]
+pub extern "C" fn findora_ffi_credential_issuer_key_pair_get_sk(
+    pair: &CredentialIssuerKeyPair,
+) -> *mut types::CredIssuerSecretKey {
+    Box::into_raw(Box::new(types::CredIssuerSecretKey::from(pair.get_sk())))
+}
+
+/// Generates a new credential user key.
+/// @param {CredIssuerPublicKey} issuer_pub_key - The credential issuer that can sign off on this
+/// user's attributes.
+#[no_mangle]
+pub extern "C" fn findora_ffi_credential_user_key_gen(
+    issuer_pub_key: &types::CredIssuerPublicKey,
+) -> *mut CredentialUserKeyPair {
+    let mut prng = ChaChaRng::from_entropy();
+    let (pk, sk) = credentials::credential_user_key_gen(&mut prng, issuer_pub_key);
+    Box::into_raw(Box::new(CredentialUserKeyPair { pk, sk }))
+}
+
+/// Returns the credential issuer's public key.
+#[no_mangle]
+pub extern "C" fn findora_ffi_cred_issuer_public_key_get_pk(
+    pair: &CredentialUserKeyPair,
+) -> *mut types::CredUserPublicKey {
+    Box::into_raw(Box::new(types::CredUserPublicKey::from(pair.get_pk())))
+}
+
+/// Returns the credential issuer's secret key.
+#[no_mangle]
+pub extern "C" fn findora_ffi_cred_issuer_public_key_get_sk(
+    pair: &CredentialUserKeyPair,
+) -> *mut types::CredUserSecretKey {
+    Box::into_raw(Box::new(types::CredUserSecretKey::from(pair.get_sk())))
 }
