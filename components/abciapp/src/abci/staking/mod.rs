@@ -194,6 +194,7 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
                     v.signed_last_block = false;
                 } else {
                     v.signed_last_block = true;
+                    v.signed_cnt += 1;
                 }
             });
         }

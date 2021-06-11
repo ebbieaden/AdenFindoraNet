@@ -420,15 +420,15 @@ impl Staking {
         let h = self.cur_height;
         let mut orig_h = None;
 
-        if let Some(vd) = self.validator_get_current() {
-            if let Some(v) = vd.body.get(addr) {
-                if ValidatorKind::Initor == v.kind {
-                    return Err(eg!(
-                        "initial validator is not permitted to do self-undelegation"
-                    ));
-                }
-            }
-        }
+        // if let Some(vd) = self.validator_get_current() {
+        //     if let Some(v) = vd.body.get(addr) {
+        //         if ValidatorKind::Initor == v.kind {
+        //             return Err(eg!(
+        //                 "initial validator is not permitted to do self-undelegation"
+        //             ));
+        //         }
+        //     }
+        // }
 
         if let Some(d) = self.di.addr_map.get_mut(addr) {
             if BLOCK_HEIGHT_MAX == d.end_height {
@@ -713,7 +713,7 @@ impl Staking {
                     .addr_map
                     .iter()
                     .filter(|(pk, d)| *pk != addr && d.validator_entry_exists(addr))
-                    .map(|(pk, d)| (*pk, d.amount() * percent[0] / percent[1] / 10))
+                    .map(|(pk, d)| (*pk, d.amount() * percent[0] / percent[1]))
                     .collect::<Vec<_>>()
             };
 
@@ -1055,6 +1055,11 @@ impl Staking {
         let commission_rate = if let Some(Some(v)) =
             self.validator_get_current().map(|vd| vd.body.get(&pk))
         {
+            // Do not alloc rewards to initial validators
+            if ValidatorKind::Initor == v.kind {
+                return Ok(());
+            }
+
             v.commission_rate
         } else {
             return Err(eg!("not validator"));
@@ -1230,12 +1235,12 @@ pub const FRA: Amount = 10_u64.pow(FRA_DECIMALS as u32);
 pub const FRA_TOTAL_AMOUNT: Amount = 210_0000_0000 * FRA;
 
 /// Minimum allowable delegation amount.
-pub const MIN_DELEGATION_AMOUNT: Amount = 32 * FRA;
+pub const MIN_DELEGATION_AMOUNT: Amount = 1;
 /// Maximum allowable delegation amount.
-pub const MAX_DELEGATION_AMOUNT: Amount = FRA_TOTAL_AMOUNT / 100;
+pub const MAX_DELEGATION_AMOUNT: Amount = FRA_TOTAL_AMOUNT;
 
 /// The minimum investment to become a validator through staking.
-pub const STAKING_VALIDATOR_MIN_POWER: Power = 100_0000 * FRA;
+pub const STAKING_VALIDATOR_MIN_POWER: Power = 88_8888 * FRA;
 
 /// The highest height in the context of tendermint.
 pub const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
@@ -1460,6 +1465,8 @@ pub struct Validator {
     /// use this field to mark
     /// if this validator signed last block
     pub signed_last_block: bool,
+    /// how many blocks has the validator signed
+    pub signed_cnt: u64,
 }
 
 impl Validator {
@@ -1485,6 +1492,7 @@ impl Validator {
             memo,
             kind,
             signed_last_block: false,
+            signed_cnt: 0,
         })
     }
 
@@ -1531,7 +1539,7 @@ pub struct Delegation {
     pub entries: BTreeMap<XfrPublicKey, Amount>,
     /// delegation rewards will be paid to this pk
     pub rwd_pk: XfrPublicKey,
-    /// the height when new delegation is proposed successfully
+    /// the joint height of the delegtator
     pub start_height: BlockHeight,
     /// the height at which the delegation ends
     ///
@@ -1589,10 +1597,10 @@ impl Delegation {
         });
     }
 
-    /// > **NOTE:**
-    /// > use 'AssignAdd' instead of 'Assign'
-    /// > to keep compatible with the logic of governance penalty.
-    pub fn set_delegation_rewards(
+    // > **NOTE:**
+    // > use 'AssignAdd' instead of 'Assign'
+    // > to keep compatible with the logic of governance penalty.
+    fn set_delegation_rewards(
         &mut self,
         validator: &XfrPublicKey,
         cur_height: BlockHeight,

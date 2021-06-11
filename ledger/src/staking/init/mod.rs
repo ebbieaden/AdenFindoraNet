@@ -2,14 +2,13 @@
 //! Initial Config
 //!
 
-use super::{
-    td_addr_to_bytes, BlockHeight, Power, Validator, ValidatorKind, FRA_TOTAL_AMOUNT,
-};
+use super::{td_addr_to_bytes, BlockHeight, Power, Validator, ValidatorKind, FRA};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
-const DEFAULT_POWER: Power = FRA_TOTAL_AMOUNT / 1000;
+// The initial power of an initor is equal to `1 FRA`.
+const DEFAULT_POWER: Power = FRA;
 
 /// Generate config during compiling time.
 #[derive(Serialize, Deserialize)]
@@ -45,6 +44,7 @@ impl TryFrom<ValidatorStr> for Validator {
             memo: v.memo,
             kind: ValidatorKind::Initor,
             signed_last_block: false,
+            signed_cnt: 0,
         })
     }
 }

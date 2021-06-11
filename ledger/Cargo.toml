@@ -70,7 +70,7 @@ sodiumoxide = "0.2.1"
 fs2 = "0.4"
 
 [build-dependencies]
-vergen = "3.1.0"
+vergen = "=3.1.0"
 
 [[bench]]
 name = "block_cache_in_sled"

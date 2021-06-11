@@ -52,7 +52,7 @@ fintools = { path =  "../fintools" }
 txn_builder = { path = "../txn_builder" }
 
 [build-dependencies]
-vergen = "3.1.0"
+vergen = "=3.1.0"
 
 [features]
 abci_mock = [ "ledger/abci_mock" ]
