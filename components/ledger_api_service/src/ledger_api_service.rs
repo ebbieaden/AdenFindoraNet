@@ -375,6 +375,31 @@ where
     Ok(web::Json(ValidatorList::new(vec![])))
 }
 
+async fn query_delegator_list<SA>(
+    data: web::Data<Arc<RwLock<SA>>>,
+    addr: web::Path<TendermintAddr>,
+) -> actix_web::Result<web::Json<DelegatorList>>
+where
+    SA: LedgerAccess,
+{
+    let read = data.read();
+    let staking = read.get_staking();
+
+    let list = staking
+        .validator_get_delegator_list(addr.as_ref())
+        .c(d!())
+        .map_err(error::ErrorNotFound)?;
+
+    let mut list: Vec<DelegatorInfo> = list
+        .into_iter()
+        .map(|(key, am)| DelegatorInfo::new(key, am))
+        .collect();
+
+    list.sort_by(|a, b| b.amount.cmp(&a.amount));
+
+    Ok(web::Json(DelegatorList::new(list)))
+}
+
 async fn query_validator_detail<SA>(
     data: web::Data<Arc<RwLock<SA>>>,
     addr: web::Path<TendermintAddr>,
@@ -534,6 +559,7 @@ enum AccessApi {
 pub enum StakingAccessRoutes {
     ValidatorList,
     DelegationInfo,
+    DelegatorList,
     ValidatorDetail,
 }
 
@@ -542,6 +568,7 @@ impl NetworkRoute for StakingAccessRoutes {
         let endpoint = match *self {
             StakingAccessRoutes::ValidatorList => "validator_list",
             StakingAccessRoutes::DelegationInfo => "delegation_info",
+            StakingAccessRoutes::DelegatorList => "delegator_list",
             StakingAccessRoutes::ValidatorDetail => "validator_detail",
         };
         "/".to_owned() + endpoint
@@ -716,6 +743,10 @@ where
         .route(
             &StakingAccessRoutes::DelegationInfo.with_arg_template("XfrPublicKey"),
             web::get().to(query_delegation_info::<SA>),
+        )
+        .route(
+            &StakingAccessRoutes::DelegatorList.with_arg_template("NodeAddress"),
+            web::get().to(query_delegator_list::<SA>),
         )
         .route(
             &StakingAccessRoutes::ValidatorDetail.with_arg_template("NodeAddress"),

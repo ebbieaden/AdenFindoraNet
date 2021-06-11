@@ -1123,6 +1123,32 @@ pub struct ValidatorDetail {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DelegatorInfo {
+    pub addr: String,
+    pub amount: u64,
+}
+
+impl DelegatorInfo {
+    pub fn new(key: &XfrPublicKey, am: &u64) -> Self {
+        Self {
+            addr: wallet::public_key_to_base64(key),
+            amount: *am,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DelegatorList {
+    delegators: Vec<DelegatorInfo>,
+}
+
+impl DelegatorList {
+    pub fn new(delegators: Vec<DelegatorInfo>) -> Self {
+        DelegatorList { delegators }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DelegationInfo {
     pub bond: u64,
     pub unbond: u64,
