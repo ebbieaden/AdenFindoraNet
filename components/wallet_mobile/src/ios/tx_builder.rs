@@ -4,6 +4,8 @@ use std::os::raw::c_char;
 use zei::xfr::sig::XfrKeyPair;
 
 #[no_mangle]
+/// @param am: amount to pay
+/// @param kp: owner's XfrKeyPair
 pub extern "C" fn findora_ffi_transaction_builder_add_fee_relative_auto(
     builder: &TransactionBuilder,
     am: u64,
@@ -17,6 +19,9 @@ pub extern "C" fn findora_ffi_transaction_builder_add_fee_relative_auto(
 }
 
 /// Use this func to get the necessary infomations for generating `Relative Inputs`
+///
+/// - TxoRef::Relative("Element index of the result")
+/// - ClientAssetRecord::from_json("Element of the result")
 #[no_mangle]
 pub extern "C" fn findora_ffi_transaction_builder_get_relative_outputs(
     builder: &TransactionBuilder,
@@ -49,6 +54,7 @@ pub extern "C" fn findora_ffi_transaction_builder_check_fee(
 }
 
 /// Create a new transaction builder.
+/// @param {BigInt} seq_id - Unique sequence ID to prevent replay attacks.
 #[no_mangle]
 pub extern "C" fn findora_ffi_transaction_builder_new(
     seq_id: u64,
@@ -57,6 +63,19 @@ pub extern "C" fn findora_ffi_transaction_builder_new(
 }
 
 /// Wraps around TransactionBuilder to add an asset definition operation to a transaction builder instance.
+/// @example <caption> Error handling </caption>
+/// try {
+///     await wasm.add_operation_create_asset(wasm.new_keypair(), "test_memo", wasm.random_asset_type(), wasm.AssetRules.default());
+/// } catch (err) {
+///     console.log(err)
+/// }
+///
+/// @param {XfrKeyPair} key_pair -  Issuer XfrKeyPair.
+/// @param {string} memo - Text field for asset definition.
+/// @param {string} token_code - Optional Base64 string representing the token code of the asset to be issued.
+/// If empty, a token code will be chosen at random.
+/// @param {AssetRules} asset_rules - Asset rules object specifying which simple policies apply
+/// to the asset.
 #[no_mangle]
 pub extern "C" fn findora_ffi_transaction_builder_add_operation_create_asset(
     builder: &TransactionBuilder,
@@ -80,6 +99,14 @@ pub extern "C" fn findora_ffi_transaction_builder_add_operation_create_asset(
 /// Wraps around TransactionBuilder to add an asset issuance to a transaction builder instance.
 ///
 /// Use this function for simple one-shot issuances.
+///
+/// @param {XfrKeyPair} key_pair  - Issuer XfrKeyPair.
+/// and types of traced assets.
+/// @param {string} code - base64 string representing the token code of the asset to be issued.
+/// @param {BigInt} seq_num - Issuance sequence number. Every subsequent issuance of a given asset type must have a higher sequence number than before.
+/// @param {BigInt} amount - Amount to be issued.
+/// @param {boolean} conf_amount - `true` means the asset amount is confidential, and `false` means it's nonconfidential.
+/// @param {PublicParams} zei_params - Public parameters necessary to generate asset records.
 #[no_mangle]
 pub extern "C" fn findora_ffi_transaction_builder_add_basic_issue_asset(
     builder: &TransactionBuilder,
@@ -106,6 +133,13 @@ pub extern "C" fn findora_ffi_transaction_builder_add_basic_issue_asset(
 
 /// Adds an operation to the transaction builder that appends a credential commitment to the address
 /// identity registry.
+/// @param {XfrKeyPair} key_pair - Ledger key that is tied to the credential.
+/// @param {CredUserPublicKey} user_public_key - Public key of the credential user.
+/// @param {CredIssuerPublicKey} issuer_public_key - Public key of the credential issuer.
+/// @param {CredentialCommitment} commitment - Credential commitment to add to the address identity registry.
+/// @param {CredPoK} pok- Proof that the credential commitment is valid.
+/// @see {@link module:Findora-Wasm.wasm_credential_commit|wasm_credential_commit} for information about how to generate a credential
+/// commitment.
 #[no_mangle]
 pub extern "C" fn findora_ffi_transaction_builder_add_operation_air_assign(
     builder: &TransactionBuilder,
@@ -130,6 +164,11 @@ pub extern "C" fn findora_ffi_transaction_builder_add_operation_air_assign(
 
 /// Adds an operation to the transaction builder that removes a hash from ledger's custom data
 /// store.
+/// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to delete the hash at the
+/// provided key.
+/// @param {Key} key - The key of the custom data store whose value will be cleared if the
+/// transaction validates.
+/// @param {BigInt} seq_num - Nonce to prevent replays.
 #[no_mangle]
 pub extern "C" fn findora_ffi_transaction_builder_add_operation_kv_update_no_hash(
     builder: &TransactionBuilder,
@@ -150,6 +189,12 @@ pub extern "C" fn findora_ffi_transaction_builder_add_operation_kv_update_no_has
 
 /// Adds an operation to the transaction builder that adds a hash to the ledger's custom data
 /// store.
+/// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to add the hash at the
+/// provided key.
+/// @param {Key} key - The key of the custom data store the value will be added to if the
+/// transaction validates.
+/// @param {KVHash} hash - The hash to add to the custom data store.
+/// @param {BigInt} seq_num - Nonce to prevent replays.
 #[no_mangle]
 pub extern "C" fn findora_ffi_transaction_builder_add_operation_kv_update_with_hash(
     builder: &TransactionBuilder,
@@ -172,6 +217,12 @@ pub extern "C" fn findora_ffi_transaction_builder_add_operation_kv_update_with_h
 
 /// Adds an operation to the transaction builder that adds a hash to the ledger's custom data
 /// store.
+/// @param {XfrKeyPair} auth_key_pair - Asset creator key pair.
+/// @param {String} code - base64 string representing token code of the asset whose memo will be updated.
+/// transaction validates.
+/// @param {String} new_memo - The new asset memo.
+/// @see {@link module:Findora-Wasm~AssetRules#set_updatable|AssetRules.set_updatable} for more information about how
+/// to define an updatable asset.
 #[no_mangle]
 pub extern "C" fn findora_ffi_transaction_builder_add_operation_update_memo(
     builder: &TransactionBuilder,
@@ -191,6 +242,9 @@ pub extern "C" fn findora_ffi_transaction_builder_add_operation_update_memo(
 }
 
 /// Adds a serialized transfer asset operation to a transaction builder instance.
+/// @param {string} op - a JSON-serialized transfer operation.
+/// @see {@link module:Findora-Wasm~TransferOperationBuilder} for details on constructing a transfer operation.
+/// @throws Will throw an error if `op` fails to deserialize.
 #[no_mangle]
 pub extern "C" fn findora_ffi_transaction_builder_add_transfer_operation(
     builder: &TransactionBuilder,

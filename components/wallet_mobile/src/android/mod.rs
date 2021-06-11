@@ -1,5 +1,6 @@
 mod constructor;
 mod transfer;
+mod tx_builder;
 
 use crate::rust::types;
 use crate::rust::*;
