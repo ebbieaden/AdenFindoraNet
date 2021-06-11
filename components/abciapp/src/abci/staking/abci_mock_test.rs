@@ -1278,7 +1278,7 @@ fn staking_scene_2() -> Result<()> {
         .delegation_get_principal(&x_kp.get_pk())
         .c(d!())?;
 
-    assert_eq!(32 * FRA * (950 + 45) / 1000, user_principal as u64);
+    assert_eq!(32 * FRA * 95 / 100, user_principal as u64);
 
     // 9. update validator, remove it from validator list
 
