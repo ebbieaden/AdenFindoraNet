@@ -28,6 +28,7 @@ use sha2::Digest as _;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     convert::TryFrom,
+    iter::FromIterator,
     mem,
 };
 use zei::xfr::{
@@ -342,6 +343,20 @@ impl Staking {
         self.cur_height = h;
     }
 
+    #[allow(missing_docs)]
+    pub fn validator_get_delegator_list(
+        &self,
+        validator: TendermintAddrRef,
+    ) -> Result<Vec<(&XfrPublicKey, &u64)>> {
+        let validator = self.validator_td_addr_to_app_pk(validator).c(d!())?;
+
+        if let Some(vd) = self.di.addr_map.get(&validator) {
+            Ok(Vec::from_iter(&vd.delegators))
+        } else {
+            Err(eg!("Not a validator or non-existing node address"))
+        }
+    }
+
     /// Start a new delegation.
     /// - increase the vote power of the co-responding validator
     ///
@@ -374,6 +389,7 @@ impl Staking {
         let h = self.cur_height;
         let new = || Delegation {
             entries: map! {B validator => 0},
+            delegators: map! {B},
             rwd_pk: owner,
             start_height: h,
             end_height,
@@ -397,6 +413,13 @@ impl Staking {
         d.state = DelegationState::Bond;
 
         *d.entries.entry(validator).or_insert(0) += am;
+
+        // update delegator entries for this validator
+        if let Some(vd) = self.di.addr_map.get_mut(&validator) {
+            if owner != validator {
+                *vd.delegators.entry(owner).or_insert(0) += am;
+            }
+        }
 
         self.di
             .end_height_map
@@ -635,12 +658,17 @@ impl Staking {
                     None
                 };
 
-                // - reduce the power of the target validator
-                // - reduce global amount of global delegations
                 if let Some(e) = entries {
                     e.into_iter().for_each(|(v, am)| {
+                        // - reduce the power of the target validator
                         ruc::info_omit!(self.validator_change_power(&v, am, true));
+
+                        // - reduce global amount of global delegations
                         self.di.global_amount -= am;
+
+                        if let Some(vd) = self.di.addr_map.get_mut(&v) {
+                            vd.delegators.remove(&addr);
+                        }
                     });
                 }
             });
@@ -1537,6 +1565,11 @@ pub struct Delegation {
     /// - the target validator
     /// - `NonConfidential` FRAs amount
     pub entries: BTreeMap<XfrPublicKey, Amount>,
+
+    /// - delegator entries
+    /// - only valid for a validator
+    pub delegators: BTreeMap<XfrPublicKey, Amount>,
+
     /// delegation rewards will be paid to this pk
     pub rwd_pk: XfrPublicKey,
     /// the joint height of the delegtator
@@ -1877,6 +1910,7 @@ mod test {
 
         let delegation = Delegation {
             entries: map! {B validator_kp.get_pk() => delegation_amount},
+            delegators: map! {B},
             rwd_pk: delegator_kp.get_pk(),
             start_height: 0,
             end_height: 200_0000,
