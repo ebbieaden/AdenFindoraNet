@@ -16,7 +16,7 @@ use ledger::{
     data_model::Transaction,
     staking::{
         check_delegation_amount, BLOCK_INTERVAL, COINBASE_KP, COINBASE_PK,
-        COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK, FRA_TOTAL_AMOUNT,
+        COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK, FRA, FRA_TOTAL_AMOUNT,
     },
     store::fra_gen_initial_tx,
 };
@@ -178,7 +178,7 @@ mod init {
             .values()
             .map(|u| &u.pubkey)
             .chain(VALIDATOR_LIST.values().map(|v| &v.pubkey))
-            .map(|pk| (pk, FRA_TOTAL_AMOUNT / 500))
+            .map(|pk| (pk, FRA_TOTAL_AMOUNT / 10000))
             .collect::<Vec<_>>();
 
         target_list.push((&*COINBASE_PK, 4_000_000_000_000));
@@ -191,7 +191,7 @@ mod init {
 
         println!(">>> propose self-delegations...");
         for v in VALIDATOR_LIST.values() {
-            delegate::gen_tx(&v.name, FRA_TOTAL_AMOUNT / 1000, &v.name)
+            delegate::gen_tx(&v.name, FRA, &v.name)
                 .c(d!())
                 .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
         }

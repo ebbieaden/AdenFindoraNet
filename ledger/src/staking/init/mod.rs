@@ -2,13 +2,16 @@
 //! Initial Config
 //!
 
-use super::{td_addr_to_bytes, BlockHeight, Power, Validator, ValidatorKind, FRA};
+use super::{
+    td_addr_to_bytes, BlockHeight, Power, Validator, ValidatorKind,
+    STAKING_VALIDATOR_MIN_POWER,
+};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
-// The initial power of an initor is equal to `1 FRA`.
-const DEFAULT_POWER: Power = FRA;
+// The initial power of an initor.
+const DEFAULT_POWER: Power = STAKING_VALIDATOR_MIN_POWER;
 
 /// Generate config during compiling time.
 #[derive(Serialize, Deserialize)]

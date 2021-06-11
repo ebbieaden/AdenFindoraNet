@@ -85,13 +85,13 @@ check() {
     curl ${SERVER_HOST}:26657/validators | tail || exit 1
     println "There are 20 initial validators..."
 
-    # at least 100_0000 FRAs
-    fns stake -n $((FRA_TOTAL_AMOUNT / 2000)) -R 0.2 -M demo || exit 1
+    # at least 88_8888 FRAs
+    fns stake -n $((888888 * 1000000)) -R 0.2 -M demo || exit 1
     sleep 30
     curl ${SERVER_HOST}:26657/validators | grep -A 5 ${TD_NODE_SELF_ADDR} 2>/dev/null || exit 1
     println "Our validator appears in the validator list after staking..."
 
-    fns stake --append -n $((FRA_TOTAL_AMOUNT / 2000)) || exit 1
+    fns stake --append -n $((222222 * 1000000)) || exit 1
     sleep 30
     curl ${SERVER_HOST}:26657/validators | grep -A 5 ${TD_NODE_SELF_ADDR} 2>/dev/null || exit 1
     println "Its vote power has been raised after appending a new staking..."
