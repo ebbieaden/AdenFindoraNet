@@ -31,9 +31,9 @@ use zei::xfr::{
 
 mod whoami;
 
-// The top 50 candidate validators
+// The top 50~ candidate validators
 // will become official validators.
-const VALIDATOR_LIMIT: usize = 50;
+const VALIDATOR_LIMIT: usize = 58;
 
 lazy_static! {
     /// Tendermint node address, sha256(pubkey)[:20]
@@ -178,10 +178,10 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
 
     // application custom governances
     if let Some(lci) = last_commit_info {
-        let offline_list = lci
+        let online_list = lci
             .votes
             .iter()
-            .filter(|v| !v.signed_last_block)
+            .filter(|v| v.signed_last_block)
             .flat_map(|info| info.validator.as_ref().map(|v| &v.address))
             .collect::<HashSet<_>>();
 
@@ -190,19 +190,18 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
         // mark if a validator is online at last block
         if let Ok(vd) = ruc::info!(staking.validator_get_current_mut()) {
             vd.body.values_mut().for_each(|v| {
-                if offline_list.contains(&v.td_addr) {
-                    v.signed_last_block = false;
-                } else {
+                if online_list.contains(&v.td_addr) {
                     v.signed_last_block = true;
                     v.signed_cnt += 1;
+                } else {
+                    v.signed_last_block = false;
                 }
             });
         }
 
-        if !offline_list.is_empty() {
-            if let Ok(olpl) = ruc::info!(gen_offline_punish_list(staking, &offline_list))
-            {
-                olpl.into_iter().for_each(|v| {
+        if online_list.len() != lci.votes.len() {
+            if let Ok(pl) = ruc::info!(gen_offline_punish_list(staking, &online_list)) {
+                pl.into_iter().for_each(|v| {
                     let bz = ByzantineInfo {
                         addr: &td_addr_to_string(&v),
                         kind: "OFF_LINE",
@@ -442,14 +441,14 @@ fn do_gen_transaction(
 }
 
 fn gen_offline_punish_list(
-    staking: &mut Staking,
-    offline_list: &HashSet<&Vec<u8>>,
+    staking: &Staking,
+    online_list: &HashSet<&Vec<u8>>,
 ) -> Result<Vec<Vec<u8>>> {
     let last_height = TENDERMINT_BLOCK_HEIGHT
         .load(Ordering::Relaxed)
         .saturating_sub(1);
     let validators = staking
-        .validator_get_effective_at_height_mut(last_height as u64)
+        .validator_get_effective_at_height(last_height as u64)
         .c(d!())?;
 
     let mut vs = validators
@@ -464,7 +463,7 @@ fn gen_offline_punish_list(
 
     Ok(vs
         .into_iter()
-        .filter(|v| 0 < v.1 && offline_list.contains(&v.0))
+        .filter(|v| 0 < v.1 && !online_list.contains(&v.0))
         .map(|(id, _)| id.clone())
         .collect())
 }
