@@ -6,7 +6,7 @@
 
 use crate::{
     data_model::{NoReplayToken, Operation, Transaction},
-    staking::Staking,
+    staking::{PartialUnDelegation, Staking},
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ impl UnDelegationOps {
         self.verify()
             .c(d!())
             .and_then(|_| Self::check_context(tx).c(d!()))
-            .and_then(|_| staking.undelegate(&self.pubkey).c(d!()))
+            .and_then(|pu| staking.undelegate(&self.pubkey, pu).c(d!()))
     }
 
     /// Verify signature.
@@ -48,7 +48,7 @@ impl UnDelegationOps {
     }
 
     #[inline(always)]
-    fn check_context(tx: &Transaction) -> Result<()> {
+    fn check_context(tx: &Transaction) -> Result<Option<PartialUnDelegation>> {
         check_undelegation_context(tx).c(d!())
     }
 
@@ -60,8 +60,12 @@ impl UnDelegationOps {
 
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn new(keypair: &XfrKeyPair, nonce: NoReplayToken) -> Self {
-        let body = Data::new(nonce);
+    pub fn new(
+        keypair: &XfrKeyPair,
+        nonce: NoReplayToken,
+        pu: Option<PartialUnDelegation>,
+    ) -> Self {
+        let body = Data::new(nonce, pu);
         let signature = keypair.sign(&body.to_bytes());
         UnDelegationOps {
             body,
@@ -86,13 +90,14 @@ impl UnDelegationOps {
 // The body of a delegation operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct Data {
+    pu: Option<PartialUnDelegation>,
     nonce: NoReplayToken,
 }
 
 impl Data {
     #[inline(always)]
-    fn new(nonce: NoReplayToken) -> Self {
-        Data { nonce }
+    fn new(nonce: NoReplayToken, pu: Option<PartialUnDelegation>) -> Self {
+        Data { pu, nonce }
     }
 
     #[inline(always)]
@@ -112,14 +117,22 @@ impl Data {
 }
 
 #[inline(always)]
-fn check_undelegation_context(tx: &Transaction) -> Result<()> {
-    if tx
+fn check_undelegation_context(tx: &Transaction) -> Result<Option<PartialUnDelegation>> {
+    let ud = tx
         .body
         .operations
         .iter()
-        .any(|op| matches!(op, Operation::UnDelegation(_)))
-    {
-        Ok(())
+        .filter_map(|op| {
+            if let Operation::UnDelegation(ud) = op {
+                Some(ud)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if 1 == ud.len() {
+        Ok(ud[0].body.pu)
     } else {
         Err(eg!())
     }

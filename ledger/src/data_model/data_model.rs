@@ -985,7 +985,7 @@ pub enum Operation {
     DefineAsset(DefineAsset),
     UpdateMemo(UpdateMemo),
     Delegation(DelegationOps),
-    UnDelegation(UnDelegationOps),
+    UnDelegation(Box<UnDelegationOps>),
     Claim(ClaimOps),
     UpdateValidator(UpdateValidatorOps),
     Governance(GovernanceOps),

@@ -148,7 +148,7 @@ impl TxnEffect {
                 }
                 Operation::UnDelegation(i) => {
                     check_nonce!(i);
-                    undelegations.push(i.clone());
+                    undelegations.push(i.as_ref().clone());
                 }
                 Operation::Claim(i) => {
                     check_nonce!(i);

@@ -241,7 +241,8 @@ mod undelegate {
 
         fns::gen_fee_op(owner_kp).c(d!()).map(|op| {
             builder.add_operation(op);
-            builder.add_operation_undelegation(owner_kp);
+            // TODO: suit for partial un-delegations
+            builder.add_operation_undelegation(owner_kp, None);
         })?;
 
         Ok(builder.take_transaction())

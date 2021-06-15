@@ -448,7 +448,8 @@ fn delegate_x(
 
 fn undelegate(owner_kp: &XfrKeyPair) -> Result<Digest> {
     let mut builder = new_tx_builder();
-    builder.add_operation_undelegation(owner_kp);
+    // TODO: suit for partial un-delegations
+    builder.add_operation_undelegation(owner_kp, None);
 
     gen_fee_op(owner_kp)
         .c(d!())

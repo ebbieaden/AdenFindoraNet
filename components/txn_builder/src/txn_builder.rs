@@ -23,7 +23,8 @@ use ledger::staking::{
         undelegation::UnDelegationOps,
         update_validator::UpdateValidatorOps,
     },
-    td_addr_to_string, BlockHeight, StakerMemo, TendermintAddr, Validator,
+    td_addr_to_string, BlockHeight, PartialUnDelegation, StakerMemo, TendermintAddr,
+    Validator,
 };
 use rand_chacha::ChaChaRng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
@@ -323,7 +324,11 @@ pub trait BuildsTransactions {
         commission_rate: [u64; 2],
         memo: Option<StakerMemo>,
     ) -> Result<&mut Self>;
-    fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self;
+    fn add_operation_undelegation(
+        &mut self,
+        keypair: &XfrKeyPair,
+        pu: Option<PartialUnDelegation>,
+    ) -> &mut Self;
     fn add_operation_claim(
         &mut self,
         keypair: &XfrKeyPair,
@@ -877,9 +882,13 @@ impl BuildsTransactions for TransactionBuilder {
         Ok(self.add_operation(Operation::Delegation(op)))
     }
 
-    fn add_operation_undelegation(&mut self, keypair: &XfrKeyPair) -> &mut Self {
-        let op = UnDelegationOps::new(keypair, self.txn.body.no_replay_token);
-        self.add_operation(Operation::UnDelegation(op))
+    fn add_operation_undelegation(
+        &mut self,
+        keypair: &XfrKeyPair,
+        pu: Option<PartialUnDelegation>,
+    ) -> &mut Self {
+        let op = UnDelegationOps::new(keypair, self.txn.body.no_replay_token, pu);
+        self.add_operation(Operation::UnDelegation(Box::new(op)))
     }
 
     fn add_operation_claim(

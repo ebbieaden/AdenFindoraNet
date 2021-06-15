@@ -76,7 +76,8 @@ pub fn unstake() -> Result<()> {
 
     utils::gen_fee_op(&kp).c(d!()).map(|op| {
         builder.add_operation(op);
-        builder.add_operation_undelegation(&kp);
+        // TODO: suit for partial un-delegations
+        builder.add_operation_undelegation(&kp, None);
     })?;
 
     utils::send_tx(&builder.take_transaction()).c(d!())
