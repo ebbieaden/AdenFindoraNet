@@ -482,6 +482,7 @@ where
 
     let (
         bond_amount,
+        bond_entries,
         unbond_amount,
         rwd_amount,
         start_height,
@@ -492,6 +493,7 @@ where
         .delegation_get(&pk)
         .map(|d| {
             let mut bond_amount = d.amount();
+            let bond_entries = d.entries.clone();
             let mut unbond_amount = 0;
             match d.state {
                 DelegationState::Paid => {
@@ -510,6 +512,7 @@ where
             }
             (
                 bond_amount,
+                bond_entries,
                 unbond_amount,
                 d.rwd_amount,
                 d.start_height(),
@@ -518,10 +521,11 @@ where
                 d.proposer_rwd_cnt,
             )
         })
-        .unwrap_or((0, 0, 0, 0, 0, 0, 0));
+        .unwrap_or((0, map! {B}, 0, 0, 0, 0, 0, 0));
 
     let mut resp = DelegationInfo::new(
         bond_amount,
+        bond_entries,
         unbond_amount,
         rwd_amount,
         block_rewards_rate,

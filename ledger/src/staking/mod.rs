@@ -444,7 +444,7 @@ impl Staking {
     ) -> Result<()> {
         // partial un-delegation
         if let Some(pu) = partial_undelegation {
-            return self.partial_undelegate(addr, pu).c(d!());
+            return self.undelegate_partially(addr, pu).c(d!());
         }
 
         let h = self.cur_height;
@@ -486,7 +486,7 @@ impl Staking {
     // A partial undelegation implementation:
     // - split the original delegator to two smaller instances
     // - do a complete undelegation to the new(tmp) delegation address
-    fn partial_undelegate(
+    fn undelegate_partially(
         &mut self,
         addr: &XfrPublicKey,
         pu: PartialUnDelegation,
