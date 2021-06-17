@@ -198,6 +198,15 @@ fn check_delegation_context_principal(
             if let Operation::TransferAsset(ref x) = op {
                 deny_relative_inputs(x).c(d!())?;
 
+                if x.body.outputs.iter().any(|o| {
+                    matches!(o.record.asset_type, XfrAssetType::Confidential(_))
+                        || matches!(o.record.amount, XfrAmount::Confidential(_))
+                }) {
+                    return Err(eg!(
+                        "Confidential TXO outputs is not allowed in delegation"
+                    ));
+                }
+
                 let keynum = x
                     .body
                     .transfer
