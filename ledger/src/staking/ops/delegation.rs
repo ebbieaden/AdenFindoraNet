@@ -11,9 +11,11 @@ use crate::{
         Validator, COINBASE_PRINCIPAL_PK, STAKING_VALIDATOR_MIN_POWER,
     },
 };
+use ed25519_dalek::Signer;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use tendermint::{signature::Ed25519Signature, PrivateKey, PublicKey, Signature};
 use zei::xfr::{
     sig::{XfrKeyPair, XfrPublicKey, XfrSignature},
     structs::{XfrAmount, XfrAssetType},
@@ -25,6 +27,7 @@ pub struct DelegationOps {
     pub(crate) body: Box<Data>,
     pub(crate) pubkey: XfrPublicKey,
     signature: XfrSignature,
+    v_signature: Option<Ed25519Signature>,
 }
 
 impl DelegationOps {
@@ -53,6 +56,20 @@ impl DelegationOps {
     /// Verify signature.
     #[inline(always)]
     pub fn verify(&self) -> Result<()> {
+        // verify New Validator's signature
+        if let Some(v) = self.body.new_validator.as_ref() {
+            let v_sig = self
+                .v_signature
+                .as_ref()
+                .ok_or(eg!("missing validator signature"))?;
+            if PublicKey::from_raw_ed25519(&v.td_pubkey)
+                .c(d!())?
+                .verify(&self.body.to_bytes(), &Signature::from(*v_sig))
+                .is_err()
+            {
+                return Err(eg!("tendermint key verification failed"));
+            }
+        }
         self.pubkey
             .verify(&self.body.to_bytes(), &self.signature)
             .c(d!())
@@ -66,6 +83,7 @@ impl DelegationOps {
     ) -> Result<Amount> {
         let am = check_delegation_context(tx).c(d!())?;
 
+        // Self Staking - New Validator
         if let Some(v) = self.body.new_validator.as_ref() {
             let h = staking.cur_height;
 
@@ -95,16 +113,20 @@ impl DelegationOps {
     #[allow(missing_docs)]
     pub fn new(
         keypair: &XfrKeyPair,
+        vltor_key: Option<&PrivateKey>,
         validator: TendermintAddr,
         new_validator: Option<Validator>,
         nonce: NoReplayToken,
     ) -> Self {
         let body = Box::new(Data::new(validator, new_validator, nonce));
         let signature = keypair.sign(&body.to_bytes());
+        let v_signature: Option<Ed25519Signature> = vltor_key
+            .and_then(|pk| pk.ed25519_keypair().map(|k| k.sign(&body.to_bytes())));
         DelegationOps {
             body,
             pubkey: keypair.get_pk(),
             signature,
+            v_signature,
         }
     }
 
@@ -197,6 +219,15 @@ fn check_delegation_context_principal(
         .map(|op| {
             if let Operation::TransferAsset(ref x) = op {
                 deny_relative_inputs(x).c(d!())?;
+
+                if x.body.outputs.iter().any(|o| {
+                    matches!(o.record.asset_type, XfrAssetType::Confidential(_))
+                        || matches!(o.record.amount, XfrAmount::Confidential(_))
+                }) {
+                    return Err(eg!(
+                        "Confidential TXO outputs is not allowed in delegation"
+                    ));
+                }
 
                 let keynum = x
                     .body

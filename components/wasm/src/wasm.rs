@@ -19,8 +19,8 @@ use ledger::{
     },
     policies::{DebtMemo, Fraction},
     staking::{
-        TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK, MAX_DELEGATION_AMOUNT,
-        MIN_DELEGATION_AMOUNT,
+        PartialUnDelegation, TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
+        MAX_DELEGATION_AMOUNT, MIN_DELEGATION_AMOUNT,
     },
 };
 use rand_chacha::ChaChaRng;
@@ -518,7 +518,23 @@ impl TransactionBuilder {
         mut self,
         keypair: &XfrKeyPair,
     ) -> Result<TransactionBuilder, JsValue> {
-        self.get_builder_mut().add_operation_undelegation(keypair);
+        self.get_builder_mut()
+            .add_operation_undelegation(keypair, None);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_undelegate_partially(
+        mut self,
+        keypair: &XfrKeyPair,
+        am: u64,
+        rwd_receiver: XfrPublicKey,
+        target_validator: XfrPublicKey,
+    ) -> Result<TransactionBuilder, JsValue> {
+        self.get_builder_mut().add_operation_undelegation(
+            keypair,
+            Some(PartialUnDelegation::new(am, rwd_receiver, target_validator)),
+        );
         Ok(self)
     }
 

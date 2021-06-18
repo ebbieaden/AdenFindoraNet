@@ -7,7 +7,9 @@ use ledger::{
     staking::init::get_inital_validators,
 };
 use ruc::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tendermint::{PrivateKey, PublicKey};
 use txn_builder::{BuildsTransactions, TransactionBuilder, TransferOperationBuilder};
 use utils::{HashOf, SignatureOf};
 use zei::xfr::{
@@ -258,4 +260,15 @@ pub fn get_delegation_info(pk: &XfrPublicKey) -> Result<DelegationInfo> {
         .bytes()
         .c(d!())
         .and_then(|b| serde_json::from_slice::<DelegationInfo>(&b).c(d!()))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ValidatorKey {
+    pub(crate) address: String,
+    pub(crate) pub_key: PublicKey,
+    pub(crate) priv_key: PrivateKey,
+}
+
+pub fn parse_td_validator_keys(key_data: String) -> Result<ValidatorKey> {
+    serde_json::from_str(key_data.as_str()).c(d!())
 }

@@ -144,14 +144,17 @@ impl TxnEffect {
             match op {
                 Operation::Delegation(i) => {
                     check_nonce!(i);
+                    i.verify().c(d!())?;
                     delegations.push(i.clone());
                 }
                 Operation::UnDelegation(i) => {
                     check_nonce!(i);
-                    undelegations.push(i.clone());
+                    i.verify().c(d!())?;
+                    undelegations.push(i.as_ref().clone());
                 }
                 Operation::Claim(i) => {
                     check_nonce!(i);
+                    i.verify().c(d!())?;
                     claims.push(i.clone());
                 }
                 Operation::UpdateValidator(i) => {
