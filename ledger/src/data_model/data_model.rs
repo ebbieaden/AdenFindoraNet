@@ -1129,9 +1129,9 @@ pub struct DelegatorInfo {
 }
 
 impl DelegatorInfo {
-    pub fn new(key: &XfrPublicKey, am: &u64) -> Self {
+    pub fn new(key: &str, am: &u64) -> Self {
         Self {
-            addr: wallet::public_key_to_base64(key),
+            addr: key.to_string(),
             amount: *am,
         }
     }

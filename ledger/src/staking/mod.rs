@@ -347,11 +347,20 @@ impl Staking {
     pub fn validator_get_delegator_list(
         &self,
         validator: TendermintAddrRef,
-    ) -> Result<Vec<(&XfrPublicKey, &u64)>> {
+        start: usize,
+        mut end: usize,
+    ) -> Result<Vec<(&String, &u64)>> {
         let validator = self.validator_td_addr_to_app_pk(validator).c(d!())?;
 
         if let Some(vd) = self.di.addr_map.get(&validator) {
-            Ok(Vec::from_iter(&vd.delegators))
+            if start >= vd.delegators.len() || start > end {
+                return Err(eg!("Index out of range"));
+            }
+            if end > vd.delegators.len() {
+                end = vd.delegators.len();
+            }
+
+            Ok((Vec::from_iter(&vd.delegators))[start..end].to_vec())
         } else {
             Err(eg!("Not a validator or non-existing node address"))
         }
@@ -389,7 +398,7 @@ impl Staking {
         let h = self.cur_height;
         let new = || Delegation {
             entries: map! {B validator => 0},
-            delegators: map! {B},
+            delegators: indexmap::IndexMap::new(),
             rwd_pk: owner,
             start_height: h,
             end_height,
@@ -417,7 +426,10 @@ impl Staking {
         // update delegator entries for this validator
         if let Some(vd) = self.di.addr_map.get_mut(&validator) {
             if owner != validator {
-                *vd.delegators.entry(owner).or_insert(0) += am;
+                *vd.delegators
+                    .entry(wallet::public_key_to_base64(&owner))
+                    .or_insert(0) += am;
+                vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
             }
         }
 
@@ -519,7 +531,7 @@ impl Staking {
                 *am -= pu.am;
                 new_tmp_delegator = Delegation {
                     entries: map! {B pu.target_validator => pu.am},
-                    delegators: map! {B},
+                    delegators: indexmap::IndexMap::new(),
                     rwd_pk: pu.rwd_receiver,
                     start_height: d.start_height,
                     end_height: h + UNBOND_BLOCK_CNT,
@@ -541,6 +553,22 @@ impl Staking {
             .entry(h + UNBOND_BLOCK_CNT)
             .or_insert_with(BTreeSet::new)
             .insert(pu.rwd_receiver);
+
+        // update delegator entries for pu.target_validator
+        if let Some(vd) = self.di.addr_map.get_mut(&pu.target_validator) {
+            // add rwd_receiver to delegator list
+            *vd.delegators
+                .entry(wallet::public_key_to_base64(&pu.rwd_receiver))
+                .or_insert(0) += pu.am;
+
+            // update delegation amount of current address
+            // make sure previous delegation amount is bigger than pu.am above.
+            if let Some(am) = vd.delegators.get_mut(&wallet::public_key_to_base64(&addr))
+            {
+                *am -= pu.am;
+            }
+            vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
+        }
 
         Ok(())
     }
@@ -725,7 +753,8 @@ impl Staking {
                         self.di.global_amount -= am;
 
                         if let Some(vd) = self.di.addr_map.get_mut(&v) {
-                            vd.delegators.remove(&addr);
+                            vd.delegators.remove(&wallet::public_key_to_base64(&addr));
+                            vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
                         }
                     });
                 }
@@ -1630,8 +1659,8 @@ pub struct Delegation {
     pub entries: BTreeMap<XfrPublicKey, Amount>,
 
     /// - delegator entries
-    /// - only valid for validators
-    pub delegators: BTreeMap<XfrPublicKey, Amount>,
+    /// - only valid for a validator
+    pub delegators: indexmap::IndexMap<String, Amount>,
 
     /// delegation rewards will be paid to this pk
     pub rwd_pk: XfrPublicKey,
@@ -1996,7 +2025,7 @@ mod test {
 
         let delegation = Delegation {
             entries: map! {B validator_kp.get_pk() => delegation_amount},
-            delegators: map! {B},
+            delegators: indexmap::IndexMap::new(),
             rwd_pk: delegator_kp.get_pk(),
             start_height: 0,
             end_height: 200_0000,

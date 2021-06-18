@@ -17,6 +17,7 @@ use log::info;
 use log::warn;
 use parking_lot::RwLock;
 use ruc::*;
+use serde_derive::Deserialize;
 use std::{collections::BTreeMap, mem, sync::Arc};
 use utils::{HashOf, NetworkRoute, SignatureOf};
 use zei::xfr::{sig::XfrPublicKey, structs::OwnerMemo};
@@ -375,6 +376,57 @@ where
     Ok(web::Json(ValidatorList::new(vec![])))
 }
 
+#[derive(Deserialize, Debug)]
+struct DelegatorQueryParams {
+    address: String,
+    page: usize,
+    per_page: usize,
+    order: OrderOption,
+}
+
+#[derive(Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum OrderOption {
+    Desc,
+    Asc,
+}
+
+async fn get_delegators_with_params<SA>(
+    data: web::Data<Arc<RwLock<SA>>>,
+    web::Query(info): web::Query<DelegatorQueryParams>,
+) -> actix_web::Result<web::Json<DelegatorList>>
+where
+    SA: LedgerAccess,
+{
+    let read = data.read();
+    let staking = read.get_staking();
+
+    if info.page == 0 || info.order == OrderOption::Asc {
+        return Ok(web::Json(DelegatorList::new(vec![])));
+    }
+
+    let start = (info.page - 1)
+        .checked_mul(info.per_page)
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+    let end = start
+        .checked_add(info.per_page)
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+
+    let list = staking
+        .validator_get_delegator_list(info.address.as_ref(), start, end)
+        .c(d!())
+        .map_err(error::ErrorNotFound)?;
+
+    let list: Vec<DelegatorInfo> = list
+        .into_iter()
+        .map(|(key, am)| DelegatorInfo::new(key, am))
+        .collect();
+
+    Ok(web::Json(DelegatorList::new(list)))
+}
+
 async fn query_delegator_list<SA>(
     data: web::Data<Arc<RwLock<SA>>>,
     addr: web::Path<TendermintAddr>,
@@ -386,16 +438,14 @@ where
     let staking = read.get_staking();
 
     let list = staking
-        .validator_get_delegator_list(addr.as_ref())
+        .validator_get_delegator_list(addr.as_ref(), 0, usize::MAX)
         .c(d!())
         .map_err(error::ErrorNotFound)?;
 
-    let mut list: Vec<DelegatorInfo> = list
+    let list: Vec<DelegatorInfo> = list
         .into_iter()
         .map(|(key, am)| DelegatorInfo::new(key, am))
         .collect();
-
-    list.sort_by(|a, b| b.amount.cmp(&a.amount));
 
     Ok(web::Json(DelegatorList::new(list)))
 }
@@ -751,6 +801,10 @@ where
         .route(
             &StakingAccessRoutes::DelegatorList.with_arg_template("NodeAddress"),
             web::get().to(query_delegator_list::<SA>),
+        )
+        .service(
+            web::resource("/delegator_list")
+                .route(web::get().to(get_delegators_with_params::<SA>)),
         )
         .route(
             &StakingAccessRoutes::ValidatorDetail.with_arg_template("NodeAddress"),
