@@ -6,13 +6,15 @@
 //! This module is the library part of FNS.
 //!
 
+use crate::fns::utils::parse_td_validator_keys;
 use lazy_static::lazy_static;
 use ledger::staking::{
-    check_delegation_amount, td_pubkey_to_bytes, td_pubkey_to_td_addr, COINBASE_KP,
-    COINBASE_PK, COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK,
+    check_delegation_amount, td_pubkey_to_td_addr, COINBASE_KP, COINBASE_PK,
+    COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK,
 };
 use ruc::*;
 use std::fs;
+use tendermint::PrivateKey;
 use txn_builder::BuildsTransactions;
 use zei::xfr::sig::XfrKeyPair;
 
@@ -23,8 +25,8 @@ const CFG_PATH: &str = "/tmp/.____fns_config____";
 lazy_static! {
     static ref MNEMONIC: Option<String> = fs::read_to_string(&*MNEMONIC_FILE).ok();
     static ref MNEMONIC_FILE: String = format!("{}/mnemonic", CFG_PATH);
-    static ref TD_PUBKEY: Option<String> = fs::read_to_string(&*TD_PUBKEY_FILE).ok();
-    static ref TD_PUBKEY_FILE: String = format!("{}/tendermint_pubkey", CFG_PATH);
+    static ref TD_KEY: Option<String> = fs::read_to_string(&*TD_KEY_FILE).ok();
+    static ref TD_KEY_FILE: String = format!("{}/tendermint_keys", CFG_PATH);
     static ref SERV_ADDR: Option<String> = fs::read_to_string(&*SERV_ADDR_FILE).ok();
     static ref SERV_ADDR_FILE: String = format!("{}/serv_addr", CFG_PATH);
 }
@@ -39,10 +41,11 @@ pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<
     let td_pubkey = get_td_pubkey().c(d!())?;
 
     let kp = get_keypair().c(d!())?;
+    let vkp = get_td_privkey().c(d!())?;
 
     let mut builder = utils::new_tx_builder().c(d!())?;
     builder
-        .add_operation_staking(&kp, td_pubkey, cr, memo.map(|m| m.to_owned()))
+        .add_operation_staking(&kp, &vkp, td_pubkey, cr, memo.map(|m| m.to_owned()))
         .c(d!())?;
     utils::gen_transfer_op(&kp, vec![(&COINBASE_PRINCIPAL_PK, am)])
         .c(d!())
@@ -168,7 +171,7 @@ pub fn show() -> Result<()> {
 pub fn setup(
     serv_addr: Option<&str>,
     owner_mnemonic_path: Option<&str>,
-    validator_pubkey: Option<&str>,
+    validator_key_path: Option<&str>,
 ) -> Result<()> {
     fs::create_dir_all(CFG_PATH).c(d!("fail to create config path"))?;
 
@@ -178,8 +181,8 @@ pub fn setup(
     if let Some(mp) = owner_mnemonic_path {
         fs::write(&*MNEMONIC_FILE, mp).c(d!("fail to cache 'owner-mnemonic-path'"))?;
     }
-    if let Some(pubkey) = validator_pubkey {
-        fs::write(&*TD_PUBKEY_FILE, pubkey).c(d!("fail to cache 'validator-pubkey'"))?;
+    if let Some(kp) = validator_key_path {
+        fs::write(&*TD_KEY_FILE, kp).c(d!("fail to cache 'validator-key-path'"))?;
     }
     Ok(())
 }
@@ -239,10 +242,29 @@ fn get_keypair() -> Result<XfrKeyPair> {
 }
 
 fn get_td_pubkey() -> Result<Vec<u8>> {
-    if let Some(pubkey) = TD_PUBKEY.as_ref() {
-        td_pubkey_to_bytes(pubkey).c(d!())
+    if let Some(key_path) = TD_KEY.as_ref() {
+        fs::read_to_string(key_path)
+            .c(d!("can not read key file from path"))
+            .and_then(|k| {
+                let v_keys = parse_td_validator_keys(k).c(d!())?;
+                Ok(v_keys.pub_key.to_vec())
+            })
     } else {
         Err(eg!("'validator-pubkey' has not been set"))
+    }
+}
+
+fn get_td_privkey() -> Result<PrivateKey> {
+    if let Some(key_path) = TD_KEY.as_ref() {
+        fs::read_to_string(key_path)
+            .c(d!("can not read key file from path"))
+            .and_then(|k| {
+                parse_td_validator_keys(k)
+                    .c(d!())
+                    .map(|v_keys| v_keys.priv_key)
+            })
+    } else {
+        Err(eg!("'validator-privkey' has not been set"))
     }
 }
 

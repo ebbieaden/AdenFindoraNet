@@ -1891,8 +1891,8 @@ pub fn td_pubkey_to_string(td_pubkey: &[u8]) -> TendermintPubKey {
 
 #[inline(always)]
 #[allow(missing_docs)]
-pub fn td_pubkey_to_bytes(td_pubkey: TendermintPubKeyRef) -> Result<Vec<u8>> {
-    base64::decode(td_pubkey).c(d!())
+pub fn td_key_to_bytes(td_key: TendermintPubKeyRef) -> Result<Vec<u8>> {
+    base64::decode(td_key).c(d!())
 }
 
 #[inline(always)]

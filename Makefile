@@ -221,6 +221,9 @@ endif
 snapshot:
 	@./scripts/devnet/snapshot.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
 
+network:
+	@./scripts/devnet/startnetwork.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
+
 ####@./scripts/devnet/resetnodes.sh <num_of_validator_nodes> <num_of_normal_nodes>
 mainnet:
 	@./scripts/devnet/stopnodes.sh

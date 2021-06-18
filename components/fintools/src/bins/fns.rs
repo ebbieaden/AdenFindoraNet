@@ -63,7 +63,7 @@ fn run() -> Result<()> {
             "-O, --owner-mnemonic-path=[Path], 'storage path of your mnemonic words'",
         )
         .arg_from_usage(
-            "-K, --validator-pubkey=[PubKey], 'the tendermint pubkey of your validator node'",
+            "-K, --validator-key=[Path], 'path to the tendermint keys of your validator node'",
         );
     let subcmd_transfer = SubCommand::with_name("transfer")
         .arg_from_usage("-t, --target-addr=<Addr> 'wallet address of the receiver'")
@@ -117,7 +117,7 @@ fn run() -> Result<()> {
     } else if let Some(m) = matches.subcommand_matches("setup") {
         let sa = m.value_of("serv-addr");
         let om = m.value_of("owner-mnemonic-path");
-        let tp = m.value_of("validator-pubkey");
+        let tp = m.value_of("validator-key");
         if sa.is_none() && om.is_none() && tp.is_none() {
             println!("{}", m.usage());
         } else {
