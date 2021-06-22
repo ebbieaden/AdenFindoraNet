@@ -40,6 +40,12 @@ impl ClaimOps {
     }
 
     #[inline(always)]
+    /// The publickey which issued ClaimOps
+    pub fn get_claim_publickey(&self) -> XfrPublicKey {
+        self.pubkey
+    }
+
+    #[inline(always)]
     #[allow(missing_docs)]
     pub fn get_related_pubkeys(&self) -> Vec<XfrPublicKey> {
         vec![self.pubkey]
