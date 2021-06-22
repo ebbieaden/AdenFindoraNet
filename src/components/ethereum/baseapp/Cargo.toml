@@ -1,0 +1,17 @@
+[package]
+name = "baseapp"
+version = "0.1.0"
+authors = ["Findora <tyler@findora.org>"]
+edition = "2018"
+homepage = "https://findora.org/technology"
+repository = "https://github.com/findoranetwork/platform/"
+description = "Base application for tendermint abci"
+readme = "README.md"
+
+[dependencies]
+abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
+primitives = { path = "../primitives" }
+ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
+
+# modules
+app_evm = { path = "../modules/evm"}

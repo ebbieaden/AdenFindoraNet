@@ -1,5 +1,6 @@
 [workspace]
 members = [
+<<<<<<< HEAD
     "src/ledger",
     "src/components/finutils",
     "src/components/abciapp",
@@ -11,6 +12,31 @@ members = [
     "src/libs/cryptohash",
     "src/libs/credentials",
     "src/libs/sliding_set",
+=======
+    "components/abciapp",
+    "components/cli2",
+    "components/ethereum/baseapp",
+    "components/ethereum/modules/evm",
+    "components/ethereum/primitives",
+    "components/ledger_api_service",
+    "components/query_api",
+    "components/query_server",
+    "components/submission_api",
+    "components/submission_server",
+    "components/txn_builder",
+    "components/wasm",
+    "components/wallet",
+    "components/fintools",
+    "ledger",
+    "libs/ads/air",
+    "libs/ads/merkle_tree",
+    "libs/ads/sparse_merkle_tree",
+    "libs/bitmap",
+    "libs/cryptohash",
+    "libs/credentials",
+    "libs/sliding_set",
+    "libs/utils",
+>>>>>>> 9e75f00f (evm module basic framework)
 ]
 
 [profile.dev]
