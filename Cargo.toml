@@ -1,7 +1,10 @@
 [workspace]
 members = [
-    "components/cli2",
     "components/abciapp",
+    "components/cli2",
+    "components/ethereum/baseapp",
+    "components/ethereum/modules/evm",
+    "components/ethereum/primitives",
     "components/ledger_api_service",
     "components/query_api",
     "components/query_server",
