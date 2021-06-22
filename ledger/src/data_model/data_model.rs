@@ -1108,6 +1108,7 @@ impl Validator {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ValidatorDetail {
     pub addr: TendermintAddr,
+    pub kind: String,
     pub is_online: bool,
     pub voting_power: u64,
     pub voting_power_rank: usize,

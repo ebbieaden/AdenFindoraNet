@@ -503,6 +503,7 @@ where
                     block_signed_cnt: v.signed_cnt,
                     block_proposed_cnt: v_self_delegation.proposer_rwd_cnt,
                     expected_annualization,
+                    kind: v.kind(),
                 };
                 return Ok(web::Json(resp));
             }

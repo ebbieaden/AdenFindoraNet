@@ -1562,6 +1562,15 @@ pub enum ValidatorKind {
     Initor,
 }
 
+impl std::fmt::Display for ValidatorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ValidatorKind::Staker => write!(f, "Staker"),
+            ValidatorKind::Initor => write!(f, "Initor"),
+        }
+    }
+}
+
 /// Validator info
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Validator {
@@ -1585,6 +1594,8 @@ pub struct Validator {
     commission_rate: [u64; 2],
     /// optional descriptive information
     pub memo: Option<StakerMemo>,
+    /// validator kind, "Initor" is a internal node type.
+    /// keep it private pls
     kind: ValidatorKind,
     /// use this field to mark
     /// if this validator signed last block
@@ -1636,6 +1647,12 @@ impl Validator {
             ValidatorKind::Staker,
         )
         .c(d!())
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn kind(&self) -> String {
+        self.kind.to_string()
     }
 
     #[inline(always)]
