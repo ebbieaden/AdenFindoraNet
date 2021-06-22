@@ -452,7 +452,7 @@ impl Staking {
     pub fn undelegate(
         &mut self,
         addr: &XfrPublicKey,
-        partial_undelegation: Option<PartialUnDelegation>,
+        partial_undelegation: Option<&PartialUnDelegation>,
     ) -> Result<()> {
         // partial un-delegation
         if let Some(pu) = partial_undelegation {
@@ -501,7 +501,7 @@ impl Staking {
     fn undelegate_partially(
         &mut self,
         addr: &XfrPublicKey,
-        pu: PartialUnDelegation,
+        pu: &PartialUnDelegation,
     ) -> Result<()> {
         if self.delegation_has_addr(&pu.rwd_receiver) {
             return Err(eg!("Receiver address already exists"));
@@ -510,6 +510,10 @@ impl Staking {
         let new_tmp_delegator;
         let h = self.cur_height;
         let is_validator = self.addr_is_validator(addr);
+
+        let target_validator = self
+            .validator_td_addr_to_app_pk(&pu.target_validator)
+            .c(d!("Invalid target validator"))?;
 
         if let Some(d) = self.di.addr_map.get_mut(addr) {
             if is_validator
@@ -520,7 +524,7 @@ impl Staking {
 
             let am = d
                 .entries
-                .get_mut(&pu.target_validator)
+                .get_mut(&target_validator)
                 .c(d!("Target validator does not exist"))?;
 
             if pu.am > *am {
@@ -530,7 +534,7 @@ impl Staking {
             if BLOCK_HEIGHT_MAX == d.end_height {
                 *am -= pu.am;
                 new_tmp_delegator = Delegation {
-                    entries: map! {B pu.target_validator => pu.am},
+                    entries: map! {B target_validator => pu.am},
                     delegators: indexmap::IndexMap::new(),
                     rwd_pk: pu.rwd_receiver,
                     start_height: d.start_height,
@@ -554,8 +558,8 @@ impl Staking {
             .or_insert_with(BTreeSet::new)
             .insert(pu.rwd_receiver);
 
-        // update delegator entries for pu.target_validator
-        if let Some(vd) = self.di.addr_map.get_mut(&pu.target_validator) {
+        // update delegator entries for pu target_validator
+        if let Some(vd) = self.di.addr_map.get_mut(&target_validator) {
             // add rwd_receiver to delegator list
             *vd.delegators
                 .entry(wallet::public_key_to_base64(&pu.rwd_receiver))
@@ -1807,11 +1811,11 @@ impl Default for DelegationState {
 }
 
 #[allow(missing_docs)]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct PartialUnDelegation {
     am: Amount,
     rwd_receiver: XfrPublicKey,
-    target_validator: XfrPublicKey,
+    target_validator: TendermintAddr,
 }
 
 impl PartialUnDelegation {
@@ -1819,7 +1823,7 @@ impl PartialUnDelegation {
     pub fn new(
         am: Amount,
         rwd_receiver: XfrPublicKey,
-        target_validator: XfrPublicKey,
+        target_validator: TendermintAddr,
     ) -> Self {
         PartialUnDelegation {
             am,

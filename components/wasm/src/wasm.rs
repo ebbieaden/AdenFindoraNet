@@ -529,7 +529,7 @@ impl TransactionBuilder {
         keypair: &XfrKeyPair,
         am: u64,
         rwd_receiver: XfrPublicKey,
-        target_validator: XfrPublicKey,
+        target_validator: TendermintAddr,
     ) -> Result<TransactionBuilder, JsValue> {
         self.get_builder_mut().add_operation_undelegation(
             keypair,
