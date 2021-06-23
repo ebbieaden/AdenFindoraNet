@@ -30,7 +30,7 @@ use rand_chacha::ChaChaRng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use std::boxed::Box;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 use std::result::Result as StdResult;
@@ -1152,7 +1152,7 @@ impl DelegatorList {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DelegationInfo {
     pub bond: u64,
-    pub bond_entries: BTreeMap<XfrPublicKey, u64>,
+    pub bond_entries: Vec<(String, u64)>,
     pub unbond: u64,
     pub rewards: u64,
     pub return_rate: [u64; 2],
@@ -1175,7 +1175,7 @@ impl DelegationInfo {
 
     pub fn new(
         bond: u64,
-        bond_entries: BTreeMap<XfrPublicKey, u64>,
+        bond_entries: Vec<(String, u64)>,
         unbond: u64,
         rewards: u64,
         return_rate: [u64; 2],

@@ -888,6 +888,20 @@ impl Staking {
             .and_then(|vd| vd.addr_td_to_app.get(addr).copied().c(d!()))
     }
 
+    /// Lookup up the 'tendermint node address' by the 'XfrPublicKey'
+    #[inline(always)]
+    pub fn validator_app_pk_to_td_addr(
+        &self,
+        key: &XfrPublicKey,
+    ) -> Result<TendermintAddr> {
+        self.validator_get_current().c(d!()).and_then(|vd| {
+            vd.body
+                .get(key)
+                .c(d!())
+                .map(|v| td_addr_to_string(&v.td_addr))
+        })
+    }
+
     /// Generate sha256 digest.
     #[inline(always)]
     pub fn hash(&self) -> Result<Digest> {

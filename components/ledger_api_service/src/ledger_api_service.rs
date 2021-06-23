@@ -544,7 +544,16 @@ where
         .delegation_get(&pk)
         .map(|d| {
             let mut bond_amount = d.amount();
-            let bond_entries = d.entries.clone();
+            let bond_entries: Vec<(String, u64)> = d
+                .entries
+                .iter()
+                .filter_map(|(pk, am)| {
+                    staking
+                        .validator_app_pk_to_td_addr(pk)
+                        .ok()
+                        .map(|addr| (addr, *am))
+                })
+                .collect();
             let mut unbond_amount = 0;
             match d.state {
                 DelegationState::Paid => {
@@ -572,7 +581,7 @@ where
                 d.proposer_rwd_cnt,
             )
         })
-        .unwrap_or((0, map! {B}, 0, 0, 0, 0, 0, 0));
+        .unwrap_or((0, vec![], 0, 0, 0, 0, 0, 0));
 
     let mut resp = DelegationInfo::new(
         bond_amount,
