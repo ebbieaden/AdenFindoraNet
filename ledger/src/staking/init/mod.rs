@@ -33,6 +33,7 @@ pub struct ValidatorStr {
     td_power: Option<Power>,
     commission_rate: Option<[u64; 2]>,
     memo: Option<String>,
+    kind: Option<ValidatorKind>,
 }
 
 impl TryFrom<ValidatorStr> for Validator {
@@ -45,7 +46,7 @@ impl TryFrom<ValidatorStr> for Validator {
             commission_rate: v.commission_rate.unwrap_or([1, 100]),
             id: wallet::public_key_from_base64(&v.id).c(d!())?,
             memo: v.memo,
-            kind: ValidatorKind::Initor,
+            kind: v.kind.unwrap_or(ValidatorKind::Initor),
             signed_last_block: false,
             signed_cnt: 0,
         })
