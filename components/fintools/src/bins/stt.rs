@@ -13,11 +13,8 @@ use clap::{crate_authors, crate_version, App, SubCommand};
 use fintools::fns::utils as fns;
 use lazy_static::lazy_static;
 use ledger::{
-    data_model::Transaction,
-    staking::{
-        check_delegation_amount, BLOCK_INTERVAL, COINBASE_KP, COINBASE_PK,
-        COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK, FRA, FRA_TOTAL_AMOUNT,
-    },
+    data_model::{Transaction, BLACK_HOLE_PUBKEY_STAKING},
+    staking::{check_delegation_amount, BLOCK_INTERVAL, FRA, FRA_TOTAL_AMOUNT},
     store::fra_gen_initial_tx,
 };
 use ruc::*;
@@ -64,7 +61,6 @@ fn run() -> Result<()> {
         .arg_from_usage("-t, --to-user=[User] 'transfer receiver'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to transfer'");
     let subcmd_show = SubCommand::with_name("show")
-        .arg_from_usage("-b, --coinbase 'show the infomation about coinbase'")
         .arg_from_usage("-r, --root-mnemonic 'show the pre-defined root mnemonic'")
         .arg_from_usage("-U, --user-list 'show the pre-defined user list'")
         .arg_from_usage("-v, --validator-list 'show the pre-defined validator list'")
@@ -137,14 +133,13 @@ fn run() -> Result<()> {
             fns::transfer_batch(owner_kp, target).c(d!())?;
         }
     } else if let Some(m) = matches.subcommand_matches("show") {
-        let cb = m.is_present("coinbase");
         let rm = m.is_present("root-mnemonic");
         let ul = m.is_present("user-list");
         let vl = m.is_present("validator-list");
         let u = m.value_of("user");
 
-        if cb || rm || ul || vl || u.is_some() {
-            print_info(cb, rm, ul, vl, u).c(d!())?;
+        if rm || ul || vl || u.is_some() {
+            print_info(rm, ul, vl, u).c(d!())?;
         } else {
             println!("{}", m.usage());
         }
@@ -174,14 +169,12 @@ mod init {
         println!(">>> wait 4 blocks...");
         sleep_n_block!(4);
 
-        let mut target_list = USER_LIST
+        let target_list = USER_LIST
             .values()
             .map(|u| &u.pubkey)
             .chain(VALIDATOR_LIST.values().map(|v| &v.pubkey))
             .map(|pk| (pk, FRA_TOTAL_AMOUNT / 10000))
             .collect::<Vec<_>>();
-
-        target_list.push((&*COINBASE_PK, 4_000_000_000_000));
 
         println!(">>> transfer FRAs to validators...");
         fns::transfer_batch(&root_kp, target_list).c(d!())?;
@@ -220,7 +213,7 @@ mod delegate {
 
         let mut builder = fns::new_tx_builder().c(d!())?;
 
-        fns::gen_transfer_op(owner_kp, vec![(&COINBASE_PRINCIPAL_PK, amount)])
+        fns::gen_transfer_op(owner_kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, amount)])
             .c(d!())
             .map(|principal_op| {
                 builder.add_operation(principal_op);
@@ -267,26 +260,11 @@ mod claim {
 }
 
 fn print_info(
-    show_coinbse: bool,
     show_root_mnemonic: bool,
     show_user_list: bool,
     show_validator_list: bool,
     user: Option<NameRef>,
 ) -> Result<()> {
-    if show_coinbse {
-        let cb_balance = fns::get_balance(&COINBASE_KP).c(d!())?;
-        let cb_principal_balance = fns::get_balance(&COINBASE_PRINCIPAL_KP).c(d!())?;
-
-        println!(
-            "\x1b[31;01mCOINBASE BALANCE:\x1b[00m\n{} FRA units\n",
-            cb_balance
-        );
-        println!(
-            "\x1b[31;01mCOINBASE PRINCIPAL BALANCE:\x1b[00m\n{} FRA units\n",
-            cb_principal_balance
-        );
-    }
-
     if show_root_mnemonic {
         println!("\x1b[31;01mROOT MNEMONIC:\x1b[00m\n{}\n", ROOT_MNEMONIC);
     }

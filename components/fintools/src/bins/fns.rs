@@ -20,8 +20,6 @@
 //!     - "--serv-addr=[URL/IP]"
 //!     - "--owner-mnemonic-path=[File Path]"
 //!         - the `id` of your validator will be drived from this
-//! - contribute, pay some FRAs to CoinBase
-//!     - "--amount=[Amout <Optional, default to '400m FRA'>]"
 //! ```
 //!
 
@@ -68,9 +66,6 @@ fn run() -> Result<()> {
     let subcmd_transfer = SubCommand::with_name("transfer")
         .arg_from_usage("-t, --target-addr=<Addr> 'wallet address of the receiver'")
         .arg_from_usage("-n, --amount=<Amount> 'how much FRA to transfer'");
-    let subcmd_contribute = SubCommand::with_name("contribute").arg_from_usage(
-        "-n, --amount=[Amout] 'contribute some `FRA unit`s to CoinBase'",
-    );
     let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
     let matches = App::new("fns")
@@ -83,7 +78,6 @@ fn run() -> Result<()> {
         .subcommand(subcmd_show)
         .subcommand(subcmd_setup)
         .subcommand(subcmd_transfer)
-        .subcommand(subcmd_contribute)
         .subcommand(subcmd_set_initial_validators)
         .get_matches();
 
@@ -130,16 +124,6 @@ fn run() -> Result<()> {
             println!("{}", m.usage());
         } else {
             fns::transfer_fra(ta.unwrap(), am.unwrap()).c(d!())?;
-        }
-    } else if let Some(m) = matches.subcommand_matches("contribute") {
-        let sure = promptly::prompt_default(
-            "\x1b[31;01m\tAre you sure?\n\tOnce executed, it can NOT be reverted.\x1b[00m",
-            false,
-        )
-        .c(d!("incorrect inputs"))?;
-        if sure {
-            let am = m.value_of("amount");
-            fns::contribute(am).c(d!())?;
         }
     } else if matches.is_present("set-initial-validators") {
         fns::set_initial_validators().c(d!())?;

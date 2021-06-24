@@ -5,10 +5,12 @@
 //!
 
 use crate::{
-    data_model::{NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA},
+    data_model::{
+        NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY_STAKING,
+    },
     staking::{
         deny_relative_inputs, td_addr_to_string, Amount, Staking, TendermintAddr,
-        Validator, COINBASE_PRINCIPAL_PK, STAKING_VALIDATOR_MIN_POWER,
+        Validator, STAKING_VALIDATOR_MIN_POWER,
     },
 };
 use ed25519_dalek::Signer;
@@ -210,7 +212,7 @@ fn check_delegation_context_principal(
     tx: &Transaction,
     owner: XfrPublicKey,
 ) -> Result<Amount> {
-    let target_pk = *COINBASE_PRINCIPAL_PK;
+    let target_pk = *BLACK_HOLE_PUBKEY_STAKING;
 
     let am = tx
         .body

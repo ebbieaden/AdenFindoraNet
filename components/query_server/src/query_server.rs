@@ -448,6 +448,7 @@ where
             Operation::UpdateValidator(i) => staking_gen!(i),
             Operation::Governance(i) => staking_gen!(i),
             Operation::FraDistribution(i) => staking_gen!(i),
+            Operation::MintFra(i) => staking_gen!(i),
 
             Operation::TransferAsset(transfer) => {
                 for input in transfer.body.transfer.inputs.iter() {
