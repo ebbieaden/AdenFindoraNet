@@ -343,7 +343,7 @@ impl Staking {
         validator: TendermintAddrRef,
         start: usize,
         mut end: usize,
-    ) -> Result<Vec<(&String, &u64)>> {
+    ) -> Result<Vec<(&XfrPublicKey, &u64)>> {
         let validator = self.validator_td_addr_to_app_pk(validator).c(d!())?;
 
         if let Some(vd) = self.di.addr_map.get(&validator) {
@@ -389,7 +389,7 @@ impl Staking {
         let new = || Delegation {
             entries: map! {B validator => 0},
             delegators: indexmap::IndexMap::new(),
-            rwd_pk: owner,
+            id: owner,
             receiver_pk: None,
             start_height: h,
             end_height,
@@ -417,9 +417,7 @@ impl Staking {
         // update delegator entries for this validator
         if let Some(vd) = self.di.addr_map.get_mut(&validator) {
             if owner != validator {
-                *vd.delegators
-                    .entry(wallet::public_key_to_base64(&owner))
-                    .or_insert(0) += am;
+                *vd.delegators.entry(owner).or_insert(0) += am;
                 vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
             }
         }
@@ -467,7 +465,7 @@ impl Staking {
             }
             if self.addr_is_validator(addr) {
                 // clear its power when a validator propose a complete undelegation
-                // > `panic` should not happen without bug
+                // > `panic` should not happen without bug[s]
                 pnk!(self.validator_change_power(addr, u64::MAX, true));
             }
         } else {
@@ -497,7 +495,7 @@ impl Staking {
         addr: &XfrPublicKey,
         pu: &PartialUnDelegation,
     ) -> Result<()> {
-        if self.delegation_has_addr(&pu.rwd_receiver) {
+        if self.delegation_has_addr(&pu.new_delegator_id) {
             return Err(eg!("Receiver address already exists"));
         }
 
@@ -530,8 +528,8 @@ impl Staking {
                 new_tmp_delegator = Delegation {
                     entries: map! {B target_validator => pu.am},
                     delegators: indexmap::IndexMap::new(),
-                    rwd_pk: pu.rwd_receiver,
-                    receiver_pk: Some(d.rwd_pk),
+                    id: pu.new_delegator_id,
+                    receiver_pk: Some(d.id),
                     start_height: d.start_height,
                     end_height: h + UNBOND_BLOCK_CNT,
                     state: DelegationState::Bond,
@@ -546,24 +544,23 @@ impl Staking {
             return Err(eg!("delegator not found"));
         }
 
-        self.di.addr_map.insert(pu.rwd_receiver, new_tmp_delegator);
+        self.di
+            .addr_map
+            .insert(pu.new_delegator_id, new_tmp_delegator);
         self.di
             .end_height_map
             .entry(h + UNBOND_BLOCK_CNT)
             .or_insert_with(BTreeSet::new)
-            .insert(pu.rwd_receiver);
+            .insert(pu.new_delegator_id);
 
         // update delegator entries for pu target_validator
         if let Some(vd) = self.di.addr_map.get_mut(&target_validator) {
-            // add rwd_receiver to delegator list
-            *vd.delegators
-                .entry(wallet::public_key_to_base64(&pu.rwd_receiver))
-                .or_insert(0) += pu.am;
+            // add new_delegator_id to delegator list
+            *vd.delegators.entry(pu.new_delegator_id).or_insert(0) += pu.am;
 
             // update delegation amount of current address
             // make sure previous delegation amount is bigger than pu.am above.
-            if let Some(am) = vd.delegators.get_mut(&wallet::public_key_to_base64(&addr))
-            {
+            if let Some(am) = vd.delegators.get_mut(addr) {
                 *am -= pu.am;
             }
             vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
@@ -772,7 +769,7 @@ impl Staking {
                         self.di.global_amount -= am;
 
                         if let Some(vd) = self.di.addr_map.get_mut(&v) {
-                            vd.delegators.remove(&wallet::public_key_to_base64(&addr));
+                            vd.delegators.remove(&addr);
                             vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
                         }
                     });
@@ -1549,12 +1546,12 @@ pub struct Delegation {
 
     /// - delegator entries
     /// - only valid for a validator
-    pub delegators: indexmap::IndexMap<String, Amount>,
+    pub delegators: indexmap::IndexMap<XfrPublicKey, Amount>,
 
-    /// delegation rewards will be paid to this pk
-    pub rwd_pk: XfrPublicKey,
+    /// delegation rewards will be paid to this pk by default
+    pub id: XfrPublicKey,
     /// optional receiver address,
-    /// if this one exists, tokens will be paid to it instead of rwd_pk
+    /// if this one exists, tokens will be paid to it instead of id
     pub receiver_pk: Option<XfrPublicKey>,
     /// the joint height of the delegtator
     pub start_height: BlockHeight,
@@ -1702,7 +1699,7 @@ impl Default for DelegationState {
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct PartialUnDelegation {
     am: Amount,
-    rwd_receiver: XfrPublicKey,
+    new_delegator_id: XfrPublicKey,
     target_validator: TendermintAddr,
 }
 
@@ -1710,12 +1707,12 @@ impl PartialUnDelegation {
     #[allow(missing_docs)]
     pub fn new(
         am: Amount,
-        rwd_receiver: XfrPublicKey,
+        new_delegator_id: XfrPublicKey,
         target_validator: TendermintAddr,
     ) -> Self {
         PartialUnDelegation {
             am,
-            rwd_receiver,
+            new_delegator_id,
             target_validator,
         }
     }
@@ -1917,7 +1914,7 @@ mod test {
         let delegation = Delegation {
             entries: map! {B validator_kp.get_pk() => delegation_amount},
             delegators: indexmap::IndexMap::new(),
-            rwd_pk: delegator_kp.get_pk(),
+            id: delegator_kp.get_pk(),
             receiver_pk: None,
             start_height: 0,
             end_height: 200_0000,

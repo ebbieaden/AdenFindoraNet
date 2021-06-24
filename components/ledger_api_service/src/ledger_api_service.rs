@@ -420,8 +420,8 @@ where
         .map_err(error::ErrorNotFound)?;
 
     let list: Vec<DelegatorInfo> = list
-        .into_iter()
-        .map(|(key, am)| DelegatorInfo::new(key, am))
+        .iter()
+        .map(|(key, am)| DelegatorInfo::new(wallet::public_key_to_base64(key), **am))
         .collect();
 
     Ok(web::Json(DelegatorList::new(list)))
@@ -443,8 +443,8 @@ where
         .map_err(error::ErrorNotFound)?;
 
     let list: Vec<DelegatorInfo> = list
-        .into_iter()
-        .map(|(key, am)| DelegatorInfo::new(key, am))
+        .iter()
+        .map(|(key, am)| DelegatorInfo::new(wallet::public_key_to_base64(key), **am))
         .collect();
 
     Ok(web::Json(DelegatorList::new(list)))

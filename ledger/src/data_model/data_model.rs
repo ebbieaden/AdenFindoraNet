@@ -1132,11 +1132,8 @@ pub struct DelegatorInfo {
 }
 
 impl DelegatorInfo {
-    pub fn new(key: &str, am: &u64) -> Self {
-        Self {
-            addr: key.to_string(),
-            amount: *am,
-        }
+    pub fn new(addr: String, amount: u64) -> Self {
+        DelegatorInfo { addr, amount }
     }
 }
 
