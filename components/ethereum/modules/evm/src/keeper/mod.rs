@@ -1,4 +1,4 @@
-use primitives::message::evm::*;
+use crate::message::*;
 use ruc::Result;
 
 // keeper of the evm store

@@ -1,7 +1,6 @@
 use ethereum_types::{H160, H256, U256};
+use primitives::transaction::TxMsg;
 use ruc::Result;
-
-pub const EVM_MODULE_NAME: &str = "evm";
 
 pub struct Call {
     source: H160,
@@ -38,12 +37,16 @@ pub enum Message {
     Create2(Create2),
 }
 
-impl super::TxMsg for Message {
+impl TxMsg for Message {
     fn route_path(&self) -> String {
-        EVM_MODULE_NAME.to_string()
+        crate::MODULE_NAME.to_string()
     }
 
-    fn validate_basic(&self) -> Result<()> {
+    fn execute(&self) -> Result<()> {
+        Ok(())
+    }
+
+    fn validate(&self) -> Result<()> {
         Ok(())
     }
 
