@@ -1,10 +1,7 @@
 mod app;
 
 use app_evm::EvmModule;
-use ethereum_types::H160;
-use primitives::{
-    crypto::MultiSignature, module::AppModule, transaction, transaction::TxMsg,
-};
+use primitives::{crypto::*, module::AppModule, transaction, transaction::TxMsg};
 use ruc::{eg, Result};
 use std::collections::HashMap;
 
@@ -21,7 +18,8 @@ struct BaseApp {
 }
 
 pub enum Message {
-    EVM(app_evm::Message),
+    Ethereum(app_ethereum::Message),
+    Evm(app_evm::Message),
 }
 
 impl BaseApp {
@@ -57,7 +55,11 @@ impl BaseApp {
 
     pub fn handle_msg(&self, msg: Message) {
         match msg {
-            Message::EVM(m) => {
+            Message::Ethereum(m) => {
+                let am = self.modules.get(&m.route_path()).unwrap();
+                am.tx_route(Box::new(m)).unwrap();
+            }
+            Message::Evm(m) => {
                 let am = self.modules.get(&m.route_path()).unwrap();
                 am.tx_route(Box::new(m)).unwrap();
             }
@@ -87,11 +89,19 @@ impl BaseApp {
     }
 }
 
+/// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
+pub type Signature = MultiSignature;
+
+/// Some way of identifying an account on the chain. We intentionally make it equivalent
+/// to the public key of our transaction signing scheme.
+pub type Address = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedTransaction =
-    transaction::UncheckedTransaction<H160, app_evm::Message, MultiSignature>;
+    transaction::UncheckedTransaction<Address, app_ethereum::Message, Signature>;
 /// Extrinsic type that has already been checked.
-pub type CheckedTransaction = transaction::CheckedTransaction<H160, app_evm::Message>;
+pub type CheckedTransaction =
+    transaction::CheckedTransaction<Address, app_ethereum::Message>;
 
 pub struct EthereumTransactionConverter;
 
@@ -99,9 +109,10 @@ impl transaction::ConvertTransaction<UncheckedTransaction>
     for EthereumTransactionConverter
 {
     fn convert_transaction(&self, transaction: &[u8]) -> Result<UncheckedTransaction> {
-        let _tx = serde_json::from_slice::<ethereum::Transaction>(transaction)
+        let tx = serde_json::from_slice::<ethereum::Transaction>(transaction)
             .map_err(|e| eg!(e))?;
-        // UncheckedTransaction::new_unsigned(app_evm::message::Message::)
-        todo!()
+        Ok(UncheckedTransaction::new_unsigned(
+            app_ethereum::Message::Transact(tx),
+        ))
     }
 }

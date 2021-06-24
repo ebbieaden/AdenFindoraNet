@@ -1,10 +1,11 @@
 use ruc::eg;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
+use zei::serialization::ZeiFromToBytes;
 use zei::xfr::sig::{XfrPublicKey, XfrSignature};
 
 /// Signature verify that can work with any known signature types..
-#[derive(Eq, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MultiSignature {
     /// An zei xfr signature.
     Xfr(XfrSignature),
@@ -21,6 +22,58 @@ impl TryFrom<MultiSignature> for XfrSignature {
     fn try_from(m: MultiSignature) -> Result<Self, Self::Error> {
         match m {
             MultiSignature::Xfr(x) => Ok(x),
+        }
+    }
+}
+
+impl Verify for MultiSignature {
+    type Signer = MultiSigner;
+
+    fn verify(&self, msg: &[u8], signer: &Self::Signer) -> bool {
+        match self {
+            Self::Xfr(ref sig) => {
+                sig.verify(msg, &XfrPublicKey::try_from(signer.clone()).unwrap())
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MultiSigner {
+    /// An zei xfr identity.
+    Xfr(XfrPublicKey),
+}
+
+impl Default for MultiSigner {
+    fn default() -> Self {
+        Self::Xfr(Default::default())
+    }
+}
+
+impl From<XfrPublicKey> for MultiSigner {
+    fn from(x: XfrPublicKey) -> Self {
+        Self::Xfr(x)
+    }
+}
+
+impl TryFrom<MultiSigner> for XfrPublicKey {
+    type Error = ();
+    fn try_from(m: MultiSigner) -> Result<Self, Self::Error> {
+        if let MultiSigner::Xfr(x) = m {
+            Ok(x)
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl IdentifyAccount for MultiSigner {
+    type AccountId = Address32;
+    fn into_account(self) -> Address32 {
+        match self {
+            MultiSigner::Xfr(who) => {
+                Address32::try_from(XfrPublicKey::zei_to_bytes(&who).as_slice()).unwrap()
+            }
         }
     }
 }
@@ -63,4 +116,30 @@ fn secp256k1_ecdsa_recover(sig: &[u8; 65], msg: &[u8; 32]) -> ruc::Result<[u8; 6
     let mut res = [0u8; 64];
     res.copy_from_slice(&pubkey.serialize()[1..65]);
     Ok(res)
+}
+
+/// Some type that is able to be collapsed into an account ID. It is not possible to recreate the
+/// original value from the account ID.
+pub trait IdentifyAccount {
+    /// The account ID that this can be transformed into.
+    type AccountId;
+    /// Transform into an account.
+    fn into_account(self) -> Self::AccountId;
+}
+
+/// An opaque 32-byte cryptographic identifier.
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Default, Hash)]
+pub struct Address32([u8; 32]);
+
+impl<'a> std::convert::TryFrom<&'a [u8]> for Address32 {
+    type Error = ();
+    fn try_from(x: &'a [u8]) -> Result<Address32, ()> {
+        if x.len() == 32 {
+            let mut r = Address32::default();
+            r.0.copy_from_slice(x);
+            Ok(r)
+        } else {
+            Err(())
+        }
+    }
 }
