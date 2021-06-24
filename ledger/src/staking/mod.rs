@@ -15,13 +15,10 @@ pub mod cosig;
 pub mod init;
 pub mod ops;
 
-use crate::data_model::{
-    Operation, Transaction, TransferAsset, TxoRef, ASSET_TYPE_FRA, FRA_DECIMALS,
-};
+use crate::data_model::{Operation, Transaction, TransferAsset, TxoRef, FRA_DECIMALS};
 use cosig::CoSigRule;
 use cryptohash::sha256::{self, Digest};
-use lazy_static::lazy_static;
-use ops::fra_distribution::FraDistributionOps;
+use ops::{fra_distribution::FraDistributionOps, mint_fra::MintKind};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
@@ -31,10 +28,7 @@ use std::{
     iter::FromIterator,
     mem,
 };
-use zei::xfr::{
-    sig::{XfrKeyPair, XfrPublicKey},
-    structs::{XfrAmount, XfrAssetType},
-};
+use zei::xfr::sig::XfrPublicKey;
 
 /// Staking entry
 ///
@@ -385,10 +379,6 @@ impl Staking {
 
         check_delegation_amount(am).c(d!())?;
 
-        if *COINBASE_PK == owner {
-            return Err(eg!("malicious behavior: attempting to delegate CoinBase"));
-        }
-
         if self.delegation_has_addr(&validator) || owner == validator {
             // `normal scene` or `do self-delegation`
         } else {
@@ -443,6 +433,9 @@ impl Staking {
 
         // global amount of all delegations
         self.di.global_amount += am;
+
+        // principals should be added to the balance of coinbase
+        self.coinbase.principal_balance += am;
 
         Ok(())
     }
@@ -910,30 +903,6 @@ impl Staking {
             .map(|bytes| sha256::hash(&bytes))
     }
 
-    #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn coinbase_pubkey(&self) -> XfrPublicKey {
-        self.coinbase.pubkey
-    }
-
-    #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn coinbase_keypair(&self) -> &XfrKeyPair {
-        &self.coinbase.keypair
-    }
-
-    #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn coinbase_principal_pubkey(&self) -> XfrPublicKey {
-        self.coinbase.principal_pubkey
-    }
-
-    #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn coinbase_principal_keypair(&self) -> &XfrKeyPair {
-        &self.coinbase.principal_keypair
-    }
-
     /// Add new fra distribution plan.
     pub fn coinbase_config_fra_distribution(
         &mut self,
@@ -964,163 +933,57 @@ impl Staking {
     /// sent from COIN_BASE_PRINCIPAL, every tx that can
     /// not pass this checker will be regarded as invalid.
     pub fn coinbase_check_and_pay(&mut self, tx: &Transaction) -> Result<()> {
-        if !self.is_coinbase_ops(tx) {
+        if !is_coinbase_tx(tx) {
             return Ok(());
         }
 
-        if !self.seems_valid_coinbase_ops(tx, false)
-            && !self.seems_valid_coinbase_ops(tx, true)
-        {
-            return Err(eg!());
+        self.coinbase_pay(tx).c(d!())
+    }
+
+    fn coinbase_pay(&mut self, tx: &Transaction) -> Result<()> {
+        let mut cbb = self.coinbase.balance;
+        let mut cbb_principal = self.coinbase.principal_balance;
+
+        macro_rules! cbsub {
+            ($am: expr) => {
+                // has been checked in abci
+                cbb = pnk!(cbb.checked_sub($am));
+            };
+            (@$am: expr) => {
+                cbb_principal = pnk!(cbb_principal.checked_sub($am));
+            };
         }
 
-        self.coinbase_collect_payments(tx)
-            .c(d!())
-            .map(|(distribution, delegation)| {
-                self.coinbase_pay_fra_distribution(&distribution);
-                self.coinbase_pay_delegation(&delegation);
-            })
-    }
-
-    // Check if a tx contains any inputs from coinbase,
-    // if it does, then it must pass all checkers about coinbase.
-    #[inline(always)]
-    fn is_coinbase_ops(&self, tx: &Transaction) -> bool {
-        tx.body.operations.iter().any(|o| {
-            if let Operation::TransferAsset(ref ops) = o {
-                if ops.body.transfer.inputs.iter().any(|i| {
-                    i.public_key == self.coinbase.pubkey
-                        || i.public_key == self.coinbase.principal_pubkey
-                }) {
-                    return true;
-                }
-            }
-            false
-        })
-    }
-
-    // Check if this is a valid coinbase operation.
-    //
-    // - only `TransferAsset` operations are allowed
-    // - all inputs must be owned by `CoinBase` or `CoinBasePrincipal`
-    // - all inputs and outputs must be `NonConfidential`
-    // - only FRA are involved in this transaction
-    // - all outputs must be owned by addresses in 'fra distribution' or 'delegation'
-    // - `Relative` inputs are not allowed
-    //
-    // **NOTE:** amount is not checked in this function !
-    fn seems_valid_coinbase_ops(&self, tx: &Transaction, is_principal: bool) -> bool {
-        let cbpk = alt!(
-            is_principal,
-            self.coinbase_principal_pubkey(),
-            self.coinbase_pubkey()
-        );
-
-        let inputs_is_valid = |o: &TransferAsset| {
-            !has_relative_inputs(o)
-                && o.body.transfer.inputs.iter().all(|i| i.public_key == cbpk)
-        };
-
-        let outputs_is_valid = |o: &TransferAsset| {
-            o.body.transfer.outputs.iter().all(|i| {
-                cbpk == i.public_key
-                    || self.addr_is_in_distribution_plan(&i.public_key)
-                    || self.addr_is_in_freed_delegation(&i.public_key)
-            })
-        };
-
-        let only_nonconfidential_fra = |o: &TransferAsset| {
-            o.body
-                .transfer
-                .inputs
-                .iter()
-                .chain(o.body.transfer.outputs.iter())
-                .all(|i| {
-                    if let XfrAssetType::NonConfidential(t) = i.asset_type {
-                        if ASSET_TYPE_FRA == t {
-                            return matches!(i.amount, XfrAmount::NonConfidential(_));
-                        }
-                    }
-                    false
-                })
-        };
-
-        let ops_is_valid = |ops: &Operation| {
-            if let Operation::TransferAsset(o) = ops {
-                inputs_is_valid(o) && outputs_is_valid(o) && only_nonconfidential_fra(o)
-            } else {
-                false
-            }
-        };
-
-        tx.body.operations.iter().all(|o| ops_is_valid(o))
-    }
-
-    fn coinbase_collect_payments(
-        &self,
-        tx: &Transaction,
-    ) -> Result<(HashMap<XfrPublicKey, Amount>, HashMap<XfrPublicKey, Amount>)> {
-        let mut v: &mut u64;
-        let mut delegation = map! {};
-        let mut distribution = map! {};
-
         for o in tx.body.operations.iter() {
-            if let Operation::TransferAsset(ref ops) = o {
-                for u in ops.body.transfer.outputs.iter() {
-                    if let XfrAssetType::NonConfidential(t) = u.asset_type {
-                        if t == ASSET_TYPE_FRA {
-                            if let XfrAmount::NonConfidential(am) = u.amount {
-                                if self.addr_is_in_freed_delegation(&u.public_key) {
-                                    v = delegation.entry(u.public_key).or_insert(0);
-                                    *v = v.checked_add(am).c(d!("overflow"))?;
-                                }
-                                if self.addr_is_in_distribution_plan(&u.public_key) {
-                                    v = distribution.entry(u.public_key).or_insert(0);
-                                    *v = v.checked_add(am).c(d!("overflow"))?;
-                                }
+            if let Operation::MintFra(ref ops) = o {
+                for et in ops.entries.iter() {
+                    if let Some(d) = self.delegation_get_mut(&et.target_pk) {
+                        if DelegationState::Free == d.state {
+                            if MintKind::UnStake == et.kind && d.amount() == et.amount {
+                                cbsub!(@et.amount);
+                                d.clean_amount();
+                            } else if MintKind::Claim == et.kind
+                                && d.rwd_amount == et.amount
+                            {
+                                cbsub!(et.amount);
+                                d.rwd_amount = 0;
+                            }
+                            if 0 == d.rwd_amount && 0 == d.amount() {
+                                d.state = DelegationState::Paid;
                             }
                         }
                     }
+                    if let Some(am) =
+                        self.coinbase.distribution_plan.get_mut(&et.target_pk)
+                    {
+                        if MintKind::Claim == et.kind && *am == et.amount {
+                            cbsub!(et.amount);
+                            *am = 0;
+                        }
+                    }
                 }
             }
         }
-
-        let delegation_is_valid = delegation.iter().all(|(addr, am)| {
-            let d = self.delegation_get(addr).unwrap();
-            0 < *am && (d.rwd_amount == *am || d.amount() == *am)
-        });
-
-        let distribution_is_valid = distribution.iter().all(|(addr, am)| {
-            0 < *am && self.coinbase.distribution_plan.get(addr).unwrap() == am
-        });
-
-        if !delegation_is_valid || !distribution_is_valid {
-            return Err(eg!("invalid payments"));
-        }
-
-        // avoid double payments by a same tx
-        let distribution = distribution
-            .into_iter()
-            .filter(|(addr, _)| !delegation.contains_key(addr))
-            .collect();
-
-        Ok((distribution, delegation))
-    }
-
-    // amounts have been checked in `coinbase_collect_payments`,
-    fn coinbase_pay_fra_distribution(
-        &mut self,
-        payments: &HashMap<XfrPublicKey, Amount>,
-    ) {
-        self.coinbase
-            .distribution_plan
-            .iter_mut()
-            .for_each(|(k, am)| {
-                // once paid, it was all paid
-                if payments.contains_key(k) {
-                    *am = 0;
-                }
-            });
 
         // clean 'completely paid' item
         self.coinbase.distribution_plan =
@@ -1128,35 +991,22 @@ impl Staking {
                 .into_iter()
                 .filter(|(_, am)| 0 < *am)
                 .collect();
-    }
 
-    // - amounts have been checked in `coinbase_collect_payments`
-    //     - either equal to amount or equal to rwd_amound
-    // - pubkey existances have been checked in `seems_valid_coinbase_ops`
-    // - delegation states has been checked in `addr_is_in_freed_delegation`
-    #[inline(always)]
-    fn coinbase_pay_delegation(&mut self, payments: &HashMap<XfrPublicKey, Amount>) {
-        payments.iter().for_each(|(pk, am)| {
-            let d = self.delegation_get_mut(pk).unwrap();
-            let am = *am as Amount;
-            if am == d.rwd_amount {
-                d.rwd_amount = 0;
-            } else {
-                d.clean_amount();
-            }
-            if 0 == d.rwd_amount && 0 == d.amount() {
-                d.state = DelegationState::Paid;
-            }
-        });
+        self.coinbase.balance = cbb;
+        self.coinbase.principal_balance = cbb_principal;
+
+        Ok(())
     }
 
     #[inline(always)]
-    fn addr_is_in_distribution_plan(&self, pk: &XfrPublicKey) -> bool {
+    #[allow(missing_docs)]
+    pub fn addr_is_in_distribution_plan(&self, pk: &XfrPublicKey) -> bool {
         self.coinbase.distribution_plan.contains_key(pk)
     }
 
     #[inline(always)]
-    fn addr_is_in_freed_delegation(&self, pk: &XfrPublicKey) -> bool {
+    #[allow(missing_docs)]
+    pub fn addr_is_in_freed_delegation(&self, pk: &XfrPublicKey) -> bool {
         if let Some(dlg) = self.di.addr_map.get(pk) {
             matches!(dlg.state, DelegationState::Free)
         } else {
@@ -1310,6 +1160,18 @@ impl Staking {
 
         Ok(())
     }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn coinbase_balance(&self) -> Amount {
+        self.coinbase.balance
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn coinbase_principal_balance(&self) -> Amount {
+        self.coinbase.principal_balance
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1350,17 +1212,6 @@ const PROPOSER_REWARDS_RATE_RULE: [([u128; 2], u64); 6] = [
 /// So we can use it to filter out non-existing entries.
 pub const VALIDATOR_UPDATE_BLOCK_ITV: i64 = 4;
 
-/// In a real consensus cluster, there is no guarantee that
-/// transactions sent by CoinBase will be confirmed in the next block due to asynchronous delays.
-///
-/// If this happens, CoinBase will send repeated payment transactions.
-///
-/// Although these repeated transactions will eventually fail,
-/// they will give users a bad experience and increase the load of p2p cluster.
-///
-/// Therefore, paying every 4 blocks seems to be a good compromise.
-pub const COINBASE_PAYMENT_BLOCK_ITV: i64 = 4;
-
 /// How many FRA units per FRA
 pub const FRA: Amount = 10_u64.pow(FRA_DECIMALS as u32);
 
@@ -1377,25 +1228,6 @@ pub const STAKING_VALIDATOR_MIN_POWER: Power = 88_8888 * FRA;
 
 /// The highest height in the context of tendermint.
 pub const BLOCK_HEIGHT_MAX: u64 = i64::MAX as u64;
-
-/// The 24-words mnemonic of 'FRA CoinBase Address'.
-pub const COIN_BASE_MNEMONIC: &str = "load second west source excuse skin thought inside wool kick power tail universe brush kid butter bomb other mistake oven raw armed tree walk";
-
-/// The 24-words mnemonic of 'FRA Delegation Principal Address'.
-pub const COIN_BASE_PRINCIPAL_MNEMONIC: &str = "kit someone head sister claim whisper order wrong family crisp area ten left chronic endless outdoor insect artist cool black eternal rifle ill shine";
-
-lazy_static! {
-    /// for 'Block Delegation Rewards' and 'Block Proposer Rewards'
-    pub static ref COINBASE_KP: XfrKeyPair = pnk!(wallet::restore_keypair_from_mnemonic_default(COIN_BASE_MNEMONIC));
-    #[allow(missing_docs)]
-    pub static ref COINBASE_PK: XfrPublicKey = COINBASE_KP.get_pk();
-    /// for 'Delegation Principal'
-    pub static ref COINBASE_PRINCIPAL_KP: XfrKeyPair = pnk!(
-        wallet::restore_keypair_from_mnemonic_default(COIN_BASE_PRINCIPAL_MNEMONIC)
-    );
-    #[allow(missing_docs)]
-    pub static ref COINBASE_PRINCIPAL_PK: XfrPublicKey = COINBASE_PRINCIPAL_KP.get_pk();
-}
 
 /// A limitation from
 /// [tendermint](https://docs.tendermint.com/v0.33/spec/abci/apps.html#validator-updates)
@@ -1865,24 +1697,16 @@ impl PartialUnDelegation {
 }
 
 // All transactions sent from CoinBase must support idempotence.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct CoinBase {
-    pubkey: XfrPublicKey,
-    keypair: XfrKeyPair,
-
-    principal_pubkey: XfrPublicKey,
-    principal_keypair: XfrKeyPair,
-
     distribution_hist: BTreeSet<Digest>,
     distribution_plan: BTreeMap<XfrPublicKey, Amount>,
-}
 
-impl Eq for CoinBase {}
+    // mint limit of CoinBase for rewards
+    balance: Amount,
 
-impl PartialEq for CoinBase {
-    fn eq(&self, other: &Self) -> bool {
-        self.pubkey == other.pubkey
-    }
+    // this will be updated dynamiclly along with txs
+    principal_balance: Amount,
 }
 
 impl Default for CoinBase {
@@ -1894,14 +1718,11 @@ impl Default for CoinBase {
 impl CoinBase {
     fn gen() -> Self {
         CoinBase {
-            pubkey: *COINBASE_PK,
-            keypair: COINBASE_KP.clone(),
-
-            principal_pubkey: *COINBASE_PRINCIPAL_PK,
-            principal_keypair: COINBASE_PRINCIPAL_KP.clone(),
-
             distribution_hist: BTreeSet::new(),
             distribution_plan: BTreeMap::new(),
+
+            balance: ops::mint_fra::MINT_AMOUNT_LIMIT,
+            principal_balance: 0,
         }
     }
 }
@@ -1985,12 +1806,22 @@ pub fn deny_relative_inputs(x: &TransferAsset) -> Result<()> {
     }
 }
 
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn is_coinbase_tx(tx: &Transaction) -> bool {
+    tx.body
+        .operations
+        .iter()
+        .any(|o| matches!(o, Operation::MintFra(_)))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use rand::random;
     use rand_chacha::ChaChaRng;
     use rand_core::SeedableRng;
+    use zei::xfr::sig::XfrKeyPair;
 
     const V_TENDERMINT_ADDR: &str = "mocker....@@@@@#####@@@@@#####";
 

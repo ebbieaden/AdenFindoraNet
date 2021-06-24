@@ -8,13 +8,14 @@ use crate::{
     policy_script::{Policy, PolicyGlobals, TxnPolicyData},
     ser_fail,
     staking::{
+        is_coinbase_tx,
         ops::{
             claim::ClaimOps, delegation::DelegationOps,
             fra_distribution::FraDistributionOps, governance::GovernanceOps,
-            undelegation::UnDelegationOps, update_validator::UpdateValidatorOps,
+            mint_fra::MintFraOps, undelegation::UnDelegationOps,
+            update_validator::UpdateValidatorOps,
         },
-        Staking, TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
-        MAX_POWER_PERCENT_PER_VALIDATOR,
+        Staking, TendermintAddr, MAX_POWER_PERCENT_PER_VALIDATOR,
     },
 };
 
@@ -990,6 +991,7 @@ pub enum Operation {
     UpdateValidator(UpdateValidatorOps),
     Governance(GovernanceOps),
     FraDistribution(FraDistributionOps),
+    MintFra(MintFraOps),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
@@ -1455,6 +1457,8 @@ lazy_static! {
     /// The destination of Fee is an black hole,
     /// all token transfered to it will be burned.
     pub static ref BLACK_HOLE_PUBKEY: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[0; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
+    /// BlackHole of Staking
+    pub static ref BLACK_HOLE_PUBKEY_STAKING: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[1; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
 }
 
 /// see [**mainnet-v1.0 defination**](https://www.notion.so/findora/Transaction-Fees-Analysis-d657247b70f44a699d50e1b01b8a2287)
@@ -1482,37 +1486,34 @@ impl Transaction {
         //
         // But it seems enough for v1.0 when we combined it with limiting
         // the payload size of submission-server's http-requests.
-        self.body.operations.iter().any(|ops| {
-            if let Operation::TransferAsset(ref x) = ops {
-                return x.body.outputs.iter().any(|o| {
-                    if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                        if ty == ASSET_TYPE_FRA
-                            && *BLACK_HOLE_PUBKEY == o.record.public_key
-                        {
-                            if let XfrAmount::NonConfidential(am) = o.record.amount {
-                                if am > (TX_FEE_MIN - 1) {
-                                    return true;
+        is_coinbase_tx(self)
+            || self.body.operations.iter().any(|ops| {
+                if let Operation::TransferAsset(ref x) = ops {
+                    return x.body.outputs.iter().any(|o| {
+                        if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
+                            if ty == ASSET_TYPE_FRA
+                                && *BLACK_HOLE_PUBKEY == o.record.public_key
+                            {
+                                if let XfrAmount::NonConfidential(am) = o.record.amount {
+                                    if am > (TX_FEE_MIN - 1) {
+                                        return true;
+                                    }
                                 }
                             }
                         }
+                        false
+                    });
+                } else if let Operation::DefineAsset(ref x) = ops {
+                    if x.body.asset.code.val == ASSET_TYPE_FRA {
+                        return true;
                     }
-                    false
-                }) || (!x.body.transfer.inputs.is_empty()
-                    && x.body.transfer.inputs.iter().all(|i| {
-                        *COINBASE_PK == i.public_key
-                            || *COINBASE_PRINCIPAL_PK == i.public_key
-                    }));
-            } else if let Operation::DefineAsset(ref x) = ops {
-                if x.body.asset.code.val == ASSET_TYPE_FRA {
-                    return true;
+                } else if let Operation::IssueAsset(ref x) = ops {
+                    if x.body.code.val == ASSET_TYPE_FRA {
+                        return true;
+                    }
                 }
-            } else if let Operation::IssueAsset(ref x) = ops {
-                if x.body.code.val == ASSET_TYPE_FRA {
-                    return true;
-                }
-            }
-            false
-        })
+                false
+            })
     }
 
     /// Issuing FRA is denied except in the genesis block.
@@ -1520,7 +1521,7 @@ impl Transaction {
         // block height of mainnet has been higher than this value
         const HEIGHT_LIMIT: i64 = 10_0000;
 
-        // **mainnet v1.0**:
+        // **mainnet v0.1**:
         // FRA is defined and issued in genesis block.
         if HEIGHT_LIMIT > tendermint_block_height {
             return true;

@@ -8,9 +8,9 @@
 
 use crate::fns::utils::parse_td_validator_keys;
 use lazy_static::lazy_static;
-use ledger::staking::{
-    check_delegation_amount, td_pubkey_to_td_addr, COINBASE_KP, COINBASE_PK,
-    COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK,
+use ledger::{
+    data_model::BLACK_HOLE_PUBKEY_STAKING,
+    staking::{check_delegation_amount, td_pubkey_to_td_addr},
 };
 use ruc::*;
 use std::fs;
@@ -47,7 +47,7 @@ pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<
     builder
         .add_operation_staking(&kp, &vkp, td_pubkey, cr, memo.map(|m| m.to_owned()))
         .c(d!())?;
-    utils::gen_transfer_op(&kp, vec![(&COINBASE_PRINCIPAL_PK, am)])
+    utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, am)])
         .c(d!())
         .map(|principal_op| builder.add_operation(principal_op))?;
 
@@ -65,7 +65,7 @@ pub fn stake_append(amount: &str) -> Result<()> {
 
     let mut builder = utils::new_tx_builder().c(d!())?;
     builder.add_operation_delegation(&kp, td_addr);
-    utils::gen_transfer_op(&kp, vec![(&COINBASE_PRINCIPAL_PK, am)])
+    utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, am)])
         .c(d!())
         .map(|principal_op| builder.add_operation(principal_op))?;
 
@@ -125,18 +125,6 @@ pub fn show() -> Result<()> {
         );
     });
 
-    let cb_balance = ruc::info!(utils::get_balance(&COINBASE_KP)).map(|i| {
-        println!("\x1b[31;01mCoinBase Balance:\x1b[00m\n{} FRA units\n", i);
-    });
-
-    let cb_principal_balance = ruc::info!(utils::get_balance(&COINBASE_PRINCIPAL_KP))
-        .map(|i| {
-            println!(
-                "\x1b[31;01mCoinBase Principal Balance:\x1b[00m\n{} FRA units\n",
-                i
-            );
-        });
-
     let self_balance = ruc::info!(utils::get_balance(&kp)).map(|i| {
         println!("\x1b[31;01mYour Balance:\x1b[00m\n{} FRA units\n", i);
     });
@@ -154,8 +142,6 @@ pub fn show() -> Result<()> {
         serv_addr,
         xfr_pubkey,
         td_pubkey,
-        cb_balance,
-        cb_principal_balance,
         self_balance,
         delegation_info,
     ]
@@ -195,21 +181,6 @@ pub fn transfer_fra(target_addr: &str, am: &str) -> Result<()> {
     get_keypair()
         .c(d!())
         .and_then(|kp| utils::transfer(&kp, &ta, am).c(d!()))
-}
-
-/// Mainly for official usage,
-/// and can be also used in test scenes.
-pub fn contribute(am: Option<&str>) -> Result<()> {
-    let am = if let Some(i) = am {
-        i.parse::<u64>().c(d!("'amount' must be an integer"))?
-    } else {
-        // 400m FRAs
-        4_000000_000000
-    };
-
-    get_keypair()
-        .c(d!())
-        .and_then(|kp| utils::transfer(&kp, &*COINBASE_PK, am).c(d!()))
 }
 
 /// Mainly for official usage,

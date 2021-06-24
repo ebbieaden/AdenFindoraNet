@@ -4,29 +4,25 @@
 //! Business logic based on [**Ledger Staking**](ledger::staking).
 //!
 
-use crate::abci::server::{callback::TENDERMINT_BLOCK_HEIGHT, forward_txn_with_mode};
+use crate::abci::server::callback::TENDERMINT_BLOCK_HEIGHT;
 use abci::{Evidence, Header, LastCommitInfo, PubKey, ValidatorUpdate};
 use lazy_static::lazy_static;
 use ledger::{
-    data_model::{Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA},
+    data_model::{Operation, Transaction},
     staking::{
-        ops::governance::{governance_penalty_tendermint_auto, ByzantineKind},
-        td_addr_to_string, Staking, COINBASE_PAYMENT_BLOCK_ITV, COINBASE_PK,
-        COINBASE_PRINCIPAL_PK, VALIDATOR_UPDATE_BLOCK_ITV,
+        ops::{
+            governance::{governance_penalty_tendermint_auto, ByzantineKind},
+            mint_fra::{MintEntry, MintFraOps, MintKind},
+        },
+        td_addr_to_string, Staking, VALIDATOR_UPDATE_BLOCK_ITV,
     },
     store::{LedgerAccess, LedgerUpdate},
 };
 use rand_core::{CryptoRng, RngCore};
 use ruc::*;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     sync::atomic::Ordering,
-};
-use txn_builder::TransferOperationBuilder;
-use zei::xfr::asset_record::{open_blind_asset_record, AssetRecordType};
-use zei::xfr::{
-    sig::{XfrKeyPair, XfrPublicKey},
-    structs::{AssetRecordTemplate, OwnerMemo, XfrAmount, XfrAssetType},
 };
 
 mod whoami;
@@ -150,8 +146,6 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
     header: &Header,
     last_commit_info: Option<&LastCommitInfo>,
     evs: &[Evidence],
-    fwder: &str,
-    is_replaying: bool,
 ) {
     // trigger system staking process
     la.get_staking_mut().delegation_process();
@@ -211,22 +205,6 @@ pub fn system_ops<RNG: RngCore + CryptoRng>(
             }
         }
     }
-
-    if !is_replaying
-        && 0 == TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)
-            % COINBASE_PAYMENT_BLOCK_ITV
-    {
-        // In a real consensus cluster, there is no guarantee that
-        // transactions sent by CoinBase will be confirmed in the next block due to asynchronous delays.
-        //
-        // If this happens, CoinBase will send repeated payment transactions.
-        //
-        // Although these repeated transactions will eventually fail,
-        // they will give users a bad experience and increase the load of p2p cluster.
-        //
-        // Therefore, paying every 4 blocks seems to be a good compromise.
-        ruc::info_omit!(system_pay(la, &header.proposer_address, fwder));
-    }
 }
 
 // Get the actual voted power of last block.
@@ -278,166 +256,48 @@ fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
     governance_penalty_tendermint_auto(staking, bz.addr, &kind).c(d!())
 }
 
-// Pay for freed 'Delegations' and 'FraDistributions'.
-fn system_pay(la: &impl LedgerAccess, proposer: &[u8], fwder: &str) -> Result<()> {
-    if *TD_NODE_SELF_ADDR != proposer {
-        return Ok(());
-    }
-
+/// Pay for freed 'Delegations' and 'FraDistributions'.
+pub fn system_mint_pay<RNG: RngCore + CryptoRng>(
+    la: &(impl LedgerAccess + LedgerUpdate<RNG>),
+) -> Option<Transaction> {
     let staking = la.get_staking();
+    let mut limit = staking.coinbase_balance() as i128;
 
-    // at most `2 * NUM_TO_PAY` items to pay per block
-    const NUM_TO_PAY: usize = 256;
+    // at most `NUM_TO_PAY` items to pay per block
+    const NUM_TO_PAY: usize = 2048;
 
-    let mut paylist = staking
-        .delegation_get_global_rewards()
-        .into_iter()
-        .chain(
-            staking
-                .fra_distribution_get_plan()
-                .iter()
-                .map(|(k, v)| (*k, *v)),
-        )
-        .take(NUM_TO_PAY)
-        .collect::<Vec<_>>();
-
-    let mut principal_paylist = staking
+    let mint_entries = staking
         .delegation_get_global_principal()
         .into_iter()
+        .map(|(k, n)| MintEntry::new(MintKind::UnStake, k, n))
+        .chain(
+            staking
+                .delegation_get_global_rewards()
+                .into_iter()
+                .chain(
+                    staking
+                        .fra_distribution_get_plan()
+                        .iter()
+                        .map(|(k, n)| (*k, *n)),
+                )
+                .take_while(|(_, n)| {
+                    limit -= *n as i128;
+                    limit >= 0
+                })
+                .map(|(k, n)| MintEntry::new(MintKind::Claim, k, n)),
+        )
         .take(NUM_TO_PAY)
         .collect::<Vec<_>>();
 
-    // sort by amount
-    paylist.sort_by_key(|i| i.1);
-    principal_paylist.sort_by_key(|i| i.1);
-
-    macro_rules! pay {
-        ($is_principal: expr, $utxos: expr, $paylist: expr) => {
-            gen_transaction(la, $utxos, $paylist, $is_principal)
-                .c(d!())
-                .and_then(|tx| forward_txn_with_mode(fwder, tx, true).c(d!()))
-        };
+    if mint_entries.is_empty() {
+        None
+    } else {
+        let mint_ops = Operation::MintFra(MintFraOps::new(mint_entries));
+        Some(Transaction::from_operation(
+            mint_ops,
+            la.get_state_commitment().1,
+        ))
     }
-
-    let coinbase_utxos = la.get_owned_utxos(&COINBASE_PK);
-    let coinbase_principal_utxos = la.get_owned_utxos(&COINBASE_PRINCIPAL_PK);
-
-    if !paylist.is_empty() {
-        ruc::info_omit!(pay!(false, coinbase_utxos, paylist));
-    }
-
-    if !principal_paylist.is_empty() {
-        ruc::info_omit!(pay!(true, coinbase_principal_utxos, principal_paylist));
-    }
-
-    Ok(())
-}
-
-// Generate all tx in batch mode.
-fn gen_transaction(
-    la: &impl LedgerAccess,
-    utxos: BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)>,
-    paylist: Vec<(XfrPublicKey, u64)>,
-    is_principal: bool,
-) -> Result<Transaction> {
-    let staking = la.get_staking();
-    let seq_id = la.get_state_commitment().1;
-
-    let mut inputs = vec![];
-    let mut outputs = map! {};
-
-    for i in 0..paylist.len() {
-        let mut total_amount =
-            paylist.iter().rev().skip(i).map(|(_, am)| *am).sum::<u64>();
-
-        let mut utxos = utxos.iter();
-        inputs.clear();
-
-        while total_amount > 0 {
-            if let Some((sid, (utxo, owner_memo))) = utxos.next() {
-                if let XfrAssetType::NonConfidential(ty) = utxo.0.record.asset_type {
-                    if ASSET_TYPE_FRA == ty {
-                        if let XfrAmount::NonConfidential(am) = utxo.0.record.amount {
-                            inputs.push((
-                                *sid,
-                                utxo,
-                                owner_memo,
-                                alt!(total_amount > am, am, total_amount),
-                            ));
-                            total_amount = total_amount.saturating_sub(am);
-                        }
-                    }
-                }
-            } else {
-                // insufficient balance in coinbase
-                break;
-            }
-        }
-
-        if 0 == total_amount {
-            outputs = paylist.into_iter().rev().skip(i).collect();
-            break;
-        }
-    }
-
-    alt!(inputs.is_empty() || outputs.is_empty(), return Err(eg!()));
-
-    do_gen_transaction(
-        inputs,
-        outputs,
-        seq_id,
-        alt!(
-            is_principal,
-            staking.coinbase_principal_keypair(),
-            staking.coinbase_keypair()
-        ),
-    )
-    .c(d!())
-}
-
-// **NOTE:**
-// transfer from CoinBase need not to pay FEE
-fn do_gen_transaction(
-    inputs: Vec<(TxoSID, &Utxo, &Option<OwnerMemo>, u64)>,
-    dests: HashMap<XfrPublicKey, u64>,
-    seq_id: u64,
-    keypair: &XfrKeyPair,
-) -> Result<Transaction> {
-    let mut op = TransferOperationBuilder::new();
-
-    for (sid, utxo, owner_memo, n) in inputs.into_iter() {
-        op.add_input(
-            TxoRef::Absolute(sid),
-            open_blind_asset_record(&utxo.0.record, owner_memo, keypair).unwrap(),
-            None,
-            None,
-            n,
-        )
-        .c(d!())?;
-    }
-
-    for output in dests.iter().map(|(pk, n)| {
-        AssetRecordTemplate::with_no_asset_tracing(
-            *n,
-            ASSET_TYPE_FRA,
-            AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            *pk,
-        )
-    }) {
-        op.add_output(&output, None, None, None).c(d!())?;
-    }
-
-    let op = op
-        .balance()
-        .c(d!())?
-        .create(TransferType::Standard)
-        .c(d!())?
-        .sign(keypair)
-        .c(d!())?
-        .transaction()
-        .c(d!())?;
-
-    Ok(Transaction::from_operation(op, seq_id))
 }
 
 fn gen_offline_punish_list(

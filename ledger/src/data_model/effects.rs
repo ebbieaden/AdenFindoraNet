@@ -172,6 +172,12 @@ impl TxnEffect {
                     check_nonce!(i);
                     fra_distributions.push(i.clone());
                 }
+                Operation::MintFra(i) => {
+                    i.entries.iter().for_each(|et| {
+                        txos.push(Some(et.utxo.clone()));
+                        txo_count += 1;
+                    });
+                }
 
                 // An asset creation is valid iff:
                 //     1) The signature is valid.

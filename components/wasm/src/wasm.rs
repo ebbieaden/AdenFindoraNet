@@ -15,12 +15,12 @@ use cryptohash::sha256;
 use ledger::{
     data_model::{
         AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
-        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
+        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
     },
     policies::{DebtMemo, Fraction},
     staking::{
-        PartialUnDelegation, TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
-        MAX_DELEGATION_AMOUNT, MIN_DELEGATION_AMOUNT,
+        PartialUnDelegation, TendermintAddr, MAX_DELEGATION_AMOUNT,
+        MIN_DELEGATION_AMOUNT,
     },
 };
 use rand_chacha::ChaChaRng;
@@ -1453,13 +1453,13 @@ pub fn get_delegation_target_address() -> String {
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_address() -> String {
-    wallet::public_key_to_base64(&COINBASE_PK)
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_principal_address() -> String {
-    wallet::public_key_to_base64(&COINBASE_PRINCIPAL_PK)
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]
