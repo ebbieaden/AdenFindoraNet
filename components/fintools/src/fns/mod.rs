@@ -10,7 +10,10 @@ use crate::fns::utils::parse_td_validator_keys;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::BLACK_HOLE_PUBKEY_STAKING,
-    staking::{check_delegation_amount, td_pubkey_to_td_addr},
+    staking::{
+        check_delegation_amount, gen_random_keypair, td_pubkey_to_td_addr,
+        td_pubkey_to_td_addr_bytes, PartialUnDelegation,
+    },
 };
 use ruc::*;
 use std::fs;
@@ -72,15 +75,35 @@ pub fn stake_append(amount: &str) -> Result<()> {
     utils::send_tx(&builder.take_transaction()).c(d!())
 }
 
-pub fn unstake() -> Result<()> {
+pub fn unstake(am: Option<&str>) -> Result<()> {
+    let am = if let Some(i) = am {
+        Some(i.parse::<u64>().c(d!("'amount' must be an integer"))?)
+    } else {
+        None
+    };
+
     let kp = get_keypair().c(d!())?;
+    let td_addr_bytes = get_td_pubkey()
+        .c(d!())
+        .map(|td_pk| td_pubkey_to_td_addr_bytes(&td_pk))?;
 
     let mut builder = utils::new_tx_builder().c(d!())?;
 
     utils::gen_fee_op(&kp).c(d!()).map(|op| {
         builder.add_operation(op);
-        // TODO: suit for partial un-delegations
-        builder.add_operation_undelegation(&kp, None);
+        if let Some(am) = am {
+            // partial undelegation
+            builder.add_operation_undelegation(
+                &kp,
+                Some(PartialUnDelegation::new(
+                    am,
+                    gen_random_keypair().get_pk(),
+                    td_addr_bytes,
+                )),
+            );
+        } else {
+            builder.add_operation_undelegation(&kp, None);
+        }
     })?;
 
     utils::send_tx(&builder.take_transaction()).c(d!())

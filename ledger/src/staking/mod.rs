@@ -397,6 +397,7 @@ impl Staking {
             end_height,
             state: DelegationState::Bond,
             rwd_amount: 0,
+            rwd_detail: map! {B},
             delegation_rwd_cnt: 0,
             proposer_rwd_cnt: 0,
         };
@@ -573,6 +574,7 @@ impl Staking {
                     end_height: h + UNBOND_BLOCK_CNT,
                     state: DelegationState::Bond,
                     rwd_amount: 0,
+                    rwd_detail: map! {B},
                     delegation_rwd_cnt: 0,
                     proposer_rwd_cnt: 0,
                 };
@@ -1109,13 +1111,14 @@ impl Staking {
         let h = self.cur_height;
         let return_rate = self.get_block_rewards_rate();
 
+        let gdp = self.get_global_delegation_percent();
         let commissions = self
             .di
             .addr_map
             .values_mut()
             .filter(|d| d.validator_entry_exists(&pk))
             .map(|d| {
-                d.set_delegation_rewards(&pk, h, return_rate, commission_rate, true)
+                d.set_delegation_rewards(&pk, h, return_rate, commission_rate, gdp, true)
             })
             .collect::<Result<Vec<_>>>()
             .c(d!())?;
@@ -1133,13 +1136,20 @@ impl Staking {
 
     /// Return rate defination for delegation rewards .
     pub fn get_block_rewards_rate(&self) -> [u64; 2] {
-        let p = [self.di.global_amount as u128, FRA_TOTAL_AMOUNT as u128];
+        let p = self.get_global_delegation_percent();
+        let p = [p[0] as u128, p[1] as u128];
         for ([low, high], rate) in DELEGATION_REWARDS_RATE_RULE.iter().copied() {
             if p[0] * 100 < p[1] * high && p[0] * 100 >= p[1] * low {
                 return [rate, 100];
             }
         }
         unreachable!(eg!(@p));
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_global_delegation_percent(&self) -> [u64; 2] {
+        [self.di.global_amount, FRA_TOTAL_AMOUNT]
     }
 
     fn set_proposer_rewards(
@@ -1149,10 +1159,11 @@ impl Staking {
     ) -> Result<()> {
         let p = Self::get_proposer_rewards_rate(vote_percent).c(d!())?;
         let h = self.cur_height;
+        let gdp = self.get_global_delegation_percent();
         self.delegation_get_mut(proposer)
             .c(d!())
             .and_then(|d| {
-                d.set_delegation_rewards(proposer, h, p, [0, 100], false)
+                d.set_delegation_rewards(proposer, h, p, [0, 100], gdp, false)
                     .c(d!())
             })
             .map(|_| ())
@@ -1603,10 +1614,22 @@ pub struct Delegation {
     pub state: DelegationState,
     /// set this field when `Bond` state finished
     pub rwd_amount: Amount,
+    /// rewards history
+    pub rwd_detail: BTreeMap<BlockHeight, DelegationRwdDetail>,
     /// how many times you get proposer rewards
     pub proposer_rwd_cnt: u64,
     /// how many times you get delegation rewards
     pub delegation_rwd_cnt: u64,
+}
+
+/// Detail of each reward entry.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DelegationRwdDetail {
+    amount: Amount,
+    return_rate: [u64; 2],
+    commission_rate: [u64; 2],
+    global_delegation_percent: [u64; 2],
+    block_height: BlockHeight,
 }
 
 impl Delegation {
@@ -1659,6 +1682,7 @@ impl Delegation {
         cur_height: BlockHeight,
         return_rate: [u64; 2],
         commission_rate: [u64; 2],
+        global_delegation_percent: [u64; 2],
         is_delegation_rwd: bool,
     ) -> Result<u64> {
         if self.end_height < cur_height || DelegationState::Bond != self.state {
@@ -1686,12 +1710,26 @@ impl Delegation {
                     Err(eg!())
                 }
             })
-            .and_then(|n| self.rwd_amount.checked_add(n).c(d!("overflow")))
-            .map(|n| {
+            .and_then(|mut n| {
                 let commission =
                     n.saturating_mul(commission_rate[0]) / commission_rate[1];
-                self.rwd_amount = n - commission;
-                commission
+                n = n.checked_sub(commission).c(d!())?;
+                if is_delegation_rwd {
+                    self.rwd_detail.insert(
+                        cur_height,
+                        DelegationRwdDetail {
+                            amount: n,
+                            return_rate,
+                            commission_rate,
+                            global_delegation_percent,
+                            block_height: cur_height,
+                        },
+                    );
+                }
+                self.rwd_amount.checked_add(n).c(d!()).map(|i| {
+                    self.rwd_amount = i;
+                    commission
+                })
             })
     }
 }
@@ -1876,6 +1914,12 @@ pub fn is_coinbase_tx(tx: &Transaction) -> bool {
         .any(|o| matches!(o, Operation::MintFra(_)))
 }
 
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn gen_random_keypair() -> XfrKeyPair {
+    XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1956,6 +2000,7 @@ mod test {
             end_height: 200_0000,
             state: DelegationState::Bond,
             rwd_amount: 0,
+            rwd_detail: map! {B},
             delegation_rwd_cnt: 0,
             proposer_rwd_cnt: 0,
         };
@@ -1984,9 +2029,4 @@ mod test {
 
         [lb, 100_0000]
     }
-}
-
-#[inline(always)]
-fn gen_random_keypair() -> XfrKeyPair {
-    XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
 }
