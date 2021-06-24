@@ -1,4 +1,4 @@
-use crate::crypto::Verify;
+use crate::crypto::{IdentifyAccount, Verify};
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
@@ -49,9 +49,9 @@ impl<Address, Call, Signature> UncheckedTransaction<Address, Call, Signature> {
 
 impl<Address, Call, Signature> UncheckedTransaction<Address, Call, Signature>
 where
-    Address: Member,
-    Call: Member + Serialize,
-    Signature: Member + Verify<Signer = Address>,
+    Call: Serialize,
+    Signature: Verify,
+    <Signature as Verify>::Signer: IdentifyAccount<AccountId = Address>,
 {
     pub fn check(self) -> Result<CheckedTransaction<Address, Call>> {
         Ok(match self.signature {
@@ -86,9 +86,9 @@ pub struct CheckedTransaction<Address, Call> {
 }
 
 /// An "executable" piece of information used by the transaction.
-pub trait Applyable: Sized + Send + Sync {
+pub trait Applyable {
     /// Type by which we can execute. Restricts the `UnsignedValidator` type.
-    type Call: Member + TxMsg;
+    type Call: TxMsg;
 
     /// Checks to see if this is a valid *transaction*.
     fn validate<V: ValidateUnsigned<Call = Self::Call>>(&self) -> Result<()>;
@@ -123,8 +123,7 @@ pub trait ValidateUnsigned {
 
 impl<Address, Call> Applyable for CheckedTransaction<Address, Call>
 where
-    Address: Member,
-    Call: Member + TxMsg,
+    Call: TxMsg,
 {
     type Call = Call;
 
@@ -146,8 +145,4 @@ where
         // TODO
         self.function.execute()
     }
-}
-
-pub trait ConvertTransaction<T> {
-    fn convert_transaction(&self, _transaction: &[u8]) -> Result<T>;
 }
