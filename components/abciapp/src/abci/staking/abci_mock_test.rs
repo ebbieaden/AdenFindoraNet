@@ -589,10 +589,12 @@ macro_rules! trigger_next_block {
 // 15. make sure it can do claim at any time
 // 16. make sure it will fail if the claim amount is bigger than total rewards
 //
-// 17. undelegate
-// 18. re-delegate at once
-// 19. make sure the delegation state turn back to `Bond`
-// 20. make sure no rewards will be paid
+// 17. undelegate and re-delegate at once
+// 18. make sure the delegation state turn back to `Bond`
+// 19. make sure no rewards will be paid
+//
+// 20. unstake validator and check if
+// the principals of co-responding delegators will be paid back
 //
 // 21. undelegate partially
 //
@@ -608,11 +610,11 @@ macro_rules! trigger_next_block {
 //
 // 29. make sure the vote power of any vallidator can not exceed 20% of total power
 //
-// 30. make sure that user can NOT sent `MintFra` transactions
+// 30. make sure that ordinary users can NOT sent `MintFra` transactions
 //
 // 31. replay old transactions and make sure all of them is failed
 fn staking_scene_1() -> Result<()> {
-    const VALIDATORS_NUM: u8 = 6;
+    const VALIDATORS_NUM: u8 = 11;
 
     env_refresh(VALIDATORS_NUM);
 
@@ -710,7 +712,7 @@ fn staking_scene_1() -> Result<()> {
     // 8. delegate to different validators
 
     let tx_hash =
-        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[1].td_pubkey), 84 * FRA).c(d!())?;
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[3].td_pubkey), 84 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -743,7 +745,7 @@ fn staking_scene_1() -> Result<()> {
         .get_committed_state()
         .read()
         .get_staking()
-        .validator_get_power(&v_set[1].id)
+        .validator_get_power(&v_set[3].id)
         .c(d!())?;
 
     assert_eq!((84 + 100) * FRA + INITIAL_POWER, power);
@@ -781,7 +783,7 @@ fn staking_scene_1() -> Result<()> {
         .get_committed_state()
         .read()
         .get_staking()
-        .validator_get_power(&v_set[1].id)
+        .validator_get_power(&v_set[3].id)
         .c(d!())?;
 
     assert_eq!(100 * FRA + INITIAL_POWER, power);
@@ -845,7 +847,9 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_failed(&tx_hash));
 
-    // 17. undelegate
+    // 17. undelegate and re-delegate at once
+
+    // undelegate
 
     let tx_hash = undelegate(&x_kp).c(d!())?;
     wait_one_block();
@@ -866,14 +870,14 @@ fn staking_scene_1() -> Result<()> {
 
     let old_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
 
-    // 18. re-delegate at once
+    // re-delegate at once
 
     let tx_hash =
         delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 41 * FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    // 19. make sure the delegation state turn back to `Bond`
+    // 18. make sure the delegation state turn back to `Bond`
 
     {
         let hdr = ABCI_MOCKER.read();
@@ -887,7 +891,7 @@ fn staking_scene_1() -> Result<()> {
         assert_eq!(BLOCK_HEIGHT_MAX, d.end_height);
     }
 
-    // 20. make sure no rewards will be paid
+    // 19. make sure no rewards will be paid
 
     for _ in 0..(1 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
@@ -896,8 +900,10 @@ fn staking_scene_1() -> Result<()> {
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
     assert_eq!(old_balance - 41 * FRA - TX_FEE_MIN, new_balance);
 
-    // undelegate and wait to be paid
-    let tx_hash = undelegate(&x_kp).c(d!())?;
+    // 20. unstake validator and check if
+    // the principals of co-responding delegators will be paid back
+
+    let tx_hash = undelegate(&kps[0]).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -910,8 +916,7 @@ fn staking_scene_1() -> Result<()> {
 
     // 21. undelegate partially
 
-    let tx_hash =
-        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 91 * FRA).c(d!())?;
+    let tx_hash = delegate(&x_kp, td_addr_to_string(&v_set[1].td_addr), FRA).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
@@ -919,8 +924,7 @@ fn staking_scene_1() -> Result<()> {
 
     let old_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
 
-    let pu =
-        PartialUnDelegation::new(1, x_kp.get_pk(), td_addr_to_string(&v_set[0].td_addr));
+    let pu = PartialUnDelegation::new(1, x_kp.get_pk(), v_set[1].td_addr.clone());
     let tx_hash = undelegate_x(&x_kp, Some(pu)).c(d!())?;
     wait_one_block();
     // reason: x is in delegation
@@ -931,8 +935,7 @@ fn staking_scene_1() -> Result<()> {
     );
 
     let rand_pk = gen_keypair().get_pk();
-    let pu =
-        PartialUnDelegation::new(100, rand_pk, td_addr_to_string(&v_set[0].td_addr));
+    let pu = PartialUnDelegation::new(100, rand_pk, v_set[1].td_addr.clone());
     let tx_hash = undelegate_x(&x_kp, Some(pu)).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
@@ -1000,7 +1003,7 @@ fn staking_scene_1() -> Result<()> {
 
     trigger_next_block!();
 
-    // 23. make sure the result of `FraDistribution` is correct
+    // 23. make sure the result is correct
 
     assert!(
         alloc_table
@@ -1010,7 +1013,7 @@ fn staking_scene_1() -> Result<()> {
 
     // 24. use these addrs to delegate to different validators
 
-    for (v, (kp, _)) in v_set.iter().zip(alloc_table_x.iter()) {
+    for (v, (kp, _)) in v_set.iter().skip(1).zip(alloc_table_x.iter()) {
         let tx_hash =
             delegate(kp, td_pubkey_to_td_addr(&v.td_pubkey), 32 * FRA).c(d!())?;
         wait_one_block();
@@ -1021,12 +1024,12 @@ fn staking_scene_1() -> Result<()> {
     // 25. make sure the power of each validator is increased correctly
 
     let n = alt!(
-        v_set.len() > alloc_table.len(),
+        v_set.len() - 1 > alloc_table.len(),
         alloc_table.len(),
-        v_set.len()
+        v_set.len() - 1
     );
 
-    for v in v_set.iter().take(n) {
+    for v in v_set.iter().skip(1).take(n) {
         let power = ABCI_MOCKER
             .read()
             .0
@@ -1056,7 +1059,7 @@ fn staking_scene_1() -> Result<()> {
 
     // 27. make sure the power of each validator is decreased correctly
 
-    for v in v_set.iter().take(n) {
+    for v in v_set.iter().skip(1).take(n) {
         let power = ABCI_MOCKER
             .read()
             .0
@@ -1080,7 +1083,7 @@ fn staking_scene_1() -> Result<()> {
 
     let tx_hash = delegate(
         &ROOT_KEYPAIR,
-        td_pubkey_to_td_addr(&v_set[0].td_pubkey),
+        td_pubkey_to_td_addr(&v_set[1].td_pubkey),
         32_0000 * FRA,
     )
     .c(d!())?;
@@ -1118,7 +1121,7 @@ fn staking_scene_1() -> Result<()> {
 //
 // 0. issue FRA
 // 1. update validators
-// 2. paid 400m FRAs to CoinBase
+// 2. .............
 // 3. do self-delegations
 // 4. do a regular delegation to the first validator
 // 5. make sure the end-height of delegation is `BLOCK_HEIGHT_MAX`
@@ -1301,23 +1304,8 @@ fn staking_scene_2() -> Result<()> {
     Ok(())
 }
 
-// Staking to be a validator
-//
-// 0. issue FRA
-// 1. update validators
-// 2. paid 400m FRAs to CoinBase
-// 3. add a new validator by staking
-// 4. make sure it appear in the validator list
-// 5. remove it by un-delegation
-// 4. make sure its power is decreased to zero
-fn staking_scene_3() -> Result<()> {
-    // TODO
-    Ok(())
-}
-
 #[test]
 fn staking_integration() {
     pnk!(staking_scene_1());
     pnk!(staking_scene_2());
-    pnk!(staking_scene_3());
 }

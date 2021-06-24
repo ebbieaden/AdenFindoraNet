@@ -1014,6 +1014,9 @@ fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
         Operation::Governance(i) => {
             i.set_nonce(no_replay_token);
         }
+        Operation::MintFra(i) => {
+            i.set_nonce(no_replay_token);
+        }
         Operation::UpdateMemo(i) => i.body.no_replay_token = no_replay_token,
         _ => {}
     }

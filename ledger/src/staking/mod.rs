@@ -19,6 +19,8 @@ use crate::data_model::{Operation, Transaction, TransferAsset, TxoRef, FRA_DECIM
 use cosig::CoSigRule;
 use cryptohash::sha256::{self, Digest};
 use ops::{fra_distribution::FraDistributionOps, mint_fra::MintKind};
+use rand_chacha::ChaChaRng;
+use rand_core::SeedableRng;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
@@ -28,7 +30,7 @@ use std::{
     iter::FromIterator,
     mem,
 };
-use zei::xfr::sig::XfrPublicKey;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 /// Staking entry
 ///
@@ -453,6 +455,7 @@ impl Staking {
 
         let h = self.cur_height;
         let mut orig_h = None;
+        let mut is_validator = false;
 
         if let Some(d) = self.di.addr_map.get_mut(addr) {
             if BLOCK_HEIGHT_MAX == d.end_height {
@@ -467,9 +470,45 @@ impl Staking {
                 // clear its power when a validator propose a complete undelegation
                 // > `panic` should not happen without bug[s]
                 pnk!(self.validator_change_power(addr, u64::MAX, true));
+                is_validator = true;
             }
         } else {
             return Err(eg!("delegator not found"));
+        }
+
+        // undelegate for the related delegators automaticlly
+        if is_validator {
+            let mut auto_ud_list = vec![];
+
+            // unwrap is safe here
+            let v = self
+                .validator_get_current()
+                .unwrap()
+                .body
+                .get(addr)
+                .unwrap();
+
+            // unwrap is safe here
+            self.di
+                .addr_map
+                .get(addr)
+                .unwrap()
+                .delegators
+                .iter()
+                .for_each(|(pk, am)| {
+                    auto_ud_list.push((
+                        *pk,
+                        PartialUnDelegation::new(
+                            *am,
+                            gen_random_keypair().get_pk(),
+                            v.td_addr.clone(),
+                        ),
+                    ));
+                });
+
+            auto_ud_list.iter().for_each(|(addr, pu)| {
+                ruc::info_omit!(self.undelegate_partially(addr, pu));
+            });
         }
 
         if let Some(orig_h) = orig_h {
@@ -504,7 +543,7 @@ impl Staking {
         let is_validator = self.addr_is_validator(addr);
 
         let target_validator = self
-            .validator_td_addr_to_app_pk(&pu.target_validator)
+            .validator_td_addr_to_app_pk(&td_addr_to_string(&pu.target_validator))
             .c(d!("Invalid target validator"))?;
 
         if let Some(d) = self.di.addr_map.get_mut(addr) {
@@ -1300,7 +1339,12 @@ type TendermintPubKeyRef<'a> = &'a str;
 
 /// sha256(pubkey)[:20] in hex format
 pub type TendermintAddr = String;
-type TendermintAddrRef<'a> = &'a str;
+/// ref `TendermintAddr`
+pub type TendermintAddrRef<'a> = &'a str;
+
+/// sha256(pubkey)[:20]
+pub type TendermintAddrBytes = Vec<u8>;
+// type TendermintAddrBytesRef<'a> = &'a [u8];
 
 type ValidatorInfo = BTreeMap<BlockHeight, ValidatorData>;
 
@@ -1700,7 +1744,7 @@ impl Default for DelegationState {
 pub struct PartialUnDelegation {
     am: Amount,
     new_delegator_id: XfrPublicKey,
-    target_validator: TendermintAddr,
+    target_validator: TendermintAddrBytes,
 }
 
 impl PartialUnDelegation {
@@ -1708,7 +1752,7 @@ impl PartialUnDelegation {
     pub fn new(
         am: Amount,
         new_delegator_id: XfrPublicKey,
-        target_validator: TendermintAddr,
+        target_validator: TendermintAddrBytes,
     ) -> Self {
         PartialUnDelegation {
             am,
@@ -1841,9 +1885,6 @@ pub fn is_coinbase_tx(tx: &Transaction) -> bool {
 mod test {
     use super::*;
     use rand::random;
-    use rand_chacha::ChaChaRng;
-    use rand_core::SeedableRng;
-    use zei::xfr::sig::XfrKeyPair;
 
     const V_TENDERMINT_ADDR: &str = "mocker....@@@@@#####@@@@@#####";
 
@@ -1899,8 +1940,8 @@ mod test {
     ) {
         staking.di = DelegationInfo::new();
 
-        let delegator_kp = gen_keypair();
-        let validator_kp = gen_keypair();
+        let delegator_kp = gen_random_keypair();
+        let validator_kp = gen_random_keypair();
 
         let itv = upper_bound - lower_bound;
         let lb = if 0 == itv {
@@ -1948,8 +1989,9 @@ mod test {
 
         [lb, 100_0000]
     }
+}
 
-    fn gen_keypair() -> XfrKeyPair {
-        XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
-    }
+#[inline(always)]
+fn gen_random_keypair() -> XfrKeyPair {
+    XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
 }
