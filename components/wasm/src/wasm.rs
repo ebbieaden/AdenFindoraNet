@@ -528,12 +528,12 @@ impl TransactionBuilder {
         mut self,
         keypair: &XfrKeyPair,
         am: u64,
-        rwd_receiver: XfrPublicKey,
         target_validator: TendermintAddr,
     ) -> Result<TransactionBuilder, JsValue> {
+        let middle_pk = new_keypair().get_pk();
         self.get_builder_mut().add_operation_undelegation(
             keypair,
-            Some(PartialUnDelegation::new(am, rwd_receiver, target_validator)),
+            Some(PartialUnDelegation::new(am, middle_pk, target_validator)),
         );
         Ok(self)
     }

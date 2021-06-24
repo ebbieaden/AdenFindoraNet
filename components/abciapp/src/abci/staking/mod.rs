@@ -267,9 +267,11 @@ pub fn system_mint_pay<RNG: RngCore + CryptoRng>(
     const NUM_TO_PAY: usize = 2048;
 
     let mint_entries = staking
-        .delegation_get_global_principal()
+        .delegation_get_global_principal_with_receiver()
         .into_iter()
-        .map(|(k, n)| MintEntry::new(MintKind::UnStake, k, n))
+        .map(|(k, (n, receiver_pk))| {
+            MintEntry::new(MintKind::UnStake, k, receiver_pk, n)
+        })
         .chain(
             staking
                 .delegation_get_global_rewards()
@@ -284,7 +286,7 @@ pub fn system_mint_pay<RNG: RngCore + CryptoRng>(
                     limit -= *n as i128;
                     limit >= 0
                 })
-                .map(|(k, n)| MintEntry::new(MintKind::Claim, k, n)),
+                .map(|(k, n)| MintEntry::new(MintKind::Claim, k, None, n)),
         )
         .take(NUM_TO_PAY)
         .collect::<Vec<_>>();

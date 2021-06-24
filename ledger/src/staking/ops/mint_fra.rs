@@ -55,13 +55,18 @@ pub struct MintEntry {
 impl MintEntry {
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn new(kind: MintKind, target_pk: XfrPublicKey, amount: Amount) -> Self {
+    pub fn new(
+        kind: MintKind,
+        target_pk: XfrPublicKey,
+        receiver_pk: Option<XfrPublicKey>,
+        amount: Amount,
+    ) -> Self {
         let mut prng = ChaChaRng::seed_from_u64(0);
         let ar = AssetRecordTemplate::with_no_asset_tracing(
             amount,
             ASSET_TYPE_FRA,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            target_pk,
+            receiver_pk.unwrap_or(target_pk),
         );
         let pc_gens = PublicParams::default().pc_gens;
         let (ba, _, _) = build_blind_asset_record(&mut prng, &pc_gens, &ar, vec![]);

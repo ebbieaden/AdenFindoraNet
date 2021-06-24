@@ -20,8 +20,8 @@ use ledger::{
             mint_fra::{MintEntry, MintFraOps, MintKind},
         },
         td_addr_to_bytes, td_addr_to_string, td_pubkey_to_td_addr, DelegationState,
-        TendermintAddr, Validator as StakingValidator, ValidatorKind, BLOCK_HEIGHT_MAX,
-        FRA, FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
+        PartialUnDelegation, TendermintAddr, Validator as StakingValidator,
+        ValidatorKind, BLOCK_HEIGHT_MAX, FRA, FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
     },
     store::{fra_gen_initial_tx, LedgerAccess},
 };
@@ -454,9 +454,15 @@ fn delegate_x(
 }
 
 fn undelegate(owner_kp: &XfrKeyPair) -> Result<Digest> {
+    undelegate_x(owner_kp, None).c(d!())
+}
+
+fn undelegate_x(
+    owner_kp: &XfrKeyPair,
+    pu: Option<PartialUnDelegation>,
+) -> Result<Digest> {
     let mut builder = new_tx_builder();
-    // TODO: suit for partial un-delegations
-    builder.add_operation_undelegation(owner_kp, None);
+    builder.add_operation_undelegation(owner_kp, pu);
 
     gen_fee_op(owner_kp)
         .c(d!())
@@ -588,7 +594,7 @@ macro_rules! trigger_next_block {
 // 19. make sure the delegation state turn back to `Bond`
 // 20. make sure no rewards will be paid
 //
-// 21. ............
+// 21. undelegate partially
 //
 // 22. transfer FRAs to multi addrs
 // 23. make sure the result is correct
@@ -633,7 +639,6 @@ fn staking_scene_1() -> Result<()> {
     // validators will be updated every 4 blocks
     for _ in 0..3 {
         trigger_next_block!();
-        wait_one_block();
     }
 
     let td_mocker = TD_MOCKER.read();
@@ -751,9 +756,8 @@ fn staking_scene_1() -> Result<()> {
 
     // 12. make sure the power of co-responding validator is decreased
 
-    for _ in 0..UNBOND_BLOCK_CNT {
+    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
-        wait_one_block();
     }
 
     let power = ABCI_MOCKER
@@ -797,9 +801,8 @@ fn staking_scene_1() -> Result<()> {
     let rewards =
         calculate_delegation_rewards((32 + 64 + 85) * FRA, return_rate).c(d!())? * 10;
 
-    for _ in 0..UNBOND_BLOCK_CNT {
+    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
-        wait_one_block();
     }
 
     assert!(
@@ -822,7 +825,6 @@ fn staking_scene_1() -> Result<()> {
     // 15. make sure it can do claim at any time
 
     trigger_next_block!();
-    wait_one_block();
 
     for _ in 0..10 {
         let old_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
@@ -832,7 +834,6 @@ fn staking_scene_1() -> Result<()> {
 
         // waiting to be paid
         trigger_next_block!();
-        wait_one_block();
 
         let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
         assert_eq!(old_balance - TX_FEE_MIN + 1, new_balance);
@@ -888,9 +889,8 @@ fn staking_scene_1() -> Result<()> {
 
     // 20. make sure no rewards will be paid
 
-    for _ in 0..(4 + UNBOND_BLOCK_CNT) {
+    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
-        wait_one_block();
     }
 
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
@@ -903,13 +903,60 @@ fn staking_scene_1() -> Result<()> {
 
     for _ in 0..(4 + UNBOND_BLOCK_CNT) {
         trigger_next_block!();
-        wait_one_block();
     }
 
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
     assert!((old_balance - 2 * TX_FEE_MIN) < new_balance);
 
-    // 21. .......
+    // 21. undelegate partially
+
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 91 * FRA).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    trigger_next_block!();
+
+    let old_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
+
+    let pu =
+        PartialUnDelegation::new(1, x_kp.get_pk(), td_addr_to_string(&v_set[0].td_addr));
+    let tx_hash = undelegate_x(&x_kp, Some(pu)).c(d!())?;
+    wait_one_block();
+    // reason: x is in delegation
+    assert!(is_failed(&tx_hash));
+    assert_eq!(
+        ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk()),
+        old_balance
+    );
+
+    let rand_pk = gen_keypair().get_pk();
+    let pu =
+        PartialUnDelegation::new(100, rand_pk, td_addr_to_string(&v_set[0].td_addr));
+    let tx_hash = undelegate_x(&x_kp, Some(pu)).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
+        trigger_next_block!();
+    }
+
+    assert_eq!(
+        ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk()),
+        100 + old_balance - TX_FEE_MIN
+    );
+
+    // undelegate and wait to be paid
+    let tx_hash = undelegate(&x_kp).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    for _ in 0..(4 + UNBOND_BLOCK_CNT) {
+        trigger_next_block!();
+    }
+
+    let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
+    assert!((100 + old_balance - 2 * TX_FEE_MIN) < new_balance);
 
     // 22. transfer FRAs to multi addrs
 
@@ -952,7 +999,6 @@ fn staking_scene_1() -> Result<()> {
     assert!(is_successful(&tx_hash));
 
     trigger_next_block!();
-    wait_one_block();
 
     // 23. make sure the result of `FraDistribution` is correct
 
@@ -1004,9 +1050,8 @@ fn staking_scene_1() -> Result<()> {
         assert!(is_successful(&tx_hash));
     }
 
-    for _ in 0..12 {
+    for _ in 0..8 {
         trigger_next_block!();
-        wait_one_block();
     }
 
     // 27. make sure the power of each validator is decreased correctly
@@ -1044,8 +1089,8 @@ fn staking_scene_1() -> Result<()> {
 
     // 30. make sure that user can NOT sent `MintFra` transactions
     let mint_ops = Operation::MintFra(MintFraOps::new(vec![
-        MintEntry::new(MintKind::Claim, x_kp.get_pk(), 100),
-        MintEntry::new(MintKind::UnStake, x_kp.get_pk(), 900),
+        MintEntry::new(MintKind::Claim, x_kp.get_pk(), None, 100),
+        MintEntry::new(MintKind::UnStake, x_kp.get_pk(), None, 900),
     ]));
     let tx = Transaction::from_operation(mint_ops, get_seq_id());
     let tx_hash = gen_tx_hash(&tx);
@@ -1109,7 +1154,6 @@ fn staking_scene_2() -> Result<()> {
     // validators will be updated every 4 blocks
     for _ in 0..3 {
         trigger_next_block!();
-        wait_one_block();
     }
 
     let td_mocker = TD_MOCKER.read();

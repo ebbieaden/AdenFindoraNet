@@ -390,6 +390,7 @@ impl Staking {
             entries: map! {B validator => 0},
             delegators: indexmap::IndexMap::new(),
             rwd_pk: owner,
+            receiver_pk: None,
             start_height: h,
             end_height,
             state: DelegationState::Bond,
@@ -530,6 +531,7 @@ impl Staking {
                     entries: map! {B target_validator => pu.am},
                     delegators: indexmap::IndexMap::new(),
                     rwd_pk: pu.rwd_receiver,
+                    receiver_pk: Some(d.rwd_pk),
                     start_height: d.start_height,
                     end_height: h + UNBOND_BLOCK_CNT,
                     state: DelegationState::Bond,
@@ -658,6 +660,26 @@ impl Staking {
         self.delegation_get_freed_before_height(h)
             .into_iter()
             .map(|(k, d)| (k, d.amount()))
+            .collect()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn delegation_get_global_principal_with_receiver(
+        &self,
+    ) -> HashMap<XfrPublicKey, (Amount, Option<XfrPublicKey>)> {
+        self.delegation_get_global_principal_before_height_with_receiver(self.cur_height)
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn delegation_get_global_principal_before_height_with_receiver(
+        &self,
+        h: BlockHeight,
+    ) -> HashMap<XfrPublicKey, (Amount, Option<XfrPublicKey>)> {
+        self.delegation_get_freed_before_height(h)
+            .into_iter()
+            .map(|(k, d)| (k, (d.amount(), d.receiver_pk)))
             .collect()
     }
 
@@ -1531,6 +1553,9 @@ pub struct Delegation {
 
     /// delegation rewards will be paid to this pk
     pub rwd_pk: XfrPublicKey,
+    /// optional receiver address,
+    /// if this one exists, tokens will be paid to it instead of rwd_pk
+    pub receiver_pk: Option<XfrPublicKey>,
     /// the joint height of the delegtator
     pub start_height: BlockHeight,
     /// the height at which the delegation ends
@@ -1893,6 +1918,7 @@ mod test {
             entries: map! {B validator_kp.get_pk() => delegation_amount},
             delegators: indexmap::IndexMap::new(),
             rwd_pk: delegator_kp.get_pk(),
+            receiver_pk: None,
             start_height: 0,
             end_height: 200_0000,
             state: DelegationState::Bond,
