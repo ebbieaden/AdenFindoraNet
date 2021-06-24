@@ -49,7 +49,8 @@ fn run() -> Result<()> {
         .arg_from_usage("-M, --validator-memo=[Memo] 'the description of your validator node, optional'")
         .arg_from_usage("-a, --append 'stake more FRAs to your node'")
         .group(subcmd_stake_arggrp);
-    let subcmd_unstake = SubCommand::with_name("unstake");
+    let subcmd_unstake = SubCommand::with_name("unstake")
+        .arg_from_usage("-n, --amount=[Amount] 'how much FRA to unstake, needed for partial undelegation'");
     let subcmd_claim = SubCommand::with_name("claim")
         .arg_from_usage("-n, --amount=[Amount] 'how much `FRA unit`s to claim'");
     let subcmd_show = SubCommand::with_name("show");
@@ -101,8 +102,9 @@ fn run() -> Result<()> {
                 fns::stake(am.unwrap(), cr.unwrap(), vm).c(d!())?;
             }
         }
-    } else if matches.subcommand_matches("unstake").is_some() {
-        fns::unstake().c(d!())?;
+    } else if let Some(m) = matches.subcommand_matches("unstake") {
+        let am = m.value_of("amount");
+        fns::unstake(am).c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("claim") {
         let am = m.value_of("amount");
         fns::claim(am).c(d!())?;

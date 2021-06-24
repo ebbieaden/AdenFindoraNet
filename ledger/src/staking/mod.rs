@@ -1919,6 +1919,12 @@ pub fn is_coinbase_tx(tx: &Transaction) -> bool {
         .any(|o| matches!(o, Operation::MintFra(_)))
 }
 
+#[inline(always)]
+#[allow(missing_docs)]
+pub fn gen_random_keypair() -> XfrKeyPair {
+    XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -2028,9 +2034,4 @@ mod test {
 
         [lb, 100_0000]
     }
-}
-
-#[inline(always)]
-fn gen_random_keypair() -> XfrKeyPair {
-    XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
 }

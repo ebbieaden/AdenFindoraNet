@@ -14,7 +14,10 @@ use fintools::fns::utils as fns;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{Transaction, BLACK_HOLE_PUBKEY_STAKING},
-    staking::{check_delegation_amount, BLOCK_INTERVAL, FRA, FRA_TOTAL_AMOUNT},
+    staking::{
+        check_delegation_amount, gen_random_keypair, td_addr_to_bytes, BLOCK_INTERVAL,
+        FRA, FRA_TOTAL_AMOUNT,
+    },
     store::fra_gen_initial_tx,
 };
 use ruc::*;
@@ -52,7 +55,9 @@ fn run() -> Result<()> {
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to delegate'")
         .arg_from_usage("-v, --validator=[Validator] 'which validator to delegate to'");
     let subcmd_undelegate = SubCommand::with_name("undelegate")
-        .arg_from_usage("-u, --user=[User] 'user name of delegator'");
+        .arg_from_usage("-u, --user=[User] 'user name of the delegator'")
+        .arg_from_usage("-n, --amount=[Amount] 'how much FRA to undelegate, needed for partial undelegation'")
+        .arg_from_usage("-v, --validator=[Validator] 'which validator to undelegate from, needed for partial undelegation'");
     let subcmd_claim = SubCommand::with_name("claim")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to claim'");
@@ -95,11 +100,17 @@ fn run() -> Result<()> {
         }
     } else if let Some(m) = matches.subcommand_matches("undelegate") {
         let user = m.value_of("user");
+        let amount = m.value_of("amount");
+        let validator = m.value_of("validator");
 
-        if user.is_none() {
+        if user.is_none()
+            || user.unwrap().trim().is_empty()
+            || matches!((amount, validator), (Some(_), None) | (None, Some(_)))
+        {
             println!("{}", m.usage());
         } else {
-            undelegate::gen_tx(user.unwrap())
+            let amount = amount.and_then(|am| am.parse::<u64>().ok());
+            undelegate::gen_tx(user.unwrap(), amount, validator)
                 .c(d!())
                 .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
         }
@@ -226,16 +237,35 @@ mod delegate {
 
 mod undelegate {
     use super::*;
+    use ledger::staking::PartialUnDelegation;
 
-    pub fn gen_tx(user: NameRef) -> Result<Transaction> {
-        let owner_kp = &USER_LIST.get(user).c(d!())?.keypair;
+    pub fn gen_tx(
+        user: NameRef,
+        amount: Option<u64>,
+        validator: Option<NameRef>,
+    ) -> Result<Transaction> {
+        let owner_kp = &USER_LIST.get(user.trim()).c(d!())?.keypair;
+        let validator = validator
+            .and_then(|v| VALIDATOR_LIST.get(v))
+            .map(|x| pnk!(td_addr_to_bytes(&x.td_addr)));
 
         let mut builder = fns::new_tx_builder().c(d!())?;
 
         fns::gen_fee_op(owner_kp).c(d!()).map(|op| {
             builder.add_operation(op);
-            // TODO: suit for partial un-delegations
-            builder.add_operation_undelegation(owner_kp, None);
+            if let Some(amount) = amount {
+                // partial undelegation
+                builder.add_operation_undelegation(
+                    owner_kp,
+                    Some(PartialUnDelegation::new(
+                        amount,
+                        gen_random_keypair().get_pk(),
+                        validator.unwrap(),
+                    )),
+                );
+            } else {
+                builder.add_operation_undelegation(owner_kp, None);
+            }
         })?;
 
         Ok(builder.take_transaction())
