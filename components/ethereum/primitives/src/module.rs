@@ -35,7 +35,7 @@ pub trait AppModuleGenesis {
 }
 
 /// AppModule is the standard form for an application module
-pub trait AppModule: AppModuleBasic + AppModuleGenesis {
+pub trait AppModule: AppModuleBasic + AppModuleGenesis + Send + Sync {
     /// tx_route returns the message executive result for the application module.
     fn tx_route(&self, _msg: Box<dyn TxMsg>) -> Result<()>;
 

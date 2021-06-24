@@ -1,5 +1,6 @@
 use crate::abci::{server::ABCISubmissionServer, staking};
 use abci::*;
+use baseapp::{convert_ethereum_transaction, RunTxMode};
 use lazy_static::lazy_static;
 use ledger::{
     data_model::TxnEffect,
@@ -58,7 +59,7 @@ pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
     resp
 }
 
-pub fn check_tx(_s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseCheckTx {
+pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseCheckTx {
     // Get the Tx [u8] and convert to u64
     let mut resp = ResponseCheckTx::new();
 
@@ -68,6 +69,17 @@ pub fn check_tx(_s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> Response
         {
             resp.set_code(1);
             resp.set_log(String::from("Check failed"));
+        }
+    } else if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
+        let check_fn = |mode: RunTxMode| {
+            if ruc::info!(s.app.run_tx(mode, tx)).is_err() {
+                resp.set_code(1);
+                resp.set_log(String::from("Ethereum transaction check failed"));
+            }
+        };
+        match req.get_field_type() {
+            CheckTxType::New => check_fn(RunTxMode::Check),
+            CheckTxType::Recheck => check_fn(RunTxMode::ReCheck),
         }
     } else {
         resp.set_code(1);
@@ -156,7 +168,7 @@ pub fn end_block(
     if !is_replaying {
         if let Ok(Some(vs)) = ruc::info!(staking::get_validators(
             la.get_committed_state().read().get_staking(),
-            begin_block_req.last_commit_info.as_ref()
+            begin_block_req.last_commit_info.as_ref(),
         )) {
             resp.set_validator_updates(RepeatedField::from_vec(vs));
         }

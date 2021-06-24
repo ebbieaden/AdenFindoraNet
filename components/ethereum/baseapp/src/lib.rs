@@ -1,11 +1,12 @@
 mod app;
 
 use app_evm::EvmModule;
+use primitives::transaction::Applyable;
 use primitives::{crypto::*, module::AppModule, transaction, transaction::TxMsg};
 use ruc::{eg, Result};
 use std::collections::HashMap;
 
-struct BaseApp {
+pub struct BaseApp {
     // application name from abci.Info
     name: String,
     // application's version string
@@ -15,6 +16,18 @@ struct BaseApp {
     app_version: u64,
     // manage all modules
     modules: HashMap<String, Box<dyn AppModule>>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub enum RunTxMode {
+    // Check a transaction
+    Check = 0,
+    // Recheck a (pending) transaction after a commit
+    ReCheck = 1,
+    // Simulate a transaction
+    Simulate = 2,
+    // Deliver a transaction
+    Deliver = 3,
 }
 
 pub enum Message {
@@ -87,6 +100,19 @@ impl BaseApp {
             resp
         }
     }
+
+    pub fn run_tx(&self, mode: RunTxMode, tx: UncheckedTransaction) -> Result<()> {
+        let checked = tx.check()?;
+
+        // TODO gas check、get ctx.store
+
+        // checked.validate()?;
+        //
+        // if mode == RunTxMode::Deliver {
+        //     checked.apply()?;
+        // }
+        Ok(())
+    }
 }
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
@@ -103,16 +129,10 @@ pub type UncheckedTransaction =
 pub type CheckedTransaction =
     transaction::CheckedTransaction<Address, app_ethereum::Message>;
 
-pub struct EthereumTransactionConverter;
-
-impl transaction::ConvertTransaction<UncheckedTransaction>
-    for EthereumTransactionConverter
-{
-    fn convert_transaction(&self, transaction: &[u8]) -> Result<UncheckedTransaction> {
-        let tx = serde_json::from_slice::<ethereum::Transaction>(transaction)
-            .map_err(|e| eg!(e))?;
-        Ok(UncheckedTransaction::new_unsigned(
-            app_ethereum::Message::Transact(tx),
-        ))
-    }
+pub fn convert_ethereum_transaction(transaction: &[u8]) -> Result<UncheckedTransaction> {
+    let tx = serde_json::from_slice::<ethereum::Transaction>(transaction)
+        .map_err(|e| eg!(e))?;
+    Ok(UncheckedTransaction::new_unsigned(
+        app_ethereum::Message::Transact(tx),
+    ))
 }

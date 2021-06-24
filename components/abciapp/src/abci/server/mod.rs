@@ -1,4 +1,5 @@
 use abci::*;
+use baseapp::BaseApp;
 use ledger::store::LedgerState;
 use parking_lot::RwLock;
 use rand_chacha::ChaChaRng;
@@ -16,6 +17,7 @@ pub mod tx_sender;
 
 pub struct ABCISubmissionServer {
     pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
+    pub app: BaseApp,
 }
 
 impl ABCISubmissionServer {
@@ -37,6 +39,7 @@ impl ABCISubmissionServer {
                 )
                 .c(d!())?,
             )),
+            app: BaseApp::new(),
         })
     }
 }
@@ -53,13 +56,13 @@ impl abci::Application for ABCISubmissionServer {
     }
 
     #[inline(always)]
-    fn deliver_tx(&mut self, req: &RequestDeliverTx) -> ResponseDeliverTx {
-        callback::deliver_tx(self, req)
+    fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
+        callback::begin_block(self, req)
     }
 
     #[inline(always)]
-    fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
-        callback::begin_block(self, req)
+    fn deliver_tx(&mut self, req: &RequestDeliverTx) -> ResponseDeliverTx {
+        callback::deliver_tx(self, req)
     }
 
     #[inline(always)]

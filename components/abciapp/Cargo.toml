@@ -51,6 +51,8 @@ clap = "2.33.3"
 fintools = { path =  "../fintools" }
 txn_builder = { path = "../txn_builder" }
 
+baseapp = { path = "../ethereum/baseapp" }
+
 [build-dependencies]
 vergen = "=3.1.0"
 
