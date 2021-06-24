@@ -1,4 +1,4 @@
-use crate::message::TxMsg;
+use crate::transaction::TxMsg;
 use ruc::Result;
 
 /// AppModuleBasic is the standard form for basic non-dependant elements of an application module.

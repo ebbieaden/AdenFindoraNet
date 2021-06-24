@@ -1,14 +1,18 @@
-use abci::*;
-use keeper::{EvmRunner, Keeper};
-use primitives::{
-    message::{evm::*, TxMsg},
-    module::{AppModule, AppModuleBasic, AppModuleGenesis},
-};
-use ruc::*;
-
 mod client;
 mod genesis;
 mod keeper;
+mod message;
+
+use abci::*;
+use keeper::{EvmRunner, Keeper};
+pub use message::Message;
+use primitives::{
+    module::{AppModule, AppModuleBasic, AppModuleGenesis},
+    transaction::TxMsg,
+};
+use ruc::*;
+
+pub const MODULE_NAME: &str = "evm";
 
 pub struct EvmModule {
     name: String,
@@ -18,7 +22,7 @@ pub struct EvmModule {
 impl EvmModule {
     pub fn new() -> EvmModule {
         EvmModule {
-            name: EVM_MODULE_NAME.to_string(),
+            name: MODULE_NAME.to_string(),
             keeper: Keeper::new(),
         }
     }

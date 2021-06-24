@@ -1,8 +1,11 @@
 mod app;
 
 use app_evm::EvmModule;
-use primitives::{message, message::TxMsg, module::AppModule};
-use ruc::Result;
+use ethereum_types::H160;
+use primitives::{
+    crypto::MultiSignature, module::AppModule, transaction, transaction::TxMsg,
+};
+use ruc::{eg, Result};
 use std::collections::HashMap;
 
 struct BaseApp {
@@ -18,7 +21,7 @@ struct BaseApp {
 }
 
 pub enum Message {
-    EVM(message::evm::Message),
+    EVM(app_evm::Message),
 }
 
 impl BaseApp {
@@ -31,7 +34,6 @@ impl BaseApp {
         };
 
         app.build_modules(vec![Box::new(EvmModule::new())]);
-        // app.register_routes();
         app
     }
 
@@ -57,7 +59,7 @@ impl BaseApp {
         match msg {
             Message::EVM(m) => {
                 let am = self.modules.get(&m.route_path()).unwrap();
-                am.tx_route(Box::new(m));
+                am.tx_route(Box::new(m)).unwrap();
             }
         }
     }
@@ -68,7 +70,6 @@ impl BaseApp {
         req: &abci::RequestQuery,
     ) -> abci::ResponseQuery {
         let mut resp = abci::ResponseQuery::new();
-
         if 0 == path.len() {
             resp.set_code(1);
             resp.set_log("Invalid custom query path without module route!".to_string());
@@ -76,19 +77,31 @@ impl BaseApp {
         }
 
         let module_name = path.remove(0);
-        match module_name {
-            message::evm::EVM_MODULE_NAME => {
-                let am = self
-                    .modules
-                    .get(&message::evm::EVM_MODULE_NAME.to_string())
-                    .unwrap();
-                am.query_route(path, req)
-            }
-            _ => {
-                resp.set_code(1);
-                resp.set_log(format!("Invalid query module route: {}!", module_name));
-                resp
-            }
+        if let Some(am) = self.modules.get(&module_name.to_string()) {
+            am.query_route(path, req)
+        } else {
+            resp.set_code(1);
+            resp.set_log(format!("Invalid query module route: {}!", module_name));
+            resp
         }
+    }
+}
+
+/// Unchecked extrinsic type as expected by this runtime.
+pub type UncheckedTransaction =
+    transaction::UncheckedTransaction<H160, app_evm::Message, MultiSignature>;
+/// Extrinsic type that has already been checked.
+pub type CheckedTransaction = transaction::CheckedTransaction<H160, app_evm::Message>;
+
+pub struct EthereumTransactionConverter;
+
+impl transaction::ConvertTransaction<UncheckedTransaction>
+    for EthereumTransactionConverter
+{
+    fn convert_transaction(&self, transaction: &[u8]) -> Result<UncheckedTransaction> {
+        let _tx = serde_json::from_slice::<ethereum::Transaction>(transaction)
+            .map_err(|e| eg!(e))?;
+        // UncheckedTransaction::new_unsigned(app_evm::message::Message::)
+        todo!()
     }
 }
