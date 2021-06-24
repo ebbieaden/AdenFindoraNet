@@ -19,6 +19,8 @@ use crate::data_model::{Operation, Transaction, TransferAsset, TxoRef, FRA_DECIM
 use cosig::CoSigRule;
 use cryptohash::sha256::{self, Digest};
 use ops::{fra_distribution::FraDistributionOps, mint_fra::MintKind};
+use rand_chacha::ChaChaRng;
+use rand_core::SeedableRng;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
@@ -28,7 +30,7 @@ use std::{
     iter::FromIterator,
     mem,
 };
-use zei::xfr::sig::XfrPublicKey;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 /// Staking entry
 ///
@@ -343,7 +345,7 @@ impl Staking {
         validator: TendermintAddrRef,
         start: usize,
         mut end: usize,
-    ) -> Result<Vec<(&String, &u64)>> {
+    ) -> Result<Vec<(&XfrPublicKey, &u64)>> {
         let validator = self.validator_td_addr_to_app_pk(validator).c(d!())?;
 
         if let Some(vd) = self.di.addr_map.get(&validator) {
@@ -389,7 +391,7 @@ impl Staking {
         let new = || Delegation {
             entries: map! {B validator => 0},
             delegators: indexmap::IndexMap::new(),
-            rwd_pk: owner,
+            id: owner,
             receiver_pk: None,
             start_height: h,
             end_height,
@@ -417,9 +419,7 @@ impl Staking {
         // update delegator entries for this validator
         if let Some(vd) = self.di.addr_map.get_mut(&validator) {
             if owner != validator {
-                *vd.delegators
-                    .entry(wallet::public_key_to_base64(&owner))
-                    .or_insert(0) += am;
+                *vd.delegators.entry(owner).or_insert(0) += am;
                 vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
             }
         }
@@ -455,6 +455,7 @@ impl Staking {
 
         let h = self.cur_height;
         let mut orig_h = None;
+        let mut is_validator = false;
 
         if let Some(d) = self.di.addr_map.get_mut(addr) {
             if BLOCK_HEIGHT_MAX == d.end_height {
@@ -467,11 +468,47 @@ impl Staking {
             }
             if self.addr_is_validator(addr) {
                 // clear its power when a validator propose a complete undelegation
-                // > `panic` should not happen without bug
+                // > `panic` should not happen without bug[s]
                 pnk!(self.validator_change_power(addr, u64::MAX, true));
+                is_validator = true;
             }
         } else {
             return Err(eg!("delegator not found"));
+        }
+
+        // undelegate for the related delegators automaticlly
+        if is_validator {
+            let mut auto_ud_list = vec![];
+
+            // unwrap is safe here
+            let v = self
+                .validator_get_current()
+                .unwrap()
+                .body
+                .get(addr)
+                .unwrap();
+
+            // unwrap is safe here
+            self.di
+                .addr_map
+                .get(addr)
+                .unwrap()
+                .delegators
+                .iter()
+                .for_each(|(pk, am)| {
+                    auto_ud_list.push((
+                        *pk,
+                        PartialUnDelegation::new(
+                            *am,
+                            gen_random_keypair().get_pk(),
+                            v.td_addr.clone(),
+                        ),
+                    ));
+                });
+
+            auto_ud_list.iter().for_each(|(addr, pu)| {
+                ruc::info_omit!(self.undelegate_partially(addr, pu));
+            });
         }
 
         if let Some(orig_h) = orig_h {
@@ -497,7 +534,7 @@ impl Staking {
         addr: &XfrPublicKey,
         pu: &PartialUnDelegation,
     ) -> Result<()> {
-        if self.delegation_has_addr(&pu.rwd_receiver) {
+        if self.delegation_has_addr(&pu.new_delegator_id) {
             return Err(eg!("Receiver address already exists"));
         }
 
@@ -506,7 +543,7 @@ impl Staking {
         let is_validator = self.addr_is_validator(addr);
 
         let target_validator = self
-            .validator_td_addr_to_app_pk(&pu.target_validator)
+            .validator_td_addr_to_app_pk(&td_addr_to_string(&pu.target_validator))
             .c(d!("Invalid target validator"))?;
 
         if let Some(d) = self.di.addr_map.get_mut(addr) {
@@ -530,8 +567,8 @@ impl Staking {
                 new_tmp_delegator = Delegation {
                     entries: map! {B target_validator => pu.am},
                     delegators: indexmap::IndexMap::new(),
-                    rwd_pk: pu.rwd_receiver,
-                    receiver_pk: Some(d.rwd_pk),
+                    id: pu.new_delegator_id,
+                    receiver_pk: Some(d.id),
                     start_height: d.start_height,
                     end_height: h + UNBOND_BLOCK_CNT,
                     state: DelegationState::Bond,
@@ -546,24 +583,23 @@ impl Staking {
             return Err(eg!("delegator not found"));
         }
 
-        self.di.addr_map.insert(pu.rwd_receiver, new_tmp_delegator);
+        self.di
+            .addr_map
+            .insert(pu.new_delegator_id, new_tmp_delegator);
         self.di
             .end_height_map
             .entry(h + UNBOND_BLOCK_CNT)
             .or_insert_with(BTreeSet::new)
-            .insert(pu.rwd_receiver);
+            .insert(pu.new_delegator_id);
 
         // update delegator entries for pu target_validator
         if let Some(vd) = self.di.addr_map.get_mut(&target_validator) {
-            // add rwd_receiver to delegator list
-            *vd.delegators
-                .entry(wallet::public_key_to_base64(&pu.rwd_receiver))
-                .or_insert(0) += pu.am;
+            // add new_delegator_id to delegator list
+            *vd.delegators.entry(pu.new_delegator_id).or_insert(0) += pu.am;
 
             // update delegation amount of current address
             // make sure previous delegation amount is bigger than pu.am above.
-            if let Some(am) = vd.delegators.get_mut(&wallet::public_key_to_base64(&addr))
-            {
+            if let Some(am) = vd.delegators.get_mut(addr) {
                 *am -= pu.am;
             }
             vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
@@ -772,7 +808,7 @@ impl Staking {
                         self.di.global_amount -= am;
 
                         if let Some(vd) = self.di.addr_map.get_mut(&v) {
-                            vd.delegators.remove(&wallet::public_key_to_base64(&addr));
+                            vd.delegators.remove(&addr);
                             vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
                         }
                     });
@@ -1298,7 +1334,12 @@ type TendermintPubKeyRef<'a> = &'a str;
 
 /// sha256(pubkey)[:20] in hex format
 pub type TendermintAddr = String;
-type TendermintAddrRef<'a> = &'a str;
+/// ref `TendermintAddr`
+pub type TendermintAddrRef<'a> = &'a str;
+
+/// sha256(pubkey)[:20]
+pub type TendermintAddrBytes = Vec<u8>;
+// type TendermintAddrBytesRef<'a> = &'a [u8];
 
 type ValidatorInfo = BTreeMap<BlockHeight, ValidatorData>;
 
@@ -1544,12 +1585,12 @@ pub struct Delegation {
 
     /// - delegator entries
     /// - only valid for a validator
-    pub delegators: indexmap::IndexMap<String, Amount>,
+    pub delegators: indexmap::IndexMap<XfrPublicKey, Amount>,
 
-    /// delegation rewards will be paid to this pk
-    pub rwd_pk: XfrPublicKey,
+    /// delegation rewards will be paid to this pk by default
+    pub id: XfrPublicKey,
     /// optional receiver address,
-    /// if this one exists, tokens will be paid to it instead of rwd_pk
+    /// if this one exists, tokens will be paid to it instead of id
     pub receiver_pk: Option<XfrPublicKey>,
     /// the joint height of the delegtator
     pub start_height: BlockHeight,
@@ -1697,20 +1738,20 @@ impl Default for DelegationState {
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct PartialUnDelegation {
     am: Amount,
-    rwd_receiver: XfrPublicKey,
-    target_validator: TendermintAddr,
+    new_delegator_id: XfrPublicKey,
+    target_validator: TendermintAddrBytes,
 }
 
 impl PartialUnDelegation {
     #[allow(missing_docs)]
     pub fn new(
         am: Amount,
-        rwd_receiver: XfrPublicKey,
-        target_validator: TendermintAddr,
+        new_delegator_id: XfrPublicKey,
+        target_validator: TendermintAddrBytes,
     ) -> Self {
         PartialUnDelegation {
             am,
-            rwd_receiver,
+            new_delegator_id,
             target_validator,
         }
     }
@@ -1839,9 +1880,6 @@ pub fn is_coinbase_tx(tx: &Transaction) -> bool {
 mod test {
     use super::*;
     use rand::random;
-    use rand_chacha::ChaChaRng;
-    use rand_core::SeedableRng;
-    use zei::xfr::sig::XfrKeyPair;
 
     const V_TENDERMINT_ADDR: &str = "mocker....@@@@@#####@@@@@#####";
 
@@ -1897,8 +1935,8 @@ mod test {
     ) {
         staking.di = DelegationInfo::new();
 
-        let delegator_kp = gen_keypair();
-        let validator_kp = gen_keypair();
+        let delegator_kp = gen_random_keypair();
+        let validator_kp = gen_random_keypair();
 
         let itv = upper_bound - lower_bound;
         let lb = if 0 == itv {
@@ -1912,7 +1950,7 @@ mod test {
         let delegation = Delegation {
             entries: map! {B validator_kp.get_pk() => delegation_amount},
             delegators: indexmap::IndexMap::new(),
-            rwd_pk: delegator_kp.get_pk(),
+            id: delegator_kp.get_pk(),
             receiver_pk: None,
             start_height: 0,
             end_height: 200_0000,
@@ -1946,8 +1984,9 @@ mod test {
 
         [lb, 100_0000]
     }
+}
 
-    fn gen_keypair() -> XfrKeyPair {
-        XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
-    }
+#[inline(always)]
+fn gen_random_keypair() -> XfrKeyPair {
+    XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
 }

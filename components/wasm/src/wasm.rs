@@ -19,7 +19,7 @@ use ledger::{
     },
     policies::{DebtMemo, Fraction},
     staking::{
-        PartialUnDelegation, TendermintAddr, MAX_DELEGATION_AMOUNT,
+        td_addr_to_bytes, PartialUnDelegation, TendermintAddr, MAX_DELEGATION_AMOUNT,
         MIN_DELEGATION_AMOUNT,
     },
 };
@@ -533,7 +533,11 @@ impl TransactionBuilder {
         let middle_pk = new_keypair().get_pk();
         self.get_builder_mut().add_operation_undelegation(
             keypair,
-            Some(PartialUnDelegation::new(am, middle_pk, target_validator)),
+            Some(PartialUnDelegation::new(
+                am,
+                middle_pk,
+                td_addr_to_bytes(&target_validator).map_err(error_to_jsvalue)?,
+            )),
         );
         Ok(self)
     }

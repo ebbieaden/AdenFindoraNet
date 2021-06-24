@@ -1014,6 +1014,9 @@ fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
         Operation::Governance(i) => {
             i.set_nonce(no_replay_token);
         }
+        Operation::MintFra(i) => {
+            i.set_nonce(no_replay_token);
+        }
         Operation::UpdateMemo(i) => i.body.no_replay_token = no_replay_token,
         _ => {}
     }
@@ -1132,11 +1135,8 @@ pub struct DelegatorInfo {
 }
 
 impl DelegatorInfo {
-    pub fn new(key: &str, am: &u64) -> Self {
-        Self {
-            addr: key.to_string(),
-            amount: *am,
-        }
+    pub fn new(addr: String, amount: u64) -> Self {
+        DelegatorInfo { addr, amount }
     }
 }
 
