@@ -24,20 +24,15 @@ pub trait TxMsg {
 
 /// This is unchecked and so can contain a signature.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct UncheckedTransaction<PublicKey, Call, Signature> {
-    /// The signature is to use the PublicKey sign the function if this is a signed transaction.
-    pub signature: Option<(PublicKey, Signature)>,
+pub struct UncheckedTransaction<Address, Call, Signature> {
+    /// The signature is to use the Address sign the function if this is a signed transaction.
+    pub signature: Option<(Address, Signature)>,
     /// The function that should be called.
     pub function: Call,
 }
 
-impl<PublicKey, Call, Signature> UncheckedTransaction<PublicKey, Call, Signature>
-where
-    PublicKey: Member,
-    Call: Member + Serialize,
-    Signature: Member + Verify<Signer = PublicKey>,
-{
-    pub fn new_signed(function: Call, signed: PublicKey, signature: Signature) -> Self {
+impl<Address, Call, Signature> UncheckedTransaction<Address, Call, Signature> {
+    pub fn new_signed(function: Call, signed: Address, signature: Signature) -> Self {
         Self {
             signature: Some((signed, signature)),
             function,
@@ -50,8 +45,15 @@ where
             function,
         }
     }
+}
 
-    pub fn check(self) -> Result<CheckedTransaction<PublicKey, Call>> {
+impl<Address, Call, Signature> UncheckedTransaction<Address, Call, Signature>
+where
+    Address: Member,
+    Call: Member + Serialize,
+    Signature: Member + Verify<Signer = Address>,
+{
+    pub fn check(self) -> Result<CheckedTransaction<Address, Call>> {
         Ok(match self.signature {
             Some((signed, signature)) => {
                 let msg = serde_json::to_vec(&self.function).unwrap();
@@ -75,9 +77,9 @@ where
 
 /// It has been checked and is good, particularly with regards to the signature.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CheckedTransaction<PublicKey, Call> {
+pub struct CheckedTransaction<Address, Call> {
     /// The function signer, if anyone
-    pub signed: Option<PublicKey>,
+    pub signed: Option<Address>,
 
     /// The function that should be called.
     pub function: Call,
@@ -119,9 +121,9 @@ pub trait ValidateUnsigned {
     fn validate_unsigned(call: &Self::Call) -> Result<()>;
 }
 
-impl<PublicKey, Call> Applyable for CheckedTransaction<PublicKey, Call>
+impl<Address, Call> Applyable for CheckedTransaction<Address, Call>
 where
-    PublicKey: Member,
+    Address: Member,
     Call: Member + TxMsg,
 {
     type Call = Call;
