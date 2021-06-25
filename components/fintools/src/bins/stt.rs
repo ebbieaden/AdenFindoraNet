@@ -52,7 +52,7 @@ fn run() -> Result<()> {
     let subcmd_init = SubCommand::with_name("init");
     let subcmd_delegate = SubCommand::with_name("delegate")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
-        .arg_from_usage("-n, --amount=[Amount] 'how much FRA to delegate'")
+        .arg_from_usage("-n, --amount=[Amount] 'how much FRA units to delegate'")
         .arg_from_usage("-v, --validator=[Validator] 'which validator to delegate to'");
     let subcmd_undelegate = SubCommand::with_name("undelegate")
         .arg_from_usage("-u, --user=[User] 'user name of the delegator'")
@@ -134,14 +134,19 @@ fn run() -> Result<()> {
         let to = m.value_of("to-user");
         let amount = m.value_of("amount");
 
-        if from.is_none() || to.is_none() || amount.is_none() {
-            println!("{}", m.usage());
-        } else {
-            let amount = amount.unwrap().parse::<u64>().c(d!())?;
-            let owner_kp = search_kp(from.unwrap()).c(d!())?;
-            let target_pk = search_kp(to.unwrap()).c(d!())?.get_pk_ref();
-            let target = vec![(target_pk, amount)];
-            fns::transfer_batch(owner_kp, target).c(d!())?;
+        match (from, to, amount) {
+            (Some(sender), Some(receiver), Some(am)) => {
+                let am = am.parse::<u64>().c(d!())?;
+                let owner_kp = search_kp(sender).c(d!())?;
+                let target_pk = search_kp(receiver)
+                    .c(d!())
+                    .map(|kp| kp.get_pk())
+                    .or_else(|e| wallet::public_key_from_base64(receiver).c(d!(e)))?;
+                fns::transfer(owner_kp, &target_pk, am).c(d!())?;
+            }
+            _ => {
+                println!("{}", m.usage());
+            }
         }
     } else if let Some(m) = matches.subcommand_matches("show") {
         let rm = m.is_present("root-mnemonic");
