@@ -466,7 +466,7 @@ where
 async fn query_address_map_by_xfr(
     data: web::Data<Arc<RwLock<AddressBinder>>>,
     address: web::Path<String>,
-) -> actix_web::Result<web::Json<String>> {
+) -> actix_web::Result<String> {
     let pk = wallet::public_key_from_base64(address.as_str())
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
@@ -479,7 +479,25 @@ async fn query_address_map_by_xfr(
         Some(addr) => addr.to_string(),
         None => String::new()
     };
-    Ok(web::Json(ss))
+    Ok(ss)
+}
+
+async fn query_address_map_by_eth(
+    data: web::Data<Arc<RwLock<AddressBinder>>>,
+    address: web::Path<String>,
+) -> actix_web::Result<String> {
+    let sa = SmartAddress::from_ethereum_address(&address)
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let address_binder = data.read();
+    let storage = address_binder.get_storage();
+    let result = storage.get(&sa).c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let ss = match result {
+        Some(addr) => addr.to_string(),
+        None => String::new()
+    };
+    Ok(ss)
 }
 
 async fn query_delegation_info<SA>(
@@ -795,7 +813,8 @@ impl RestfulApiService {
                 .set_route::<LA>(AccessApi::Ledger)
                 .set_route::<LA>(AccessApi::Archive)
                 .set_route::<LA>(AccessApi::Staking)
-                .route("/api/smart_account", web::get().to(query_address_map_by_xfr))
+                .route("/address/get_map_xfr", web::get().to(query_address_map_by_xfr))
+                .route("/address/get_map_eth", web::get().to(query_address_map_by_eth))
         })
         .bind(&format!("{}:{}", host, port))
         .c(d!())?
