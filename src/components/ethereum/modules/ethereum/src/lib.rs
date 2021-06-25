@@ -5,10 +5,11 @@ mod message;
 
 use abci::*;
 use keeper::Keeper;
-pub use message::Message;
+pub use message::Action;
+use primitives::transaction::ValidateUnsigned;
 use primitives::{
     module::{AppModule, AppModuleBasic, AppModuleGenesis},
-    transaction::TxMsg,
+    transaction::Executable,
 };
 use ruc::*;
 
@@ -69,9 +70,9 @@ impl AppModuleGenesis for EthereumModule {
 }
 
 impl AppModule for EthereumModule {
-    fn tx_route(&self, msg: Box<dyn TxMsg>) -> Result<()> {
-        msg_handler(&self.keeper, msg)
-    }
+    // fn tx_route(&self, msg: Box<dyn Executable>) -> Result<()> {
+    //     msg_handler(&self.keeper, msg)
+    // }
 
     fn query_route(&self, path: Vec<&str>, req: &RequestQuery) -> ResponseQuery {
         query_handler(path, req)
@@ -86,14 +87,22 @@ impl AppModule for EthereumModule {
     }
 }
 
-fn msg_handler(_k: &Keeper, msg: Box<dyn TxMsg>) -> Result<()> {
-    msg.as_any()
-        .downcast_ref::<Message>()
-        .ok_or(eg!("invalid transaction message"))
-        .and_then(|m| match m {
-            Message::Transact(_tx) => Ok(()),
-        })
+impl ValidateUnsigned for EthereumModule {
+    type Call = Action;
+
+    fn validate_unsigned(call: &Self::Call) -> Result<()> {
+        todo!()
+    }
 }
+
+// fn msg_handler(_k: &Keeper, msg: Box<dyn Executable>) -> Result<()> {
+//     msg.as_any()
+//         .downcast_ref::<Message>()
+//         .ok_or(eg!("invalid transaction message"))
+//         .and_then(|m| match m {
+//             Message::Transact(_tx) => Ok(()),
+//         })
+// }
 
 fn query_handler(_path: Vec<&str>, _req: &RequestQuery) -> ResponseQuery {
     ResponseQuery::new()

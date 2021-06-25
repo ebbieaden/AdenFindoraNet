@@ -1,7 +1,9 @@
 use ethereum_types::{H160, H256, U256};
-use primitives::transaction::TxMsg;
+use primitives::{crypto::Address, transaction::Executable};
 use ruc::Result;
+use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Call {
     source: H160,
     target: H160,
@@ -12,6 +14,7 @@ pub struct Call {
     nonce: Option<U256>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Create {
     source: H160,
     init: Vec<u8>,
@@ -21,6 +24,7 @@ pub struct Create {
     nonce: Option<U256>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Create2 {
     source: H160,
     init: Vec<u8>,
@@ -31,26 +35,29 @@ pub struct Create2 {
     nonce: Option<U256>,
 }
 
-pub enum Message {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Action {
     Call(Call),
     Create(Create),
     Create2(Create2),
 }
 
-impl TxMsg for Message {
-    fn route_path(&self) -> String {
-        crate::MODULE_NAME.to_string()
-    }
+impl Executable for Action {
+    type Origin = Address;
 
-    fn execute(&self) -> Result<()> {
+    // fn route_path(&self) -> String {
+    //     crate::MODULE_NAME.to_string()
+    // }
+
+    fn execute(self, _origin: Option<Self::Origin>) -> Result<()> {
         Ok(())
     }
 
-    fn validate(&self) -> Result<()> {
-        Ok(())
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
+    // fn validate(&self) -> Result<()> {
+    //     Ok(())
+    // }
+    //
+    // fn as_any(&self) -> &dyn std::any::Any {
+    //     self
+    // }
 }

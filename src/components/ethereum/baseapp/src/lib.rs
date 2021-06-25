@@ -1,10 +1,18 @@
 mod app;
+mod types;
 
+use app_ethereum::EthereumModule;
 use app_evm::EvmModule;
-use primitives::transaction::Applyable;
-use primitives::{crypto::*, module::AppModule, transaction, transaction::TxMsg};
+use primitives::{
+    crypto::*,
+    module::AppModule,
+    transaction::{Applyable, Executable, ValidateUnsigned},
+};
 use ruc::{eg, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+pub use types::*;
 
 pub struct BaseApp {
     // application name from abci.Info
@@ -30,9 +38,21 @@ pub enum RunTxMode {
     Deliver = 3,
 }
 
-pub enum Message {
-    Ethereum(app_ethereum::Message),
-    Evm(app_evm::Message),
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Action {
+    Ethereum(app_ethereum::Action),
+    Evm(app_evm::Action),
+}
+
+impl Executable for Action {
+    type Origin = Address;
+
+    fn execute(self, origin: Option<Self::Origin>) -> Result<()> {
+        match self {
+            Action::Ethereum(action) => action.execute(origin),
+            Action::Evm(action) => action.execute(origin),
+        }
+    }
 }
 
 impl BaseApp {
@@ -48,12 +68,6 @@ impl BaseApp {
         app
     }
 
-    fn build_modules(&mut self, modules: Vec<Box<dyn AppModule>>) {
-        for m in modules {
-            self.modules.insert(m.name(), m);
-        }
-    }
-
     pub fn name(&self) -> String {
         self.name.clone()
     }
@@ -64,19 +78,6 @@ impl BaseApp {
 
     pub fn app_version(&self) -> u64 {
         self.app_version
-    }
-
-    pub fn handle_msg(&self, msg: Message) {
-        match msg {
-            Message::Ethereum(m) => {
-                let am = self.modules.get(&m.route_path()).unwrap();
-                am.tx_route(Box::new(m)).unwrap();
-            }
-            Message::Evm(m) => {
-                let am = self.modules.get(&m.route_path()).unwrap();
-                am.tx_route(Box::new(m)).unwrap();
-            }
-        }
     }
 
     pub fn handle_query(
@@ -101,38 +102,64 @@ impl BaseApp {
         }
     }
 
-    pub fn run_tx(&self, mode: RunTxMode, tx: UncheckedTransaction) -> Result<()> {
-        let checked = tx.check()?;
+    pub fn handle_tx(&self, mode: RunTxMode, tx: UncheckedTransaction) -> Result<()> {
+        let checked = tx.clone().check()?;
 
+        match tx.function {
+            Action::Ethereum(action) => self
+                .dispatch::<app_ethereum::Action, EthereumModule>(mode, action, checked),
+            Action::Evm(_) => {
+                self.dispatch::<Action, BaseApp>(mode, tx.function, checked)
+            }
+        }
+    }
+}
+
+impl BaseApp {
+    fn build_modules(&mut self, modules: Vec<Box<dyn AppModule>>) {
+        for m in modules {
+            self.modules.insert(m.name(), m);
+        }
+    }
+
+    fn dispatch<
+        Call: Executable<Origin = Address>,
+        Module: ValidateUnsigned<Call = Call>,
+    >(
+        &self,
+        mode: RunTxMode,
+        action: Call,
+        tx: CheckedTransaction,
+    ) -> Result<()> {
         // TODO gas check、get ctx.store
 
-        // checked.validate()?;
-        //
-        // if mode == RunTxMode::Deliver {
-        //     checked.apply()?;
-        // }
+        let origin_tx = convert_unsigned_transaction::<Call>(action, tx);
+
+        origin_tx.validate::<Module>()?;
+
+        if mode == RunTxMode::Deliver {
+            origin_tx.apply::<Module>()?;
+        }
         Ok(())
     }
 }
 
-/// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-pub type Signature = MultiSignature;
+impl ValidateUnsigned for BaseApp {
+    type Call = Action;
 
-/// Some way of identifying an account on the chain. We intentionally make it equivalent
-/// to the public key of our transaction signing scheme.
-pub type Address = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+    fn pre_execute(call: &Self::Call) -> Result<()> {
+        #[allow(unreachable_patterns)]
+        match call {
+            _ => Ok(()),
+        }
+    }
 
-/// Unchecked extrinsic type as expected by this runtime.
-pub type UncheckedTransaction =
-    transaction::UncheckedTransaction<Address, app_ethereum::Message, Signature>;
-/// Extrinsic type that has already been checked.
-pub type CheckedTransaction =
-    transaction::CheckedTransaction<Address, app_ethereum::Message>;
-
-pub fn convert_ethereum_transaction(transaction: &[u8]) -> Result<UncheckedTransaction> {
-    let tx = serde_json::from_slice::<ethereum::Transaction>(transaction)
-        .map_err(|e| eg!(e))?;
-    Ok(UncheckedTransaction::new_unsigned(
-        app_ethereum::Message::Transact(tx),
-    ))
+    fn validate_unsigned(call: &Self::Call) -> Result<()> {
+        #[allow(unreachable_patterns)]
+        match call {
+            _ => Err(eg!(
+                "Could not find an unsigned validator for the unsigned transaction"
+            )),
+        }
+    }
 }

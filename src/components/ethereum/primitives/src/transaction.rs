@@ -1,7 +1,6 @@
 use crate::crypto::{IdentifyAccount, Verify};
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
-use std::any::Any;
 use std::fmt::Debug;
 
 /// A type that can be used in structures.
@@ -12,14 +11,16 @@ pub trait Member:
 
 impl<T: Send + Sync + Sized + Debug + Eq + PartialEq + Clone + 'static> Member for T {}
 
-pub trait TxMsg {
-    fn route_path(&self) -> String;
+/// A action (module function and argument values) that can be executed.
+pub trait Executable {
+    type Origin;
 
-    fn execute(&self) -> Result<()>;
+    // fn route_path(&self) -> String;
 
-    fn validate(&self) -> Result<()>;
+    /// Actually execute this action and return the result of it.
+    fn execute(self, origin: Option<Self::Origin>) -> Result<()>;
 
-    fn as_any(&self) -> &dyn Any;
+    // fn validate(&self) -> Result<()>;
 }
 
 /// This is unchecked and so can contain a signature.
@@ -85,10 +86,10 @@ pub struct CheckedTransaction<Address, Call> {
     pub function: Call,
 }
 
-/// An "executable" piece of information used by the transaction.
+/// An "executable" action used by the transaction.
 pub trait Applyable {
     /// Type by which we can execute. Restricts the `UnsignedValidator` type.
-    type Call: TxMsg;
+    type Call: Executable;
 
     /// Checks to see if this is a valid *transaction*.
     fn validate<V: ValidateUnsigned<Call = Self::Call>>(&self) -> Result<()>;
@@ -123,7 +124,7 @@ pub trait ValidateUnsigned {
 
 impl<Address, Call> Applyable for CheckedTransaction<Address, Call>
 where
-    Call: TxMsg,
+    Call: Executable<Origin = Address>,
 {
     type Call = Call;
 
@@ -136,13 +137,13 @@ where
     }
 
     fn apply<U: ValidateUnsigned<Call = Self::Call>>(self) -> Result<()> {
-        let _maybe_who = if let Some(id) = self.signed {
+        let maybe_who = if let Some(id) = self.signed {
             Some(id)
         } else {
             U::pre_execute(&self.function)?;
             None
         };
         // TODO
-        self.function.execute()
+        self.function.execute(maybe_who)
     }
 }

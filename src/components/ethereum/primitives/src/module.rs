@@ -1,4 +1,3 @@
-use crate::transaction::TxMsg;
 use ruc::Result;
 
 /// AppModuleBasic is the standard form for basic non-dependant elements of an application module.
@@ -36,8 +35,8 @@ pub trait AppModuleGenesis {
 
 /// AppModule is the standard form for an application module
 pub trait AppModule: AppModuleBasic + AppModuleGenesis + Send + Sync {
-    /// tx_route returns the message executive result for the application module.
-    fn tx_route(&self, _msg: Box<dyn TxMsg>) -> Result<()>;
+    // TODO frame_system::Config
+    // type Origin;
 
     /// query_route returns the application module's query response.
     fn query_route(
