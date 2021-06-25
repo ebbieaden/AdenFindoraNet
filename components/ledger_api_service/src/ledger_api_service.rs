@@ -7,6 +7,7 @@ extern crate serde_json;
 
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer};
+use ledger::address::{AddressBinder, SmartAddress};
 use ledger::staking::TendermintAddr;
 use ledger::{
     data_model::*,
@@ -462,6 +463,25 @@ where
     Err(error::ErrorNotFound("not exists"))
 }
 
+async fn query_address_map_by_xfr(
+    data: web::Data<Arc<RwLock<AddressBinder>>>,
+    address: web::Path<String>,
+) -> actix_web::Result<web::Json<String>> {
+    let pk = wallet::public_key_from_base64(address.as_str())
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let address_binder = data.read();
+    let storage = address_binder.get_storage();
+    let sa = SmartAddress::Xfr(XfrAddress { key: pk });
+    let result = storage.get(&sa).c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let ss = match result {
+        Some(addr) => addr.to_string(),
+        None => String::new()
+    };
+    Ok(web::Json(ss))
+}
+
 async fn query_delegation_info<SA>(
     data: web::Data<Arc<RwLock<SA>>>,
     address: web::Path<String>,
@@ -758,6 +778,7 @@ where
 impl RestfulApiService {
     pub fn create<LA: 'static + LedgerAccess + Sync + Send>(
         ledger_access: Arc<RwLock<LA>>,
+        address_binder: Arc<RwLock<AddressBinder>>,
         host: &str,
         port: u16,
     ) -> Result<RestfulApiService> {
@@ -768,11 +789,13 @@ impl RestfulApiService {
                 .wrap(middleware::Logger::default())
                 .wrap(Cors::permissive().supports_credentials())
                 .data(ledger_access.clone())
+                .data(address_binder.clone())
                 .route("/ping", web::get().to(ping))
                 .route("/version", web::get().to(version))
                 .set_route::<LA>(AccessApi::Ledger)
                 .set_route::<LA>(AccessApi::Archive)
                 .set_route::<LA>(AccessApi::Staking)
+                .route("/api/smart_account", web::get().to(query_address_map_by_xfr))
         })
         .bind(&format!("{}:{}", host, port))
         .c(d!())?

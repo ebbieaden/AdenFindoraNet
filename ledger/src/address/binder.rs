@@ -15,6 +15,10 @@ impl AddressBinder {
         })
     }
 
+    pub fn get_storage(&self) -> &SmartAddressStorage {
+        &self.storage
+    }
+
     pub fn test() -> Result<Self> {
         Ok(AddressBinder {
             storage: SmartAddressStorage::new(&Path::new(
