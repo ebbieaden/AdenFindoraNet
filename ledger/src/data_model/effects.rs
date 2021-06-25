@@ -23,6 +23,8 @@ use zei::xfr::sig::XfrPublicKey;
 use ruc::*;
 use zei::xfr::structs::{TracingPolicies, XfrAmount, XfrAssetType};
 
+// use crate::address::operation::BindAddressOp;
+
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct TxnEffect {
     // The Transaction object this represents
@@ -68,6 +70,8 @@ pub struct TxnEffect {
     pub update_validators: HashMap<staking::BlockHeight, UpdateValidatorOps>,
     pub governances: Vec<GovernanceOps>,
     pub fra_distributions: Vec<FraDistributionOps>,
+
+    // pub bind_addresses: Vec<BindAddressOp>,
 }
 
 // Internally validates the transaction as well.
@@ -99,6 +103,7 @@ impl TxnEffect {
         let mut update_validators = map! {};
         let mut governances = vec![];
         let mut fra_distributions = vec![];
+        // let mut bind_addresses = vec![];
 
         let custom_policy_asset_types = txn
             .body
@@ -168,6 +173,11 @@ impl TxnEffect {
                 Operation::FraDistribution(i) => {
                     check_nonce!(i);
                     fra_distributions.push(i.clone());
+                }
+
+                Operation::BindAddressOp(_) => {
+                    // check_nonce!(i);
+                    // bind_addresses.push(i.clone());
                 }
 
                 // An asset creation is valid iff:
@@ -615,6 +625,7 @@ impl TxnEffect {
             update_validators,
             governances,
             fra_distributions,
+            // bind_addresses,
         };
 
         Ok(txn_effect)

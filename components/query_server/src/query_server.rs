@@ -378,6 +378,10 @@ fn get_related_addresses(txn: &Transaction) -> HashSet<XfrAddress> {
             Operation::Governance(i) => staking_gen!(i),
             Operation::FraDistribution(i) => staking_gen!(i),
 
+            Operation::BindAddressOp(i) => {
+                related_addresses.insert(XfrAddress{key: i.get_related_address()});
+            }
+
             Operation::TransferAsset(transfer) => {
                 for input in transfer.body.transfer.inputs.iter() {
                     related_addresses.insert(XfrAddress {

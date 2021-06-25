@@ -47,6 +47,7 @@ zeiutils = { package = "utils", git = "ssh://git@github.com/FindoraNetwork/zei",
 sparse_merkle_tree = { path = "../libs/ads/sparse_merkle_tree" }
 time = "0.2.26"
 wallet = { path = "../components/wallet" }
+sled = "0.34.6"
 
 [features]
 TESTING = []
