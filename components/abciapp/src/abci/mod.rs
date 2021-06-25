@@ -42,11 +42,13 @@ pub fn run() -> Result<()> {
     if env::var("ENABLE_LEDGER_SERVICE").is_ok() {
         let ledger_api_service_hdr =
             submission_service_hdr.read().borrowable_ledger_state();
+        let address_binder = app.address_binder.clone();
         let ledger_host = config.ledger_host.clone();
         let ledger_port = config.ledger_port;
         thread::spawn(move || {
             pnk!(RestfulApiService::create(
                 ledger_api_service_hdr,
+                address_binder,
                 &ledger_host,
                 ledger_port
             ));

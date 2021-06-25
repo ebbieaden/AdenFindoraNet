@@ -17,7 +17,7 @@ pub mod tx_sender;
 
 pub struct ABCISubmissionServer {
     pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
-    pub address_binder: AddressBinder,
+    pub address_binder: Arc<RwLock<AddressBinder>>,
 }
 
 impl ABCISubmissionServer {
@@ -47,7 +47,7 @@ impl ABCISubmissionServer {
                 )
                 .c(d!())?,
             )),
-            address_binder,
+            address_binder: Arc::new(RwLock::new(address_binder)),
         })
     }
 }

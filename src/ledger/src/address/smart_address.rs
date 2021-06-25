@@ -29,6 +29,14 @@ impl SmartAddress {
         }
     }
 
+    pub fn to_string(&self) -> String {
+        match self {
+            SmartAddress::Xfr(addr) => wallet::public_key_to_base64(&addr.key),
+            SmartAddress::Ethereum(addr) => addr.to_string(),
+            _ => String::new()
+        }
+    }
+
     /// Construct SmartAddress from ethereum address.
     pub fn from_ethereum_address(s: &str) -> Result<Self> {
         if s.len() == 42 && &s[..2] == "0x" {

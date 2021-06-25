@@ -99,8 +99,8 @@ pub fn deliver_tx(
                 resp.set_events(attr);
             }
 
-            if s.address_binder.deliver_tx(&tx).is_ok()
-               && s.la.write().cache_transaction(tx).is_ok()
+            if s.address_binder.read().deliver_tx(&tx).is_ok()
+                && s.la.write().cache_transaction(tx).is_ok()
             {
                 return resp;
             }
