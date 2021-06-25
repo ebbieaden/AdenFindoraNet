@@ -18,4 +18,5 @@ primitives = { path = "../../primitives" }
 primitive-types = { version = "0.9.0", features = ["rlp", "byteorder"] }
 rlp = "0.5"
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
+serde = { version = "1.0.124", features = ["derive"] }
 sha3 = "0.8"

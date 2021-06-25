@@ -5,10 +5,10 @@ mod message;
 
 use abci::*;
 use keeper::{EvmRunner, Keeper};
-pub use message::Message;
+pub use message::Action;
 use primitives::{
     module::{AppModule, AppModuleBasic, AppModuleGenesis},
-    transaction::TxMsg,
+    transaction::Executable,
 };
 use ruc::*;
 
@@ -69,9 +69,9 @@ impl AppModuleGenesis for EvmModule {
 }
 
 impl AppModule for EvmModule {
-    fn tx_route(&self, msg: Box<dyn TxMsg>) -> Result<()> {
-        msg_handler(&self.keeper, msg)
-    }
+    // fn tx_route(&self, msg: Box<dyn Executable>) -> Result<()> {
+    //     msg_handler(&self.keeper, msg)
+    // }
 
     fn query_route(&self, path: Vec<&str>, req: &RequestQuery) -> ResponseQuery {
         query_handler(path, req)
@@ -86,16 +86,16 @@ impl AppModule for EvmModule {
     }
 }
 
-fn msg_handler(k: &Keeper, msg: Box<dyn TxMsg>) -> Result<()> {
-    msg.as_any()
-        .downcast_ref::<Message>()
-        .ok_or(eg!("invalid transaction message"))
-        .and_then(|m| match m {
-            Message::Call(params) => k.call(&params),
-            Message::Create(params) => k.create(&params),
-            Message::Create2(params) => k.create2(&params),
-        })
-}
+// fn msg_handler(k: &Keeper, msg: Box<dyn Executable>) -> Result<()> {
+//     msg.as_any()
+//         .downcast_ref::<Message>()
+//         .ok_or(eg!("invalid transaction message"))
+//         .and_then(|m| match m {
+//             Message::Call(params) => k.call(&params),
+//             Message::Create(params) => k.create(&params),
+//             Message::Create2(params) => k.create2(&params),
+//         })
+// }
 
 fn query_handler(_path: Vec<&str>, _req: &RequestQuery) -> ResponseQuery {
     ResponseQuery::new()

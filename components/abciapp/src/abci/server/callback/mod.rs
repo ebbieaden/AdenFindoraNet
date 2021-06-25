@@ -72,7 +72,7 @@ pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseC
         }
     } else if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
         let check_fn = |mode: RunTxMode| {
-            if ruc::info!(s.app.run_tx(mode, tx)).is_err() {
+            if ruc::info!(s.app.handle_tx(mode, tx)).is_err() {
                 resp.set_code(1);
                 resp.set_log(String::from("Ethereum transaction check failed"));
             }
