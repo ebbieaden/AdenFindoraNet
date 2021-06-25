@@ -1,11 +1,11 @@
 //! Smart address operation for transaction.
 
 use crate::address::smart_address::SmartAddress;
+use crate::address::store::SmartAddressStorage;
 use crate::data_model::{NoReplayToken, XfrAddress};
 use ruc::*;
 use serde::{Deserialize, Serialize};
-use zei::xfr::sig::{XfrKeyPair, XfrSignature, XfrPublicKey};
-use crate::address::store::SmartAddressStorage;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSignature};
 
 /// Use this operation to bind more type of address.
 ///
@@ -18,24 +18,27 @@ pub struct UnbindAddressOp {
 }
 
 impl UnbindAddressOp {
-    pub fn new(
-        keypair: XfrKeyPair,
-        nonce: NoReplayToken,
-    ) -> Self {
+    pub fn new(keypair: XfrKeyPair, nonce: NoReplayToken) -> Self {
         let data = Data::new(nonce);
         let public = keypair.get_pk();
         let signature = keypair.sign(&data.to_bytes());
         UnbindAddressOp {
-            data, public, signature
+            data,
+            public,
+            signature,
         }
     }
 
     pub fn verify(&self) -> Result<()> {
-        self.public.verify(&self.data.to_bytes(), &self.signature).c(d!())
+        self.public
+            .verify(&self.data.to_bytes(), &self.signature)
+            .c(d!())
     }
 
-    pub fn apply_store(&self, store: &mut SmartAddressStorage) -> Result<()> {
-        let xfr_address = SmartAddress::Xfr(XfrAddress { key: self.public.clone() });
+    pub fn apply_store(&self, store: &SmartAddressStorage) -> Result<()> {
+        let xfr_address = SmartAddress::Xfr(XfrAddress {
+            key: self.public.clone(),
+        });
         let sa_address = store.get(&xfr_address).c(d!())?;
         store.del(&xfr_address).c(d!())?;
         if let Some(addr) = sa_address {
@@ -64,12 +67,8 @@ pub struct Data {
 }
 
 impl Data {
-    pub fn new(
-        nonce: NoReplayToken,
-    ) -> Self {
-        Data {
-            nonce,
-        }
+    pub fn new(nonce: NoReplayToken) -> Self {
+        Data { nonce }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {

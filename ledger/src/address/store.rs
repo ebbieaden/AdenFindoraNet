@@ -3,6 +3,7 @@ use crate::data_model::XfrAddress;
 // use crate::utils::H160;
 use ruc::*;
 use sled::{Db, IVec};
+use std::path::Path;
 
 /// Use persistent key-value map to store address mapping.
 pub struct SmartAddressStorage {
@@ -11,7 +12,7 @@ pub struct SmartAddressStorage {
 
 impl SmartAddressStorage {
     /// Create key-value store.
-    pub fn new(path: &str) -> Result<Self> {
+    pub fn new(path: &Path) -> Result<Self> {
         let db = sled::open(path).c(d!())?;
         Ok(SmartAddressStorage { db })
     }

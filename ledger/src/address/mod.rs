@@ -6,4 +6,3 @@ pub mod store;
 
 mod binder;
 pub use binder::AddressBinder;
-

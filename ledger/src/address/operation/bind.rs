@@ -1,12 +1,12 @@
 //! Smart address operation for transaction.
 
 use crate::address::smart_address::SmartAddress;
-use crate::data_model::{NoReplayToken};
+use crate::address::store::SmartAddressStorage;
+use crate::data_model::NoReplayToken;
+use crate::data_model::XfrAddress;
 use ruc::*;
 use serde::{Deserialize, Serialize};
-use zei::xfr::sig::{XfrKeyPair, XfrSignature, XfrPublicKey};
-use crate::address::store::SmartAddressStorage;
-use crate::data_model::XfrAddress;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSignature};
 
 /// Use this operation to bind more type of address.
 ///
@@ -28,18 +28,26 @@ impl BindAddressOp {
         let public = keypair.get_pk();
         let signature = keypair.sign(&data.to_bytes());
         BindAddressOp {
-            data, public, signature
+            data,
+            public,
+            signature,
         }
     }
 
     pub fn verify(&self) -> Result<()> {
-        self.public.verify(&self.data.to_bytes(), &self.signature).c(d!())
+        self.public
+            .verify(&self.data.to_bytes(), &self.signature)
+            .c(d!())
     }
 
-    pub fn apply_store(&self, store: &mut SmartAddressStorage) -> Result<()> {
-        let xfr_smart_address = XfrAddress{ key: self.public.clone() };
+    pub fn apply_store(&self, store: &SmartAddressStorage) -> Result<()> {
+        let xfr_smart_address = XfrAddress {
+            key: self.public.clone(),
+        };
         let eth_smart_address = self.data.smart_address.clone();
-        store.bind_xfr_and_sa(xfr_smart_address, eth_smart_address).c(d!())?;
+        store
+            .bind_xfr_and_sa(xfr_smart_address, eth_smart_address)
+            .c(d!())?;
         Ok(())
     }
 
