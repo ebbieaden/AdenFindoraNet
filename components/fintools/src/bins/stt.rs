@@ -176,8 +176,8 @@ mod init {
         println!(">>> define and issue FRA...");
         fns::send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
 
-        println!(">>> wait 2 blocks...");
-        sleep_n_block!(2);
+        println!(">>> wait 4 blocks...");
+        sleep_n_block!(4);
 
         println!(">>> set initial validator set...");
         fns::set_initial_validators(&root_kp).c(d!())?;
@@ -195,8 +195,8 @@ mod init {
         println!(">>> transfer FRAs to validators...");
         fns::transfer_batch(&root_kp, target_list).c(d!())?;
 
-        println!(">>> wait 2 blocks ...");
-        sleep_n_block!(2);
+        println!(">>> wait 6 blocks ...");
+        sleep_n_block!(6);
 
         println!(">>> propose self-delegations...");
         for v in VALIDATOR_LIST.values() {

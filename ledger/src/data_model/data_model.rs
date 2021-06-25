@@ -629,7 +629,7 @@ impl NoReplayToken {
         NoReplayToken(prng.next_u64().to_be_bytes(), seq_id)
     }
 
-    pub fn testonly_new(rand: u64, seq_id: u64) -> Self {
+    pub fn unsafe_new(rand: u64, seq_id: u64) -> Self {
         NoReplayToken(rand.to_be_bytes(), seq_id)
     }
 
@@ -1012,9 +1012,6 @@ fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
             i.set_nonce(no_replay_token);
         }
         Operation::Governance(i) => {
-            i.set_nonce(no_replay_token);
-        }
-        Operation::MintFra(i) => {
             i.set_nonce(no_replay_token);
         }
         Operation::UpdateMemo(i) => i.body.no_replay_token = no_replay_token,
@@ -1611,6 +1608,18 @@ impl Transaction {
         tx
     }
 
+    pub fn from_operation_coinbase_mint(op: Operation, seq_id: u64) -> Self {
+        let mut tx = Transaction {
+            body: TransactionBody::from_token(NoReplayToken::unsafe_new(
+                seq_id.saturating_add(1357).saturating_mul(89),
+                seq_id,
+            )),
+            signatures: Vec::new(),
+        };
+        tx.add_operation(op);
+        tx
+    }
+
     pub fn add_operation(&mut self, mut op: Operation) {
         set_no_replay_token(&mut op, self.body.no_replay_token);
         self.body.operations.push(op);
@@ -1634,7 +1643,7 @@ impl Transaction {
     }
 
     pub fn get_owner_memos_ref(&self) -> Vec<Option<&OwnerMemo>> {
-        let mut memos = vec![];
+        let mut memos = Vec::new();
         for op in self.body.operations.iter() {
             match op {
                 Operation::TransferAsset(xfr_asset) => {
@@ -1657,7 +1666,7 @@ impl Transaction {
             eff.txos.into_iter().flatten().collect()
         } else {
             let mut spent = eff.internally_spent_txos.into_iter();
-            let mut ret = vec![];
+            let mut ret = Vec::new();
             for txo in eff.txos.into_iter() {
                 if let Some(txo) = txo {
                     ret.push(txo);
@@ -1668,8 +1677,8 @@ impl Transaction {
             ret
         }
 
-        // let mut outputs = vec![];
-        // let mut spent_indices = vec![];
+        // let mut outputs = Vec::new();
+        // let mut spent_indices = Vec::new();
         // for op in self.body.operations.iter() {
         //   match op {
         //     Operation::TransferAsset(xfr_asset) => {
@@ -1950,8 +1959,8 @@ mod tests {
                 asset_type_and_amount_proof: AssetTypeAndAmountProof::NoProof,
                 asset_tracing_proof: Default::default(),
             },
-            asset_tracing_memos: vec![],
-            owners_memos: vec![],
+            asset_tracing_memos: Vec::new(),
+            owners_memos: Vec::new(),
         };
 
         let no_policies = TracingPolicies::new();
@@ -1968,7 +1977,7 @@ mod tests {
             outputs: Vec::new(),
             policies,
             transfer: Box::new(xfr_note),
-            lien_assignments: vec![],
+            lien_assignments: Vec::new(),
             transfer_type: TransferType::Standard,
         };
 

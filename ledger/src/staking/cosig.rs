@@ -232,7 +232,7 @@ mod test {
     fn no_replay_token() -> NoReplayToken {
         let rand_n = rand::random::<u64>();
         let seq_id = rand::random::<u64>();
-        NoReplayToken::testonly_new(rand_n, seq_id)
+        NoReplayToken::unsafe_new(rand_n, seq_id)
     }
 
     #[test]

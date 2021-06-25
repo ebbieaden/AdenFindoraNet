@@ -127,7 +127,7 @@ impl AbciMocker {
         drop(failed_txs);
         drop(successful_txs);
 
-        let resp = self.0.end_block(&gen_req_end_block());
+        let resp = self.0.end_block(&gen_req_end_block(h.saturating_sub(20)));
         if 0 < resp.validator_updates.len() {
             TD_MOCKER.write().validators = resp
                 .validator_updates
@@ -219,8 +219,10 @@ fn gen_req_deliver_tx(tx: Transaction) -> RequestDeliverTx {
     res
 }
 
-fn gen_req_end_block() -> RequestEndBlock {
-    RequestEndBlock::new()
+fn gen_req_end_block(h: i64) -> RequestEndBlock {
+    let mut req = RequestEndBlock::new();
+    req.height = h;
+    req
 }
 
 fn gen_req_commit() -> RequestCommit {
