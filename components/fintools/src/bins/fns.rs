@@ -66,7 +66,7 @@ fn run() -> Result<()> {
         );
     let subcmd_transfer = SubCommand::with_name("transfer")
         .arg_from_usage("-t, --target-addr=<Addr> 'wallet address of the receiver'")
-        .arg_from_usage("-n, --amount=<Amount> 'how much FRA to transfer'");
+        .arg_from_usage("-n, --amount=<Amount> 'how much FRA units to transfer'");
     let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
     let matches = App::new("fns")

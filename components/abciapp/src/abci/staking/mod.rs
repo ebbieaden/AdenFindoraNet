@@ -295,7 +295,7 @@ pub fn system_mint_pay<RNG: RngCore + CryptoRng>(
         None
     } else {
         let mint_ops = Operation::MintFra(MintFraOps::new(mint_entries));
-        Some(Transaction::from_operation(
+        Some(Transaction::from_operation_coinbase_mint(
             mint_ops,
             la.get_state_commitment().1,
         ))

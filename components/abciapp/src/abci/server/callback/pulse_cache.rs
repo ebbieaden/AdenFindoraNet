@@ -28,7 +28,7 @@ use lazy_static::lazy_static;
 use ledger::staking::Staking;
 use ruc::*;
 use serde_json::Value;
-use std::{convert::TryInto, fs};
+use std::{convert::TryInto, env, fs};
 
 lazy_static! {
     static ref PATH: (String, String, String) = {
@@ -50,9 +50,13 @@ pub(super) fn write_height(h: i64) -> Result<()> {
 pub(super) fn read_height() -> Result<i64> {
     let read_tendermint_state_height = || {
         // the real-time state path in the abci container
-        const STATE_PATH: &str = "/root/.tendermint/data/priv_validator_state.json";
+        const STATE_PATH_FF: &str = "/root/.tendermint/data/priv_validator_state.json";
+        lazy_static! {
+            static ref STATE_PATH: String = env::var("TENDERMINT_NODE_CONFIG_PATH")
+                .unwrap_or_else(|_| STATE_PATH_FF.to_owned());
+        }
 
-        fs::read(STATE_PATH)
+        fs::read(&*STATE_PATH)
             .c(d!())
             .and_then(|s| serde_json::from_slice::<Value>(&s).c(d!()))
             .and_then(|v| {
@@ -64,6 +68,7 @@ pub(super) fn read_height() -> Result<i64> {
             })
     };
 
+    // `Findora Foundation`-specific configuration
     let read_recover_height = || {
         const RECOVER_PATH: &str = "/root/.tendermint/data/recover_block_height";
 

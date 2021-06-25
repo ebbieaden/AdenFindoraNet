@@ -5,7 +5,7 @@
 //!
 
 use crate::{
-    data_model::{NoReplayToken, TxOutput, ASSET_TYPE_FRA},
+    data_model::{TxOutput, ASSET_TYPE_FRA},
     staking::{Amount, FRA},
 };
 use rand_chacha::ChaChaRng;
@@ -27,29 +27,19 @@ pub const MINT_AMOUNT_LIMIT: Amount = 420 * 100_0000 * FRA;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MintFraOps {
     pub entries: Vec<MintEntry>,
-    nonce: NoReplayToken,
 }
 
 impl MintFraOps {
     #[inline(always)]
     #[allow(missing_docs)]
     pub fn new(entries: Vec<MintEntry>) -> Self {
-        MintFraOps {
-            entries,
-            nonce: NoReplayToken::default(),
-        }
+        MintFraOps { entries }
     }
 
     #[inline(always)]
     #[allow(missing_docs)]
     pub fn get_related_pubkeys(&self) -> Vec<XfrPublicKey> {
         self.entries.iter().map(|e| e.target_pk).collect()
-    }
-
-    #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn set_nonce(&mut self, nonce: NoReplayToken) {
-        self.nonce = nonce;
     }
 }
 
