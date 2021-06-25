@@ -73,8 +73,6 @@ pub struct TxnEffect {
     pub update_validators: HashMap<staking::BlockHeight, UpdateValidatorOps>,
     pub governances: Vec<GovernanceOps>,
     pub fra_distributions: Vec<FraDistributionOps>,
-
-    // pub bind_addresses: Vec<BindAddressOp>,
 }
 
 // Internally validates the transaction as well.
@@ -105,7 +103,6 @@ impl TxnEffect {
         let mut update_validators = map! {};
         let mut governances = vec![];
         let mut fra_distributions = vec![];
-        // let mut bind_addresses = vec![];
 
         let mut params = zei::setup::PublicParams::default(); // TODO pass these in
         let mut prng = ChaChaRng::from_entropy();
@@ -180,9 +177,13 @@ impl TxnEffect {
                     });
                 }
 
-                Operation::BindAddressOp(_) => {
-                    // check_nonce!(i);
+                Operation::BindAddressOp(i) => {
+                    check_nonce!(i);
                     // bind_addresses.push(i.clone());
+                }
+
+                Operation::UnbindAddressOp(i) => {
+                    check_nonce!(i)
                 }
 
                 // An asset creation is valid iff:

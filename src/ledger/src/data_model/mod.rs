@@ -50,7 +50,7 @@ use super::effects::*;
 use ruc::*;
 use std::ops::Deref;
 
-use crate::address::operation::BindAddressOp;
+use crate::address::operation::{BindAddressOp, UnbindAddressOp};
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -993,6 +993,7 @@ pub enum Operation {
     Governance(GovernanceOps),
     FraDistribution(FraDistributionOps),
     BindAddressOp(BindAddressOp),
+    UnbindAddressOp(UnbindAddressOp),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
@@ -1017,6 +1018,7 @@ fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
         }
         Operation::UpdateMemo(i) => i.body.no_replay_token = no_replay_token,
         Operation::BindAddressOp(i) => i.set_nonce(no_replay_token),
+        Operation::UnbindAddressOp(i) => i.set_nonce(no_replay_token),
         _ => {}
     }
 }

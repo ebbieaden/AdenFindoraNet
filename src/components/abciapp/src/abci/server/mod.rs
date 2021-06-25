@@ -1,5 +1,5 @@
 use abci::*;
-use baseapp::BaseApp;
+use ledger::address::AddressBinder;
 use ledger::store::LedgerState;
 use parking_lot::RwLock;
 use rand_chacha::ChaChaRng;
@@ -17,7 +17,7 @@ pub mod tx_sender;
 
 pub struct ABCISubmissionServer {
     pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
-    pub app: BaseApp,
+    pub address_binder: AddressBinder,
 }
 
 impl ABCISubmissionServer {
@@ -25,16 +25,18 @@ impl ABCISubmissionServer {
         base_dir: Option<&Path>,
         tendermint_reply: String,
     ) -> Result<ABCISubmissionServer> {
-        let (ledger_state, app) = match base_dir {
-            None => (
-                LedgerState::test_ledger(),
-                pnk!(BaseApp::new(tempfile::tempdir().unwrap().path())),
-            ),
-            Some(base_dir) => (
-                pnk!(LedgerState::load_or_init(base_dir)),
-                pnk!(BaseApp::new(base_dir)),
-            ),
+        let ledger_state = match base_dir {
+            None => LedgerState::test_ledger(),
+            Some(base_dir) => pnk!(LedgerState::load_or_init(base_dir.clone())),
         };
+
+        let address_binder = match base_dir {
+            None => AddressBinder::test()?,
+            Some(base_dir) => {
+                pnk!(AddressBinder::new(&base_dir.join("address_binder.db")))
+            }
+        };
+
         let prng = rand_chacha::ChaChaRng::from_entropy();
         Ok(ABCISubmissionServer {
             la: Arc::new(RwLock::new(
@@ -45,7 +47,7 @@ impl ABCISubmissionServer {
                 )
                 .c(d!())?,
             )),
-            app,
+            address_binder,
         })
     }
 }
@@ -57,28 +59,18 @@ impl abci::Application for ABCISubmissionServer {
     }
 
     #[inline(always)]
-    fn query(&mut self, req: &RequestQuery) -> ResponseQuery {
-        callback::query(self, req)
-    }
-
-    #[inline(always)]
     fn check_tx(&mut self, req: &RequestCheckTx) -> ResponseCheckTx {
         callback::check_tx(self, req)
     }
 
     #[inline(always)]
-    fn init_chain(&mut self, req: &RequestInitChain) -> ResponseInitChain {
-        callback::init_chain(self, req)
+    fn deliver_tx(&mut self, req: &RequestDeliverTx) -> ResponseDeliverTx {
+        callback::deliver_tx(self, req)
     }
 
     #[inline(always)]
     fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
         callback::begin_block(self, req)
-    }
-
-    #[inline(always)]
-    fn deliver_tx(&mut self, req: &RequestDeliverTx) -> ResponseDeliverTx {
-        callback::deliver_tx(self, req)
     }
 
     #[inline(always)]

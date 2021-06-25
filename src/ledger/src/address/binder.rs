@@ -1,14 +1,25 @@
 use super::store::SmartAddressStorage;
+use crate::data_model::Operation;
+use crate::data_model::Transaction;
 use ruc::*;
+use std::path::Path;
 
 pub struct AddressBinder {
     storage: SmartAddressStorage,
 }
 
 impl AddressBinder {
-    pub fn new(path: &str) -> Result<Self> {
+    pub fn new(path: &Path) -> Result<Self> {
         Ok(AddressBinder {
             storage: SmartAddressStorage::new(path)?,
+        })
+    }
+
+    pub fn test() -> Result<Self> {
+        Ok(AddressBinder {
+            storage: SmartAddressStorage::new(&Path::new(
+                "/tmp/findora-account-binder",
+            ))?,
         })
     }
 
@@ -16,8 +27,18 @@ impl AddressBinder {
         Ok(false)
     }
 
-    pub fn deliver_tx(&self) -> Result<()> {
+    pub fn deliver_tx(&self, tx: &Transaction) -> Result<()> {
+        for op in tx.body.operations.iter() {
+            match op {
+                Operation::BindAddressOp(bind) => {
+                    bind.apply_store(&self.storage).c(d!())?
+                }
+                Operation::UnbindAddressOp(unbind) => {
+                    unbind.apply_store(&self.storage).c(d!())?
+                }
+                _ => {}
+            }
+        }
         Ok(())
     }
 }
-
