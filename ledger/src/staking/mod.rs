@@ -15,12 +15,19 @@ pub mod cosig;
 pub mod init;
 pub mod ops;
 
-use crate::data_model::{Operation, Transaction, TransferAsset, TxoRef, FRA_DECIMALS};
+use crate::{
+    data_model::{
+        Operation, Transaction, TransferAsset, TxoRef, BLACK_HOLE_PUBKEY, FRA_DECIMALS,
+    },
+    store::{LedgerAccess, LedgerUpdate},
+};
 use cosig::CoSigRule;
 use cryptohash::sha256::{self, Digest};
+use lazy_static::lazy_static;
 use ops::{fra_distribution::FraDistributionOps, mint_fra::MintKind};
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
+use rand_core::{CryptoRng, RngCore};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
@@ -30,7 +37,10 @@ use std::{
     iter::FromIterator,
     mem,
 };
-use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
+use zei::xfr::{
+    sig::{XfrKeyPair, XfrPublicKey},
+    structs::XfrAmount,
+};
 
 /// Staking entry
 ///
@@ -1088,15 +1098,19 @@ impl Staking {
     }
 
     /// A helper for setting block rewards in ABCI.
-    pub fn set_last_block_rewards(
-        &mut self,
+    pub fn set_last_block_rewards<RNG: RngCore + CryptoRng>(
+        la: &mut (impl LedgerUpdate<RNG> + LedgerAccess),
         addr: TendermintAddrRef,
         block_vote_percent: Option<[Power; 2]>,
     ) -> Result<()> {
-        let pk = self.validator_td_addr_to_app_pk(addr).c(d!())?;
+        let gdp = Self::get_global_delegation_percent(la);
+        let return_rate = Self::get_block_rewards_rate(la);
+
+        let me = la.get_staking_mut();
+        let pk = me.validator_td_addr_to_app_pk(addr).c(d!())?;
 
         let commission_rate = if let Some(Some(v)) =
-            self.validator_get_current().map(|vd| vd.body.get(&pk))
+            me.validator_get_current().map(|vd| vd.body.get(&pk))
         {
             // Do not alloc rewards to initial validators
             if ValidatorKind::Initor == v.kind {
@@ -1108,11 +1122,8 @@ impl Staking {
             return Err(eg!("not validator"));
         };
 
-        let h = self.cur_height;
-        let return_rate = self.get_block_rewards_rate();
-
-        let gdp = self.get_global_delegation_percent();
-        let commissions = self
+        let h = me.cur_height;
+        let commissions = me
             .di
             .addr_map
             .values_mut()
@@ -1123,33 +1134,38 @@ impl Staking {
             .collect::<Result<Vec<_>>>()
             .c(d!())?;
 
-        if let Some(v) = self.delegation_get_mut(&pk) {
+        if let Some(v) = me.delegation_get_mut(&pk) {
             v.rwd_amount = v.rwd_amount.saturating_add(commissions.into_iter().sum());
         }
 
         if let Some(vote_percent) = block_vote_percent {
-            self.set_proposer_rewards(&pk, vote_percent).c(d!())?;
+            me.set_proposer_rewards(&pk, vote_percent).c(d!())?;
         }
 
         Ok(())
     }
 
-    /// Return rate defination for delegation rewards .
-    pub fn get_block_rewards_rate(&self) -> [u64; 2] {
-        let p = self.get_global_delegation_percent();
-        let p = [p[0] as u128, p[1] as u128];
-        for ([low, high], rate) in DELEGATION_REWARDS_RATE_RULE.iter().copied() {
-            if p[0] * 100 < p[1] * high && p[0] * 100 >= p[1] * low {
-                return [rate, 100];
-            }
-        }
-        unreachable!(eg!(@p));
-    }
-
+    /// Return rate defination for delegation rewards.
     #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn get_global_delegation_percent(&self) -> [u64; 2] {
-        [self.di.global_amount, FRA_TOTAL_AMOUNT]
+    pub fn get_block_rewards_rate(la: &impl LedgerAccess) -> [u128; 2] {
+        let p = Self::get_global_delegation_percent(la);
+        let p = [p[0] as u128, p[1] as u128];
+
+        // This is an equal conversion of `1 / p% * 0.0201`
+        let mut a0 = p[1] * 201;
+        let mut a1 = p[0] * 10000;
+
+        if a0 * 100 > a1 * 105 {
+            // max value: 105%
+            a0 = 105;
+            a1 = 100;
+        } else if a0 * 50 < a1 {
+            // min value: 2%
+            a0 = 2;
+            a1 = 100;
+        }
+
+        [a0, a1]
     }
 
     fn set_proposer_rewards(
@@ -1159,17 +1175,16 @@ impl Staking {
     ) -> Result<()> {
         let p = Self::get_proposer_rewards_rate(vote_percent).c(d!())?;
         let h = self.cur_height;
-        let gdp = self.get_global_delegation_percent();
         self.delegation_get_mut(proposer)
             .c(d!())
             .and_then(|d| {
-                d.set_delegation_rewards(proposer, h, p, [0, 100], gdp, false)
+                d.set_delegation_rewards(proposer, h, p, [0, 100], [0, 0], false)
                     .c(d!())
             })
             .map(|_| ())
     }
 
-    fn get_proposer_rewards_rate(vote_percent: [u64; 2]) -> Result<[u64; 2]> {
+    fn get_proposer_rewards_rate(vote_percent: [u64; 2]) -> Result<[u128; 2]> {
         let p = [vote_percent[0] as u128, vote_percent[1] as u128];
         if p[0] > p[1] || 0 == p[1] {
             let msg = format!("Invalid power percent: {}/{}", p[0], p[1]);
@@ -1241,27 +1256,67 @@ impl Staking {
     pub fn coinbase_principal_balance(&self) -> Amount {
         self.coinbase.principal_balance
     }
+
+    // Total amount of all freed FRAs, aka 'are not being locked in any way'.
+    #[inline(always)]
+    fn get_global_unlocked_amount(la: &impl LedgerAccess) -> Amount {
+        FRA_TOTAL_AMOUNT
+            - FF_PK_LIST
+                .iter()
+                .chain([*BLACK_HOLE_PUBKEY].iter())
+                .map(|pk| get_nonconfidential_balance(la, pk))
+                .sum::<Amount>()
+            - la.get_staking().coinbase_balance()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_global_delegation_percent(la: &impl LedgerAccess) -> [u64; 2] {
+        [
+            la.get_staking().get_global_delegation_amount(),
+            Self::get_global_unlocked_amount(la),
+        ]
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_global_delegation_amount(&self) -> Amount {
+        self.di.global_amount
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_global_delegation_amount_mut(&mut self) -> &mut Amount {
+        &mut self.di.global_amount
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// SEE:
-// - https://www.notion.so/findora/PoS-Stage-1-Consensus-Rewards-Penalties-72f5c9a697ff461c89c3728e34348834#3d2f1b8ff8244632b715abdd42b6a67b
-const DELEGATION_REWARDS_RATE_RULE: [([u128; 2], u64); 8] = [
-    ([0, 10], 20),
-    ([10, 20], 17),
-    ([20, 30], 14),
-    ([30, 40], 11),
-    ([40, 50], 8),
-    ([50, 60], 5),
-    ([60, 67], 2),
-    ([67, 101], 1),
+/// Reserved accounts of Findora Foundation.
+pub const FF_ADDR_LIST: [&str; 8] = [
+    "fra1s9c6p0656as48w8su2gxntc3zfuud7m66847j6yh7n8wezazws3s68p0m9",
+    "fra1zjfttcnvyv9ypy2d4rcg7t4tw8n88fsdzpggr0y2h827kx5qxmjshwrlx7",
+    "fra18rfyc9vfyacssmr5x7ku7udyd5j5vmfkfejkycr06e4as8x7n3dqwlrjrc",
+    "fra1kvf8z5f5m8wmp2wfkscds45xv3yp384eszu2mpre836x09mq5cqsknltvj",
+    "fra1w8s3e7v5a78623t8cq43uejtw90yzd0xctpwv63um5amtv72detq95v0dy",
+    "fra1ukju0dhmx0sjwzcgjzgg3e7n6f755jkkfl9akq4hleulds9a0hgq4uzcp5",
+    "fra1mjdr0mgn2e0670hxptpzu9tmf0ary8yj8nv90znjspwdupv9aacqwrg3dx",
+    "fra1whn756rtqt3gpsmdlw6pvns75xdh3ttqslvxaf7eefwa83pcnlhsree9gv",
 ];
 
-// SEE:
-// - https://www.notion.so/findora/PoS-Stage-1-Consensus-Rewards-Penalties-72f5c9a697ff461c89c3728e34348834#3d2f1b8ff8244632b715abdd42b6a67b
-const PROPOSER_REWARDS_RATE_RULE: [([u128; 2], u64); 6] = [
+lazy_static! {
+    /// Reserved accounts of Findora Foundation or System.
+    pub static ref FF_PK_LIST: Vec<XfrPublicKey> = FF_ADDR_LIST
+        .iter()
+        .map(|addr| pnk!(wallet::public_key_from_bech32(addr)))
+        .collect();
+}
+
+/// SEE:
+/// - https://www.notion.so/findora/PoS-Stage-1-Consensus-Rewards-Penalties-72f5c9a697ff461c89c3728e34348834#3d2f1b8ff8244632b715abdd42b6a67b
+pub const PROPOSER_REWARDS_RATE_RULE: [([u128; 2], u128); 6] = [
     ([0, 66_6667], 0),
     ([66_6667, 75_0000], 1),
     ([75_0000, 83_3333], 2),
@@ -1631,7 +1686,7 @@ pub struct Delegation {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DelegationRwdDetail {
     amount: Amount,
-    return_rate: [u64; 2],
+    return_rate: [u128; 2],
     commission_rate: [u64; 2],
     global_delegation_percent: [u64; 2],
     block_height: BlockHeight,
@@ -1685,7 +1740,7 @@ impl Delegation {
         &mut self,
         validator: &XfrPublicKey,
         cur_height: BlockHeight,
-        return_rate: [u64; 2],
+        return_rate: [u128; 2],
         commission_rate: [u64; 2],
         global_delegation_percent: [u64; 2],
         is_delegation_rwd: bool,
@@ -1743,11 +1798,10 @@ impl Delegation {
 /// should be paid to the owner of this delegation.
 pub fn calculate_delegation_rewards(
     amount: Amount,
-    return_rate: [u64; 2],
+    return_rate: [u128; 2],
 ) -> Result<Amount> {
     let am = amount as u128;
     let block_itv = BLOCK_INTERVAL as u128;
-    let return_rate = [return_rate[0] as u128, return_rate[1] as u128];
 
     am.checked_mul(return_rate[0])
         .and_then(|i| i.checked_mul(block_itv))
@@ -1925,37 +1979,34 @@ pub fn gen_random_keypair() -> XfrKeyPair {
     XfrKeyPair::generate(&mut ChaChaRng::from_entropy())
 }
 
+fn get_nonconfidential_balance(la: &impl LedgerAccess, addr: &XfrPublicKey) -> u64 {
+    la.get_owned_utxos(addr)
+        .values()
+        .map(|(utxo, _)| {
+            if let XfrAmount::NonConfidential(am) = utxo.0.record.amount {
+                am
+            } else {
+                0
+            }
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use rand::random;
 
-    const V_TENDERMINT_ADDR: &str = "mocker....@@@@@#####@@@@@#####";
-
+    // **NOTE**
+    //
+    // `block rewards rate` will be tested in `abci`
     #[test]
     fn staking_return_rate() {
-        check_return_rate();
+        check_proposer_rewards_rate();
     }
 
-    // test return rates in the scene of:
-    //
-    // 1. block rewards(delegation rewards)
-    // 2. block proposer rewards
-    fn check_return_rate() {
-        let mut staking = Staking::new();
-
+    fn check_proposer_rewards_rate() {
         (0..100).for_each(|_| {
-            DELEGATION_REWARDS_RATE_RULE.iter().for_each(
-                |([lower_bound, upper_bound], rate)| {
-                    set_delegation_global_percent(
-                        &mut staking,
-                        *lower_bound as u64,
-                        *upper_bound as u64,
-                    );
-                    assert_eq!(staking.get_block_rewards_rate(), [*rate, 100]);
-                },
-            );
-
             pnk!(Staking::get_proposer_rewards_rate([
                 3990000000000000,
                 4208000000000000
@@ -1975,53 +2026,6 @@ mod test {
                 },
             );
         });
-    }
-
-    fn set_delegation_global_percent(
-        staking: &mut Staking,
-        lower_bound: u64,
-        upper_bound: u64,
-    ) {
-        staking.di = DelegationInfo::new();
-
-        let delegator_kp = gen_random_keypair();
-        let validator_kp = gen_random_keypair();
-
-        let itv = upper_bound - lower_bound;
-        let lb = if 0 == itv {
-            lower_bound
-        } else {
-            lower_bound + random::<u64>() % itv
-        };
-
-        let delegation_amount = FRA_TOTAL_AMOUNT * lb / 100;
-
-        let delegation = Delegation {
-            entries: map! {B validator_kp.get_pk() => delegation_amount},
-            delegators: indexmap::IndexMap::new(),
-            id: delegator_kp.get_pk(),
-            receiver_pk: None,
-            start_height: 0,
-            end_height: 200_0000,
-            state: DelegationState::Bond,
-            rwd_amount: 0,
-            rwd_detail: map! {B},
-            delegation_rwd_cnt: 0,
-            proposer_rwd_cnt: 0,
-        };
-
-        staking.di.global_amount = delegation_amount;
-        staking.di.addr_map = map! {B delegator_kp.get_pk() =>delegation };
-
-        let mut bs = BTreeSet::new();
-        bs.insert(delegator_kp.get_pk());
-        staking.di.end_height_map = map! {B 200_0000 => bs};
-
-        let vd = ValidatorData {
-            addr_td_to_app: map! {B V_TENDERMINT_ADDR.to_string() => validator_kp.get_pk() },
-            ..Default::default()
-        };
-        staking.vi = map! {B 1 => vd };
     }
 
     fn gen_round_vote_percent(lower_bound: u64, upper_bound: u64) -> [u64; 2] {

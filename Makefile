@@ -113,14 +113,15 @@ else
 	$(call pack_musl_debug,$(target_dir))
 endif
 
-test: staking_test
+test:
 	cargo test --release --workspace -- --test-threads=1
+	cargo test --release --features="abci_mock" -- --test-threads=1 --nocapture
 	cargo test --release --workspace -- --ignored
 
 staking_test:
 	$(unset LEDGER_DIR)
-	cargo test staking -- --test-threads=1 --nocapture
-	cargo test staking --features="abci_mock" -- --test-threads=1 --nocapture
+	cargo test --release staking -- --test-threads=1 --nocapture
+	cargo test --release staking --features="abci_mock" -- --test-threads=1 --nocapture
 
 staking_cfg:
 	cargo run --bin staking_cfg_generator

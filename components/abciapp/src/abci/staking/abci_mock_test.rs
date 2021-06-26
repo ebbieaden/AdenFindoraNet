@@ -20,7 +20,7 @@ use ledger::{
             mint_fra::{MintEntry, MintFraOps, MintKind},
         },
         td_addr_to_bytes, td_addr_to_string, td_pubkey_to_td_addr, DelegationState,
-        PartialUnDelegation, TendermintAddr, Validator as StakingValidator,
+        PartialUnDelegation, Staking, TendermintAddr, Validator as StakingValidator,
         ValidatorKind, BLOCK_HEIGHT_MAX, FRA, FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
     },
     store::{fra_gen_initial_tx, LedgerAccess},
@@ -792,15 +792,12 @@ fn staking_scene_1() -> Result<()> {
 
     // 13. make sure delegation reward is calculated and paid correctly
 
-    let return_rate = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .get_block_rewards_rate();
+    let return_rate = {
+        let la = ABCI_MOCKER.read();
+        let laa = la.0.la.read();
+        let laaa = laa.get_committed_state().read();
+        Staking::get_block_rewards_rate(&*laaa)
+    };
 
     let rewards =
         calculate_delegation_rewards((32 + 64 + 85) * FRA, return_rate).c(d!())? * 10;
