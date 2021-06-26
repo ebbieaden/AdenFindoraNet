@@ -2,7 +2,7 @@
 pub use real::{forward_txn_with_mode, TendermintForward};
 
 #[cfg(feature = "abci_mock")]
-pub use mocker::{forward_txn_with_mode, TendermintForward};
+pub use mocker::{forward_txn_with_mode, TendermintForward, CHAN};
 
 #[cfg(not(feature = "abci_mock"))]
 mod real {
@@ -82,10 +82,27 @@ mod real {
 
 #[cfg(feature = "abci_mock")]
 mod mocker {
-    use crate::abci::staking::abci_mock_test::CHAN;
+    use lazy_static::lazy_static;
     use ledger::data_model::Transaction;
+    use parking_lot::Mutex;
     use ruc::*;
+    use std::sync::{
+        mpsc::{channel, Receiver, Sender},
+        Arc,
+    };
     use submission_server::TxnForward;
+
+    lazy_static! {
+        pub static ref CHAN: ChanPair = {
+            let (s, r) = channel();
+            (Arc::new(Mutex::new(s)), Arc::new(Mutex::new(r)))
+        };
+    }
+
+    type ChanPair = (
+        Arc<Mutex<Sender<Transaction>>>,
+        Arc<Mutex<Receiver<Transaction>>>,
+    );
 
     pub struct TendermintForward {
         pub tendermint_reply: String,

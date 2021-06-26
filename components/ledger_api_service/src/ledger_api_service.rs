@@ -10,7 +10,7 @@ use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer};
 use ledger::staking::TendermintAddr;
 use ledger::{
     data_model::*,
-    staking::{DelegationState, UNBOND_BLOCK_CNT},
+    staking::{DelegationState, Staking, UNBOND_BLOCK_CNT},
     store::LedgerAccess,
 };
 use log::info;
@@ -476,7 +476,7 @@ where
                 power_list.sort_unstable();
                 let voting_power_rank =
                     power_list.len() - power_list.binary_search(&v.td_power).unwrap();
-                let realtime_rate = staking.get_block_rewards_rate();
+                let realtime_rate = Staking::get_block_rewards_rate(&*read);
                 let expected_annualization = [
                     realtime_rate[0] as u128
                         * v_self_delegation.proposer_rwd_cnt as u128,
@@ -527,7 +527,7 @@ where
     let read = data.read();
     let staking = read.get_staking();
 
-    let block_rewards_rate = staking.get_block_rewards_rate();
+    let block_rewards_rate = Staking::get_block_rewards_rate(&*read);
     let global_staking = staking.validator_global_power();
     let global_delegation = staking.delegation_info_global_amount();
 

@@ -1154,7 +1154,7 @@ pub struct DelegationInfo {
     pub bond_entries: Vec<(String, u64)>,
     pub unbond: u64,
     pub rewards: u64,
-    pub return_rate: [u64; 2],
+    pub return_rate: [u128; 2],
     pub global_delegation: u64,
     pub global_staking: u64,
     pub start_height: u64,
@@ -1177,7 +1177,7 @@ impl DelegationInfo {
         bond_entries: Vec<(String, u64)>,
         unbond: u64,
         rewards: u64,
-        return_rate: [u64; 2],
+        return_rate: [u128; 2],
         global_delegation: u64,
         global_staking: u64,
     ) -> Self {

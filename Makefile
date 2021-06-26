@@ -113,8 +113,8 @@ test:
 
 staking_test:
 	$(unset LEDGER_DIR)
-	cargo test staking -- --test-threads=1 --nocapture
-	cargo test staking --features="abci_mock" -- --test-threads=1 --nocapture
+	cargo test --release staking -- --test-threads=1 --nocapture
+	cargo test --release staking --features="abci_mock" -- --test-threads=1 --nocapture
 
 staking_cfg:
 	cargo run --bin staking_cfg_generator
