@@ -115,7 +115,7 @@ endif
 
 test:
 	cargo test --release --workspace -- --test-threads=1
-	cargo test --release --features="abci_mock" -- --test-threads=1 --nocapture
+	cargo test --release --features="abci_mock" abci_mock -- --test-threads=1
 	cargo test --release --workspace -- --ignored
 
 staking_test:

@@ -329,6 +329,7 @@ fn gen_offline_punish_list(
         .collect())
 }
 
+#[cfg(test)]
 #[cfg(feature = "abci_mock")]
 pub mod abci_mock_test;
 
@@ -356,7 +357,7 @@ mod test {
     };
 
     #[test]
-    fn test_block_rewards_rate() {
+    fn staking_block_rewards_rate() {
         pnk!(check_block_rewards_rate());
     }
 

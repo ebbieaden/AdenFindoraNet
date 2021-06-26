@@ -4,7 +4,10 @@
 
 #![allow(warnings)]
 
-use crate::abci::server::{tx_sender::forward_txn_with_mode, ABCISubmissionServer};
+use crate::abci::server::{
+    tx_sender::{forward_txn_with_mode, CHAN},
+    ABCISubmissionServer,
+};
 use abci::*;
 use cryptohash::sha256::{self, Digest};
 use lazy_static::lazy_static;
@@ -49,16 +52,15 @@ use zei::xfr::{
 
 lazy_static! {
     static ref INITIAL_KEYPAIR_LIST: Vec<XfrKeyPair> = pnk!(gen_initial_keypair_list());
-    static ref ABCI_MOCKER: Arc<RwLock<AbciMocker>> = Arc::new(RwLock::new(AbciMocker::new()));
-    static ref TD_MOCKER: Arc<RwLock<TendermintMocker>> = Arc::new(RwLock::new(TendermintMocker::new()));
-    static ref FAILED_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {B}));
-    static ref SUCCESS_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> = Arc::new(RwLock::new(map! {B}));
+    static ref ABCI_MOCKER: Arc<RwLock<AbciMocker>> =
+        Arc::new(RwLock::new(AbciMocker::new()));
+    static ref TD_MOCKER: Arc<RwLock<TendermintMocker>> =
+        Arc::new(RwLock::new(TendermintMocker::new()));
+    static ref FAILED_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> =
+        Arc::new(RwLock::new(map! {B}));
+    static ref SUCCESS_TXS: Arc<RwLock<BTreeMap<Digest, Transaction>>> =
+        Arc::new(RwLock::new(map! {B}));
     static ref ROOT_KEYPAIR: XfrKeyPair = gen_keypair();
-    /// will be used in [tx_sender](super::server::tx_sender)
-    pub static ref CHAN: ChanPair = {
-        let (s, r) = channel();
-        (Arc::new(Mutex::new(s)), Arc::new(Mutex::new(r)))
-    };
 }
 
 const INITIAL_MNEMONIC: [&str; 20] = [
@@ -83,11 +85,6 @@ const INITIAL_MNEMONIC: [&str; 20] = [
     "matrix uncle bachelor aunt lazy museum cancel feel also bundle gospel analyst index cereal move tower lion buyer long connect circle balance accuse valid",
     "clerk purpose acid rail invite stone raccoon pottery blame harbor dawn wrap cluster relief account law angle warm bullet great auction naive moral cloth",
 ];
-
-type ChanPair = (
-    Arc<Mutex<Sender<Transaction>>>,
-    Arc<Mutex<Receiver<Transaction>>>,
-);
 
 static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
 
@@ -1304,7 +1301,7 @@ fn staking_scene_2() -> Result<()> {
 }
 
 #[test]
-fn staking_integration() {
+fn staking_integration_abci_mock() {
     pnk!(staking_scene_1());
     pnk!(staking_scene_2());
 }
