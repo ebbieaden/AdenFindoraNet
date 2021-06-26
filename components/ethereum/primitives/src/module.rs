@@ -46,8 +46,8 @@ pub trait AppModule: AppModuleBasic + AppModuleGenesis + Send + Sync {
     ) -> abci::ResponseQuery;
 
     /// Tendermint consensus connection: called at the start of processing a block of transactions.
-    fn begin_block(&mut self, _req: abci::RequestBeginBlock);
+    fn begin_block(&mut self, _req: &abci::RequestBeginBlock);
 
     /// Tendermint consensus connection: called at the end of the block.
-    fn end_block(&mut self, _req: abci::RequestEndBlock) -> abci::ResponseEndBlock;
+    fn end_block(&mut self, _req: &abci::RequestEndBlock) -> abci::ResponseEndBlock;
 }

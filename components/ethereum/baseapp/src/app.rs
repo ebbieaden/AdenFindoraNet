@@ -1,4 +1,6 @@
+use crate::{types::convert_ethereum_transaction, RunTxMode};
 use abci::*;
+use ruc::RucResult;
 
 impl Application for crate::BaseApp {
     fn info(&mut self, _req: &RequestInfo) -> ResponseInfo {
@@ -31,23 +33,56 @@ impl Application for crate::BaseApp {
         }
     }
 
-    fn check_tx(&mut self, _req: &RequestCheckTx) -> ResponseCheckTx {
-        ResponseCheckTx::new()
+    fn check_tx(&mut self, req: &RequestCheckTx) -> ResponseCheckTx {
+        let mut resp = ResponseCheckTx::new();
+        if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
+            let check_fn = |mode: RunTxMode| {
+                if ruc::info!(self.handle_tx(mode, tx)).is_err() {
+                    resp.set_code(1);
+                    resp.set_log(String::from("Ethereum transaction check failed"));
+                }
+            };
+            match req.get_field_type() {
+                CheckTxType::New => check_fn(RunTxMode::Check),
+                CheckTxType::Recheck => check_fn(RunTxMode::ReCheck),
+            }
+        } else {
+            resp.set_code(1);
+            resp.set_log(String::from("Could not unpack transaction"));
+        }
+        resp
     }
 
     fn init_chain(&mut self, _req: &RequestInitChain) -> ResponseInitChain {
         ResponseInitChain::new()
     }
 
-    fn begin_block(&mut self, _req: &RequestBeginBlock) -> ResponseBeginBlock {
+    fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
+        for m in self.modules.iter_mut() {
+            m.begin_block(req);
+        }
+
         ResponseBeginBlock::new()
     }
 
-    fn deliver_tx(&mut self, _p: &RequestDeliverTx) -> ResponseDeliverTx {
-        ResponseDeliverTx::new()
+    fn deliver_tx(&mut self, req: &RequestDeliverTx) -> ResponseDeliverTx {
+        let mut resp = ResponseDeliverTx::new();
+        if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
+            // TODO events、storage
+            if self.handle_tx(RunTxMode::Deliver, tx).is_ok() {
+                return resp;
+            }
+        }
+        resp.set_code(1);
+        resp.set_log(String::from("Failed to deliver transaction!"));
+        resp
     }
 
-    fn end_block(&mut self, _req: &RequestEndBlock) -> ResponseEndBlock {
+    fn end_block(&mut self, req: &RequestEndBlock) -> ResponseEndBlock {
+        for m in self.modules.iter_mut() {
+            m.end_block(req);
+        }
+
         ResponseEndBlock::new()
     }
 

@@ -1,23 +1,34 @@
 mod client;
 mod genesis;
 mod keeper;
-mod message;
 
 use abci::*;
 use keeper::Keeper;
-pub use message::Action;
 use primitives::transaction::ValidateUnsigned;
-use primitives::{
-    module::{AppModule, AppModuleBasic, AppModuleGenesis},
-    transaction::Executable,
-};
-use ruc::*;
+use primitives::{crypto::Address32, module::*, transaction::Executable};
+use ruc::Result;
+use serde::{Deserialize, Serialize};
 
 pub const MODULE_NAME: &str = "ethereum";
 
 pub struct EthereumModule {
     name: String,
     keeper: Keeper,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Action {
+    Transact(ethereum::Transaction),
+}
+
+impl Executable for Action {
+    type Origin = Address32;
+
+    fn execute(self, _origin: Option<Self::Origin>) -> Result<()> {
+        match self {
+            Action::Transact(tx) => Ok(()),
+        }
+    }
 }
 
 impl EthereumModule {
@@ -70,19 +81,15 @@ impl AppModuleGenesis for EthereumModule {
 }
 
 impl AppModule for EthereumModule {
-    // fn tx_route(&self, msg: Box<dyn Executable>) -> Result<()> {
-    //     msg_handler(&self.keeper, msg)
-    // }
-
     fn query_route(&self, path: Vec<&str>, req: &RequestQuery) -> ResponseQuery {
-        query_handler(path, req)
+        ResponseQuery::new()
     }
 
-    fn begin_block(&mut self, _req: RequestBeginBlock) {
+    fn begin_block(&mut self, _req: &RequestBeginBlock) {
         todo!()
     }
 
-    fn end_block(&mut self, _req: RequestEndBlock) -> ResponseEndBlock {
+    fn end_block(&mut self, _req: &RequestEndBlock) -> ResponseEndBlock {
         todo!()
     }
 }
@@ -93,17 +100,4 @@ impl ValidateUnsigned for EthereumModule {
     fn validate_unsigned(call: &Self::Call) -> Result<()> {
         todo!()
     }
-}
-
-// fn msg_handler(_k: &Keeper, msg: Box<dyn Executable>) -> Result<()> {
-//     msg.as_any()
-//         .downcast_ref::<Message>()
-//         .ok_or(eg!("invalid transaction message"))
-//         .and_then(|m| match m {
-//             Message::Transact(_tx) => Ok(()),
-//         })
-// }
-
-fn query_handler(_path: Vec<&str>, _req: &RequestQuery) -> ResponseQuery {
-    ResponseQuery::new()
 }

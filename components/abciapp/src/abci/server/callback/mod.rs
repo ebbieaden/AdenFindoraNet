@@ -1,6 +1,5 @@
 use crate::abci::{server::ABCISubmissionServer, staking};
 use abci::*;
-use baseapp::{convert_ethereum_transaction, RunTxMode};
 use lazy_static::lazy_static;
 use ledger::{
     data_model::TxnEffect,
@@ -59,42 +58,32 @@ pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
     resp
 }
 
+pub fn query(s: &mut ABCISubmissionServer, req: &RequestQuery) -> ResponseQuery {
+    s.app.query(req)
+}
+
 pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseCheckTx {
     // Get the Tx [u8] and convert to u64
-    let mut resp = ResponseCheckTx::new();
-
     if let Some(tx) = convert_tx(req.get_tx()) {
+        let mut resp = ResponseCheckTx::new();
         if !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
             || ruc::info!(TxnEffect::compute_effect(tx)).is_err()
         {
             resp.set_code(1);
             resp.set_log(String::from("Check failed"));
         }
-    } else if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
-        let check_fn = |mode: RunTxMode| {
-            if ruc::info!(s.app.handle_tx(mode, tx)).is_err() {
-                resp.set_code(1);
-                resp.set_log(String::from("Ethereum transaction check failed"));
-            }
-        };
-        match req.get_field_type() {
-            CheckTxType::New => check_fn(RunTxMode::Check),
-            CheckTxType::Recheck => check_fn(RunTxMode::ReCheck),
-        }
+        resp
     } else {
-        resp.set_code(1);
-        resp.set_log(String::from("Could not unpack transaction"));
+        s.app.check_tx(req)
     }
-
-    resp
 }
 
 pub fn deliver_tx(
     s: &mut ABCISubmissionServer,
     req: &RequestDeliverTx,
 ) -> ResponseDeliverTx {
-    let mut resp = ResponseDeliverTx::new();
     if let Some(tx) = convert_tx(req.get_tx()) {
+        let mut resp = ResponseDeliverTx::new();
         if tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)) {
             // set attr(tags) if any
             let attr = utils::gen_tendermint_attr(&tx);
@@ -106,11 +95,12 @@ pub fn deliver_tx(
                 return resp;
             }
         }
+        resp.set_code(1);
+        resp.set_log(String::from("Failed to deliver transaction!"));
+        resp
+    } else {
+        s.app.deliver_tx(req)
     }
-
-    resp.set_code(1);
-    resp.set_log(String::from("Failed to deliver transaction!"));
-    resp
 }
 
 pub fn begin_block(
@@ -137,12 +127,14 @@ pub fn begin_block(
         pnk!(la.update_staking_simulator());
     }
 
+    s.app.begin_block(req);
+
     ResponseBeginBlock::new()
 }
 
 pub fn end_block(
     s: &mut ABCISubmissionServer,
-    _req: &RequestEndBlock,
+    req: &RequestEndBlock,
 ) -> ResponseEndBlock {
     let mut resp = ResponseEndBlock::new();
 
@@ -183,10 +175,12 @@ pub fn end_block(
         is_replaying,
     );
 
+    s.app.end_block(req);
+
     resp
 }
 
-pub fn commit(s: &mut ABCISubmissionServer, _req: &RequestCommit) -> ResponseCommit {
+pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseCommit {
     let mut r = ResponseCommit::new();
     let la = s.la.read();
 
@@ -206,6 +200,9 @@ pub fn commit(s: &mut ABCISubmissionServer, _req: &RequestCommit) -> ResponseCom
     pnk!(pulse_cache::write_staking(state.get_staking()));
 
     pnk!(pulse_cache::write_block_pulse(la.block_pulse_count()));
+
+    // TODO
+    s.app.commit(req);
 
     r
 }
