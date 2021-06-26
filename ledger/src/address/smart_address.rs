@@ -33,7 +33,7 @@ impl SmartAddress {
         match self {
             SmartAddress::Xfr(addr) => wallet::public_key_to_base64(&addr.key),
             SmartAddress::Ethereum(addr) => addr.to_string(),
-            _ => String::new()
+            _ => String::new(),
         }
     }
 

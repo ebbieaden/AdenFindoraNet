@@ -14,4 +14,3 @@ impl H160 {
         String::from("0x") + &hex::encode(self.0)
     }
 }
-
