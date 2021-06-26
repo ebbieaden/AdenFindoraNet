@@ -51,6 +51,11 @@ impl abci::Application for ABCISubmissionServer {
     }
 
     #[inline(always)]
+    fn query(&mut self, req: &RequestQuery) -> ResponseQuery {
+        callback::query(self, req)
+    }
+
+    #[inline(always)]
     fn check_tx(&mut self, req: &RequestCheckTx) -> ResponseCheckTx {
         callback::check_tx(self, req)
     }

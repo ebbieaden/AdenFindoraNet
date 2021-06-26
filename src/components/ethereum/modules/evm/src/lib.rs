@@ -6,10 +6,7 @@ mod message;
 use abci::*;
 use keeper::{EvmRunner, Keeper};
 pub use message::Action;
-use primitives::{
-    module::{AppModule, AppModuleBasic, AppModuleGenesis},
-    transaction::Executable,
-};
+use primitives::module::{AppModule, AppModuleBasic, AppModuleGenesis};
 use ruc::*;
 
 pub const MODULE_NAME: &str = "evm";
@@ -69,19 +66,15 @@ impl AppModuleGenesis for EvmModule {
 }
 
 impl AppModule for EvmModule {
-    // fn tx_route(&self, msg: Box<dyn Executable>) -> Result<()> {
-    //     msg_handler(&self.keeper, msg)
-    // }
-
     fn query_route(&self, path: Vec<&str>, req: &RequestQuery) -> ResponseQuery {
         query_handler(path, req)
     }
 
-    fn begin_block(&mut self, _req: RequestBeginBlock) {
+    fn begin_block(&mut self, _req: &RequestBeginBlock) {
         todo!()
     }
 
-    fn end_block(&mut self, _req: RequestEndBlock) -> ResponseEndBlock {
+    fn end_block(&mut self, _req: &RequestEndBlock) -> ResponseEndBlock {
         todo!()
     }
 }

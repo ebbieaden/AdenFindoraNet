@@ -10,31 +10,30 @@ use primitives::{
 };
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 pub use types::*;
 
 pub struct BaseApp {
-    // application name from abci.Info
+    /// application name from abci.Info
     name: String,
-    // application's version string
+    /// application's version string
     version: String,
-    // application's protocol version that increments on every upgrade
-    // if BaseApp is passed to the upgrade keeper's NewKeeper method.
+    /// application's protocol version that increments on every upgrade
+    /// if BaseApp is passed to the upgrade keeper's NewKeeper method.
     app_version: u64,
-    // manage all modules
-    modules: HashMap<String, Box<dyn AppModule>>,
+    /// Ordered module set
+    modules: Vec<Box<dyn AppModule>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum RunTxMode {
-    // Check a transaction
+    /// Check a transaction
     Check = 0,
-    // Recheck a (pending) transaction after a commit
+    /// Recheck a (pending) transaction after a commit
     ReCheck = 1,
-    // Simulate a transaction
+    /// Simulate a transaction
     Simulate = 2,
-    // Deliver a transaction
+    /// Deliver a transaction
     Deliver = 3,
 }
 
@@ -57,15 +56,12 @@ impl Executable for Action {
 
 impl BaseApp {
     pub fn new() -> Self {
-        let mut app = BaseApp {
+        BaseApp {
             name: "findora".to_string(),
             version: "1.0.0".to_string(),
             app_version: 1,
-            modules: HashMap::new(),
-        };
-
-        app.build_modules(vec![Box::new(EvmModule::new())]);
-        app
+            modules: vec![Box::new(EthereumModule::new()), Box::new(EvmModule::new())],
+        }
     }
 
     pub fn name(&self) -> String {
@@ -93,7 +89,11 @@ impl BaseApp {
         }
 
         let module_name = path.remove(0);
-        if let Some(am) = self.modules.get(&module_name.to_string()) {
+        if let Some(am) = self
+            .modules
+            .iter()
+            .find(|&m| m.name().as_str() == module_name)
+        {
             am.query_route(path, req)
         } else {
             resp.set_code(1);
@@ -116,12 +116,6 @@ impl BaseApp {
 }
 
 impl BaseApp {
-    fn build_modules(&mut self, modules: Vec<Box<dyn AppModule>>) {
-        for m in modules {
-            self.modules.insert(m.name(), m);
-        }
-    }
-
     fn dispatch<
         Call: Executable<Origin = Address>,
         Module: ValidateUnsigned<Call = Call>,

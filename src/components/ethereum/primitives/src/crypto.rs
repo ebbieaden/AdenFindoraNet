@@ -115,11 +115,8 @@ impl From<XfrPublicKey> for MultiSigner {
 impl TryFrom<MultiSigner> for XfrPublicKey {
     type Error = ();
     fn try_from(m: MultiSigner) -> Result<Self, Self::Error> {
-        if let MultiSigner::Xfr(x) = m {
-            Ok(x)
-        } else {
-            Err(())
-        }
+        let MultiSigner::Xfr(x) = m;
+        Ok(x)
     }
 }
 
