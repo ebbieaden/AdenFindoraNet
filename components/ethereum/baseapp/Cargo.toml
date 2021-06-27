@@ -12,10 +12,13 @@ readme = "README.md"
 abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
 ethereum = { version = "0.7.1", features = ["with-serde"] }
 ethereum-types = "0.11.0"
+merk = { git = "https://github.com/FindoraNetwork/merk.git", branch = "merk_fra" }
+parking_lot = "0.11.1"
 primitives = { path = "../primitives" }
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 serde = { version = "1.0.124", features = ["derive"] }
 serde_json = "1.0.40"
+storage = { git = "https://github.com/FindoraNetwork/storage.git", branch = "master" }
 
 # modules
 app_ethereum = { path = "../modules/ethereum"}

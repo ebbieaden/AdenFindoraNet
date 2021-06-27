@@ -37,7 +37,7 @@ impl Application for crate::BaseApp {
         let mut resp = ResponseCheckTx::new();
         if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
             let check_fn = |mode: RunTxMode| {
-                if ruc::info!(self.handle_tx(mode, tx)).is_err() {
+                if ruc::info!(self.handle_tx(mode, tx, req.get_tx().to_vec())).is_err() {
                     resp.set_code(1);
                     resp.set_log(String::from("Ethereum transaction check failed"));
                 }
@@ -53,7 +53,17 @@ impl Application for crate::BaseApp {
         resp
     }
 
-    fn init_chain(&mut self, _req: &RequestInitChain) -> ResponseInitChain {
+    fn init_chain(&mut self, req: &RequestInitChain) -> ResponseInitChain {
+        // On a new chain, we consider the init chain block height as 0, even though
+        // req.InitialHeight is 1 by default.
+        let mut init_header = Header::new();
+        init_header.chain_id = req.chain_id.clone();
+        init_header.time = req.time.clone();
+
+        // initialize the deliver state and check state with a correct header
+        self.set_deliver_state(init_header.clone());
+        self.set_check_state(init_header);
+
         ResponseInitChain::new()
     }
 
@@ -69,7 +79,10 @@ impl Application for crate::BaseApp {
         let mut resp = ResponseDeliverTx::new();
         if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
             // TODO events、storage
-            if self.handle_tx(RunTxMode::Deliver, tx).is_ok() {
+            if self
+                .handle_tx(RunTxMode::Deliver, tx, req.get_tx().to_vec())
+                .is_ok()
+            {
                 return resp;
             }
         }

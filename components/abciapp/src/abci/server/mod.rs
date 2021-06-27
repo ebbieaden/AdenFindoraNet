@@ -25,9 +25,15 @@ impl ABCISubmissionServer {
         base_dir: Option<&Path>,
         tendermint_reply: String,
     ) -> Result<ABCISubmissionServer> {
-        let ledger_state = match base_dir {
-            None => LedgerState::test_ledger(),
-            Some(base_dir) => pnk!(LedgerState::load_or_init(base_dir)),
+        let (ledger_state, app) = match base_dir {
+            None => (
+                LedgerState::test_ledger(),
+                pnk!(BaseApp::new(tempfile::tempdir().unwrap().path())),
+            ),
+            Some(base_dir) => (
+                pnk!(LedgerState::load_or_init(base_dir)),
+                pnk!(BaseApp::new(base_dir)),
+            ),
         };
         let prng = rand_chacha::ChaChaRng::from_entropy();
         Ok(ABCISubmissionServer {
@@ -39,7 +45,7 @@ impl ABCISubmissionServer {
                 )
                 .c(d!())?,
             )),
-            app: BaseApp::new(),
+            app,
         })
     }
 }
