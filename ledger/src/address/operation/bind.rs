@@ -20,7 +20,7 @@ pub struct BindAddressOp {
 
 impl BindAddressOp {
     pub fn new(
-        keypair: XfrKeyPair,
+        keypair: &XfrKeyPair,
         smart_address: SmartAddress,
         nonce: NoReplayToken,
     ) -> Self {

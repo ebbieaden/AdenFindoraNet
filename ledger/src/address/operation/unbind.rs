@@ -18,7 +18,7 @@ pub struct UnbindAddressOp {
 }
 
 impl UnbindAddressOp {
-    pub fn new(keypair: XfrKeyPair, nonce: NoReplayToken) -> Self {
+    pub fn new(keypair: &XfrKeyPair, nonce: NoReplayToken) -> Self {
         let data = Data::new(nonce);
         let public = keypair.get_pk();
         let signature = keypair.sign(&data.to_bytes());

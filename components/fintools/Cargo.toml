@@ -24,6 +24,10 @@ path = "src/bins/cfg_generator.rs"
 name = "xx"
 path = "src/bins/xx.rs"
 
+[[bin]]
+name = "evm"
+path = "src/bins/evm.rs"
+
 [dependencies]
 wallet = { path = "../wallet" }
 ledger = { path = "../../ledger" }
