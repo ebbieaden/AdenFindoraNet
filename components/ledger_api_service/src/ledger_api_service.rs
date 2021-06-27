@@ -818,11 +818,11 @@ impl RestfulApiService {
                 .set_route::<LA>(AccessApi::Archive)
                 .set_route::<LA>(AccessApi::Staking)
                 .route(
-                    "/address/get_map_xfr",
+                    "/address/get_map_xfr/{address}",
                     web::get().to(query_address_map_by_xfr),
                 )
                 .route(
-                    "/address/get_map_eth",
+                    "/address/get_map_eth/{address}",
                     web::get().to(query_address_map_by_eth),
                 )
         })
