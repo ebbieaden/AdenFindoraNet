@@ -52,7 +52,7 @@ fintools = { path =  "../fintools" }
 txn_builder = { path = "../txn_builder" }
 
 baseapp = { path = "../ethereum/baseapp" }
-fc-rpc = { path = "../rpc" }
+eth_api_service = { path = "../eth_api_service" }
 
 [build-dependencies]
 vergen = "=3.1.0"
