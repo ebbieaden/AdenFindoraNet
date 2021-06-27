@@ -49,7 +49,11 @@ use fc_rpc_core::types::{
 
 pub struct EthApiImpl;
 
-
+impl EthApiImpl {
+	pub fn new ()-> Self {
+		Self
+	}
+}
 
 impl EthApiT for EthApiImpl
 {
