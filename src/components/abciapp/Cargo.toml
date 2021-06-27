@@ -55,6 +55,7 @@ finutils = { path = "../finutils" }
 [dev-dependencies]
 
 baseapp = { path = "../ethereum/baseapp" }
+fc-rpc = { path = "../rpc" }
 
 [build-dependencies]
 vergen = "=3.1.0"
