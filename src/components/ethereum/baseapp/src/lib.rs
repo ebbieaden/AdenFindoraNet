@@ -3,15 +3,24 @@ mod types;
 
 use app_ethereum::EthereumModule;
 use app_evm::EvmModule;
+use parking_lot::RwLock;
 use primitives::{
-    crypto::*,
+    context::{CacheState, CommitState, CommitStore},
+    crypto::Address,
     module::AppModule,
     transaction::{Applyable, Executable, ValidateUnsigned},
 };
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
+use std::{path::Path, sync::Arc};
+use storage::{db::FinDB, state::ChainState};
 
+use abci::Header;
+use primitives::context::Context;
 pub use types::*;
+
+const APP_NAME: &str = "findora";
+const APP_DB_NAME: &str = "findora_db";
 
 pub struct BaseApp {
     /// application name from abci.Info
@@ -21,11 +30,19 @@ pub struct BaseApp {
     /// application's protocol version that increments on every upgrade
     /// if BaseApp is passed to the upgrade keeper's NewKeeper method.
     app_version: u64,
+    /// Chain persistent state
+    commit_store: CommitStore,
+    /// volatile states
+    ///
+    /// check_state is set on InitChain and reset on Commit
+    /// deliver_state is set on InitChain and BeginBlock and set to nil on Commit
+    check_state: CacheState, // for CheckTx
+    deliver_state: CommitState, // for DeliverTx
     /// Ordered module set
     modules: Vec<Box<dyn AppModule>>,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
 pub enum RunTxMode {
     /// Check a transaction
     Check = 0,
@@ -46,22 +63,29 @@ pub enum Action {
 impl Executable for Action {
     type Origin = Address;
 
-    fn execute(self, origin: Option<Self::Origin>) -> Result<()> {
+    fn execute(self, origin: Option<Self::Origin>, ctx: Context) -> Result<()> {
         match self {
-            Action::Ethereum(action) => action.execute(origin),
-            Action::Evm(action) => action.execute(origin),
+            Action::Ethereum(action) => action.execute(origin, ctx),
+            Action::Evm(action) => action.execute(origin, ctx),
         }
     }
 }
 
 impl BaseApp {
-    pub fn new() -> Self {
-        BaseApp {
-            name: "findora".to_string(),
+    pub fn new(path: &Path) -> Result<Self> {
+        let fdb = FinDB::open(path)?;
+        let chain_state =
+            Arc::new(RwLock::new(ChainState::new(fdb, APP_DB_NAME.to_string())));
+
+        Ok(BaseApp {
+            name: APP_NAME.to_string(),
             version: "1.0.0".to_string(),
             app_version: 1,
+            commit_store: CommitStore::new(chain_state.clone()),
+            check_state: CacheState::new(chain_state.clone()),
+            deliver_state: CommitState::new(chain_state),
             modules: vec![Box::new(EthereumModule::new()), Box::new(EvmModule::new())],
-        }
+        })
     }
 
     pub fn name(&self) -> String {
@@ -102,16 +126,57 @@ impl BaseApp {
         }
     }
 
-    pub fn handle_tx(&self, mode: RunTxMode, tx: UncheckedTransaction) -> Result<()> {
+    pub fn handle_tx(
+        &mut self,
+        mode: RunTxMode,
+        tx: UncheckedTransaction,
+        tx_bytes: Vec<u8>,
+    ) -> Result<()> {
         let checked = tx.clone().check()?;
+        let ctx = self.retrieve_context(mode, tx_bytes);
 
+        // add match field if tx is unsigned transaction
         match tx.function {
-            Action::Ethereum(action) => self
-                .dispatch::<app_ethereum::Action, EthereumModule>(mode, action, checked),
-            Action::Evm(_) => {
-                self.dispatch::<Action, BaseApp>(mode, tx.function, checked)
-            }
+            Action::Ethereum(action) => Self::dispatch::<
+                app_ethereum::Action,
+                EthereumModule,
+            >(ctx.clone(), mode, action, checked),
+            _ => Self::dispatch::<Action, BaseApp>(
+                ctx.clone(),
+                mode,
+                tx.function,
+                checked,
+            ),
         }
+    }
+}
+
+impl BaseApp {
+    pub fn set_check_state(&mut self, header: Header) {
+        self.check_state.ctx.header = header;
+    }
+
+    pub fn set_deliver_state(&mut self, header: Header) {
+        self.deliver_state.ctx.header = header;
+    }
+
+    /// retrieve the context for the txBytes and other memoized values.
+    pub fn retrieve_context(
+        &mut self,
+        mode: RunTxMode,
+        tx_bytes: Vec<u8>,
+    ) -> &mut Context {
+        let ctx = if mode == RunTxMode::Deliver {
+            &mut self.deliver_state.ctx
+        } else {
+            &mut self.check_state.ctx
+        };
+        ctx.tx = tx_bytes;
+
+        if mode == RunTxMode::ReCheck {
+            ctx.recheck_tx = true;
+        }
+        ctx
     }
 }
 
@@ -120,7 +185,7 @@ impl BaseApp {
         Call: Executable<Origin = Address>,
         Module: ValidateUnsigned<Call = Call>,
     >(
-        &self,
+        ctx: Context,
         mode: RunTxMode,
         action: Call,
         tx: CheckedTransaction,
@@ -129,10 +194,10 @@ impl BaseApp {
 
         let origin_tx = convert_unsigned_transaction::<Call>(action, tx);
 
-        origin_tx.validate::<Module>()?;
+        origin_tx.validate::<Module>(ctx.clone())?;
 
         if mode == RunTxMode::Deliver {
-            origin_tx.apply::<Module>()?;
+            origin_tx.apply::<Module>(ctx)?;
         }
         Ok(())
     }
@@ -141,14 +206,14 @@ impl BaseApp {
 impl ValidateUnsigned for BaseApp {
     type Call = Action;
 
-    fn pre_execute(call: &Self::Call) -> Result<()> {
+    fn pre_execute(call: &Self::Call, _ctx: Context) -> Result<()> {
         #[allow(unreachable_patterns)]
         match call {
             _ => Ok(()),
         }
     }
 
-    fn validate_unsigned(call: &Self::Call) -> Result<()> {
+    fn validate_unsigned(call: &Self::Call, _ctx: Context) -> Result<()> {
         #[allow(unreachable_patterns)]
         match call {
             _ => Err(eg!(

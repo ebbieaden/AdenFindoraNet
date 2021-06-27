@@ -1,5 +1,5 @@
 use ethereum_types::{H160, H256, U256};
-use primitives::{crypto::Address, transaction::Executable};
+use primitives::{context::Context, crypto::Address, transaction::Executable};
 use ruc::Result;
 use serde::{Deserialize, Serialize};
 
@@ -49,7 +49,7 @@ impl Executable for Action {
     //     crate::MODULE_NAME.to_string()
     // }
 
-    fn execute(self, _origin: Option<Self::Origin>) -> Result<()> {
+    fn execute(self, _origin: Option<Self::Origin>, _ctx: Context) -> Result<()> {
         Ok(())
     }
 

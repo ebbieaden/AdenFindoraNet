@@ -4,8 +4,12 @@ mod keeper;
 
 use abci::*;
 use keeper::Keeper;
-use primitives::transaction::ValidateUnsigned;
-use primitives::{crypto::Address32, module::*, transaction::Executable};
+use primitives::{
+    context::Context,
+    crypto::Address32,
+    module::*,
+    transaction::{Executable, ValidateUnsigned},
+};
 use ruc::Result;
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +28,7 @@ pub enum Action {
 impl Executable for Action {
     type Origin = Address32;
 
-    fn execute(self, _origin: Option<Self::Origin>) -> Result<()> {
+    fn execute(self, _origin: Option<Self::Origin>, _ctx: Context) -> Result<()> {
         match self {
             Action::Transact(tx) => Ok(()),
         }
@@ -97,7 +101,7 @@ impl AppModule for EthereumModule {
 impl ValidateUnsigned for EthereumModule {
     type Call = Action;
 
-    fn validate_unsigned(call: &Self::Call) -> Result<()> {
+    fn validate_unsigned(call: &Self::Call, _ctx: Context) -> Result<()> {
         todo!()
     }
 }

@@ -1,4 +1,7 @@
-use crate::crypto::{IdentifyAccount, Verify};
+use crate::{
+    context::Context,
+    crypto::{IdentifyAccount, Verify},
+};
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -15,12 +18,8 @@ impl<T: Send + Sync + Sized + Debug + Eq + PartialEq + Clone + 'static> Member f
 pub trait Executable {
     type Origin;
 
-    // fn route_path(&self) -> String;
-
     /// Actually execute this action and return the result of it.
-    fn execute(self, origin: Option<Self::Origin>) -> Result<()>;
-
-    // fn validate(&self) -> Result<()>;
+    fn execute(self, origin: Option<Self::Origin>, ctx: Context) -> Result<()>;
 }
 
 /// This is unchecked and so can contain a signature.
@@ -92,11 +91,14 @@ pub trait Applyable {
     type Call: Executable;
 
     /// Checks to see if this is a valid *transaction*.
-    fn validate<V: ValidateUnsigned<Call = Self::Call>>(&self) -> Result<()>;
+    fn validate<V: ValidateUnsigned<Call = Self::Call>>(
+        &self,
+        ctx: Context,
+    ) -> Result<()>;
 
     /// Executes all necessary logic needed prior to execute and deconstructs into function call,
     /// index and sender.
-    fn apply<V: ValidateUnsigned<Call = Self::Call>>(self) -> Result<()>;
+    fn apply<V: ValidateUnsigned<Call = Self::Call>>(self, ctx: Context) -> Result<()>;
 }
 
 /// Something that can validate unsigned transactions for the transaction pool.
@@ -112,14 +114,14 @@ pub trait ValidateUnsigned {
     /// Validate the call right before execute.
     ///
     /// Changes made to storage WILL be persisted if the call returns `Ok`.
-    fn pre_execute(call: &Self::Call) -> Result<()> {
-        Self::validate_unsigned(call)
+    fn pre_execute(call: &Self::Call, ctx: Context) -> Result<()> {
+        Self::validate_unsigned(call, ctx)
     }
 
     /// Return the validity of the call
     ///
     /// Changes made to storage should be discarded by caller.
-    fn validate_unsigned(call: &Self::Call) -> Result<()>;
+    fn validate_unsigned(call: &Self::Call, ctx: Context) -> Result<()>;
 }
 
 impl<Address, Call> Applyable for CheckedTransaction<Address, Call>
@@ -128,22 +130,25 @@ where
 {
     type Call = Call;
 
-    fn validate<U: ValidateUnsigned<Call = Self::Call>>(&self) -> Result<()> {
+    fn validate<U: ValidateUnsigned<Call = Self::Call>>(
+        &self,
+        ctx: Context,
+    ) -> Result<()> {
         if self.signed.is_some() {
             Ok(())
         } else {
-            U::validate_unsigned(&self.function)
+            U::validate_unsigned(&self.function, ctx)
         }
     }
 
-    fn apply<U: ValidateUnsigned<Call = Self::Call>>(self) -> Result<()> {
+    fn apply<U: ValidateUnsigned<Call = Self::Call>>(self, ctx: Context) -> Result<()> {
         let maybe_who = if let Some(id) = self.signed {
             Some(id)
         } else {
-            U::pre_execute(&self.function)?;
+            U::pre_execute(&self.function, ctx.clone())?;
             None
         };
         // TODO
-        self.function.execute(maybe_who)
+        self.function.execute(maybe_who, ctx)
     }
 }
