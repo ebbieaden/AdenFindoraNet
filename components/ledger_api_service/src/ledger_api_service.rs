@@ -473,11 +473,13 @@ async fn query_address_map_by_xfr(
     let address_binder = data.read();
     let storage = address_binder.get_storage();
     let sa = SmartAddress::Xfr(XfrAddress { key: pk });
-    let result = storage.get(&sa).c(d!())
+    let result = storage
+        .get(&sa)
+        .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
     let ss = match result {
         Some(addr) => addr.to_string(),
-        None => String::new()
+        None => String::new(),
     };
     Ok(ss)
 }
@@ -491,11 +493,13 @@ async fn query_address_map_by_eth(
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
     let address_binder = data.read();
     let storage = address_binder.get_storage();
-    let result = storage.get(&sa).c(d!())
+    let result = storage
+        .get(&sa)
+        .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
     let ss = match result {
         Some(addr) => addr.to_string(),
-        None => String::new()
+        None => String::new(),
     };
     Ok(ss)
 }
@@ -813,8 +817,14 @@ impl RestfulApiService {
                 .set_route::<LA>(AccessApi::Ledger)
                 .set_route::<LA>(AccessApi::Archive)
                 .set_route::<LA>(AccessApi::Staking)
-                .route("/address/get_map_xfr", web::get().to(query_address_map_by_xfr))
-                .route("/address/get_map_eth", web::get().to(query_address_map_by_eth))
+                .route(
+                    "/address/get_map_xfr/{address}",
+                    web::get().to(query_address_map_by_xfr),
+                )
+                .route(
+                    "/address/get_map_eth/{address}",
+                    web::get().to(query_address_map_by_eth),
+                )
         })
         .bind(&format!("{}:{}", host, port))
         .c(d!())?
