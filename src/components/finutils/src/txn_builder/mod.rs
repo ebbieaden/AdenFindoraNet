@@ -1,73 +1,507 @@
-//!
-//! utils for findora transaction
-//!
-
 #![deny(warnings)]
-#![allow(clippy::needless_borrow)]
+
+extern crate ledger;
+extern crate serde;
+extern crate zei;
+#[macro_use]
+extern crate serde_derive;
 
 use credentials::CredUserSecretKey;
 use curve25519_dalek::scalar::Scalar;
-use globutils::SignatureOf;
-use ledger::{
-    data_model::{
-        AssetRules, AssetTypeCode, ConfidentialMemo, DefineAsset, DefineAssetBody,
-        IndexedSignature, IssueAsset, IssueAssetBody, IssuerKeyPair, IssuerPublicKey,
-        Memo, NoReplayToken, Operation, Transaction, TransactionBody, TransferAsset,
-        TransferAssetBody, TransferType, TxOutput, TxoRef, UpdateMemo, UpdateMemoBody,
-        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
+use ledger::address::operation::{BindAddressOp, UnbindAddressOp};
+use ledger::address::SmartAddress;
+use ledger::data_model::errors::PlatformError;
+use ledger::data_model::*;
+use ledger::inv_fail;
+use ledger::policies::Fraction;
+use ledger::policy_script::{Policy, PolicyGlobals, TxnCheckInputs, TxnPolicyData};
+use ledger::staking::{
+    is_valid_tendermint_addr,
+    ops::{
+        claim::ClaimOps,
+        delegation::DelegationOps,
+        fra_distribution::FraDistributionOps,
+        governance::{ByzantineKind, GovernanceOps},
+        undelegation::UnDelegationOps,
+        update_validator::UpdateValidatorOps,
     },
-    staking::{
-        is_valid_tendermint_addr,
-        ops::{
-            claim::ClaimOps,
-            delegation::DelegationOps,
-            fra_distribution::FraDistributionOps,
-            governance::{ByzantineKind, GovernanceOps},
-            undelegation::UnDelegationOps,
-            update_staker::UpdateStakerOps,
-            update_validator::UpdateValidatorOps,
-        },
-        td_addr_to_string, BlockHeight, PartialUnDelegation, StakerMemo, TendermintAddr,
-        Validator,
-    },
+    td_addr_to_string, BlockHeight, PartialUnDelegation, StakerMemo, TendermintAddr,
+    Validator,
 };
 use rand_chacha::ChaChaRng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
 use ruc::*;
-use serde::{Deserialize, Serialize};
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashSet},
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashSet};
+use utils::SignatureOf;
+use zei::api::anon_creds::{
+    ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
+    Credential,
 };
-use tendermint::PrivateKey;
-use zei::{
-    api::anon_creds::{
-        ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
-        Credential,
-    },
-    serialization::ZeiFromToBytes,
-    setup::PublicParams,
-    xfr::{
-        asset_record::{
-            build_blind_asset_record, build_open_asset_record, open_blind_asset_record,
-            AssetRecordType,
-        },
-        lib::XfrNotePolicies,
-        sig::{XfrKeyPair, XfrPublicKey},
-        structs::{
-            AssetRecord, AssetRecordTemplate, BlindAssetRecord, OpenAssetRecord,
-            OwnerMemo, TracingPolicies, TracingPolicy,
-        },
-    },
+use zei::serialization::ZeiFromToBytes;
+use zei::setup::PublicParams;
+use zei::xfr::asset_record::{
+    build_blind_asset_record, build_open_asset_record, open_blind_asset_record,
+    AssetRecordType,
+};
+use zei::xfr::lib::XfrNotePolicies;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
+use zei::xfr::structs::{
+    AssetRecord, AssetRecordTemplate, BlindAssetRecord, OpenAssetRecord, OwnerMemo,
+    TracingPolicies, TracingPolicy,
 };
 
 macro_rules! no_transfer_err {
     () => {
-        ("Transaction has not yet been finalized".to_string())
+        inv_fail!("Transaction has not yet been finalized".to_string())
     };
 }
 
-/// Definition of a fee operation, as a inner data structure of FeeInputs
+#[derive(Deserialize, Serialize, PartialEq)]
+pub enum PolicyChoice {
+    Fungible(),
+    LoanToken(Fraction, AssetTypeCode, u64),
+}
+
+impl Default for PolicyChoice {
+    fn default() -> Self {
+        Self::Fungible()
+    }
+}
+
+fn debt_policy() -> Policy {
+    use ledger::policy_script::*;
+    Policy {
+        num_id_globals: 1,
+        num_rt_globals: 2,
+        num_amt_globals: 1,
+        num_frac_globals: 1,
+        init_check: TxnCheck {
+            name: "init_txn".to_string(),
+            in_params: vec![],
+            out_params: vec![],
+            id_ops: vec![],
+            rt_ops: vec![],
+            fraction_ops: vec![
+                FractionOp::Const(Fraction::new(0, 1)),
+                FractionOp::Var(FractionVar(0)),
+                FractionOp::Const(Fraction::new(1, 1)),
+            ],
+            amount_ops: vec![AmountOp::Const(0), AmountOp::Var(AmountVar(0))],
+            bool_ops: vec![
+                BoolOp::FracGe(FractionVar(1), FractionVar(1)),
+                BoolOp::FracGe(FractionVar(2), FractionVar(1)),
+                BoolOp::FracEq(FractionVar(2), FractionVar(1)),
+                BoolOp::Not(BoolVar(2)),
+                BoolOp::FracGe(FractionVar(2), FractionVar(1)),
+                BoolOp::And(BoolVar(3), BoolVar(4)),
+                BoolOp::FracGe(FractionVar(3), FractionVar(1)),
+                BoolOp::FracEq(FractionVar(3), FractionVar(2)),
+                BoolOp::Not(BoolVar(7)),
+                BoolOp::FracGe(FractionVar(3), FractionVar(2)),
+                BoolOp::And(BoolVar(8), BoolVar(9)),
+                BoolOp::AmtGe(AmountVar(1), AmountVar(1)),
+                BoolOp::AmtGe(AmountVar(2), AmountVar(1)),
+            ],
+            assertions: vec![
+                BoolVar(0),
+                BoolVar(1),
+                BoolVar(5),
+                BoolVar(6),
+                BoolVar(10),
+                BoolVar(11),
+                BoolVar(12),
+            ],
+            required_signatures: vec![],
+            txn_template: vec![],
+        },
+        txn_choices: vec![
+            TxnCheck {
+                name: "setup_loan".to_string(),
+                in_params: vec![],
+                out_params: vec![ResourceTypeVar(0)],
+                id_ops: vec![IdOp::OwnerOf(ResourceVar(0)), IdOp::Var(IdVar(0))],
+                rt_ops: vec![],
+                fraction_ops: vec![],
+                amount_ops: vec![AmountOp::Var(AmountVar(0))],
+                bool_ops: vec![
+                    BoolOp::IdEq(IdVar(1), IdVar(2)),
+                    BoolOp::AmtEq(AmountVar(1), AmountVar(1)),
+                ],
+                assertions: vec![BoolVar(0), BoolVar(1)],
+                required_signatures: vec![IdVar(0)],
+                txn_template: vec![TxnOp::Issue(
+                    AmountVar(1),
+                    ResourceTypeVar(0),
+                    ResourceVar(0),
+                )],
+            },
+            TxnCheck {
+                name: "start_loan".to_string(),
+                in_params: vec![ResourceTypeVar(0), ResourceTypeVar(1)],
+                out_params: vec![ResourceTypeVar(0), ResourceTypeVar(1)],
+                id_ops: vec![
+                    IdOp::OwnerOf(ResourceVar(0)),
+                    IdOp::Var(IdVar(0)),
+                    IdOp::OwnerOf(ResourceVar(1)),
+                    IdOp::OwnerOf(ResourceVar(2)),
+                ],
+                rt_ops: vec![],
+                fraction_ops: vec![],
+                amount_ops: vec![
+                    AmountOp::AmountOf(ResourceVar(1)),
+                    AmountOp::AmountOf(ResourceVar(0)),
+                    AmountOp::Const(0),
+                    AmountOp::Minus(AmountVar(1), AmountVar(2)),
+                    AmountOp::Minus(AmountVar(2), AmountVar(2)),
+                ],
+                bool_ops: vec![
+                    BoolOp::AmtGe(AmountVar(1), AmountVar(2)),
+                    BoolOp::IdEq(IdVar(1), IdVar(2)),
+                    BoolOp::IdEq(IdVar(4), IdVar(3)),
+                    BoolOp::AmtEq(AmountVar(2), AmountVar(2)),
+                    BoolOp::AmtGe(AmountVar(3), AmountVar(3)),
+                    BoolOp::AmtEq(AmountVar(4), AmountVar(3)),
+                    BoolOp::AmtGe(AmountVar(2), AmountVar(2)),
+                    BoolOp::AmtEq(AmountVar(5), AmountVar(3)),
+                ],
+                assertions: vec![
+                    BoolVar(0),
+                    BoolVar(1),
+                    BoolVar(2),
+                    BoolVar(3),
+                    BoolVar(4),
+                    BoolVar(5),
+                    BoolVar(6),
+                    BoolVar(7),
+                ],
+                required_signatures: vec![IdVar(0), IdVar(3)],
+                txn_template: vec![
+                    TxnOp::Transfer(AmountVar(2), ResourceVar(1), Some(ResourceVar(3))),
+                    TxnOp::Transfer(AmountVar(2), ResourceVar(0), Some(ResourceVar(2))),
+                ],
+            },
+            TxnCheck {
+                name: "repay_loan".to_string(),
+                in_params: vec![ResourceTypeVar(0), ResourceTypeVar(1)],
+                out_params: vec![ResourceTypeVar(0), ResourceTypeVar(1)],
+                id_ops: vec![
+                    IdOp::OwnerOf(ResourceVar(3)),
+                    IdOp::OwnerOf(ResourceVar(0)),
+                ],
+                rt_ops: vec![],
+                fraction_ops: vec![
+                    FractionOp::Var(FractionVar(0)),
+                    FractionOp::AmtTimes(AmountVar(1), FractionVar(1)),
+                ],
+                amount_ops: vec![
+                    AmountOp::AmountOf(ResourceVar(0)),
+                    AmountOp::AmountOf(ResourceVar(1)),
+                    AmountOp::Round(FractionVar(2)),
+                    AmountOp::Minus(AmountVar(2), AmountVar(3)),
+                    AmountOp::Minus(AmountVar(1), AmountVar(4)),
+                    AmountOp::Const(0),
+                    AmountOp::Minus(AmountVar(2), AmountVar(2)),
+                    AmountOp::Minus(AmountVar(5), AmountVar(5)),
+                ],
+                bool_ops: vec![
+                    BoolOp::IdEq(IdVar(1), IdVar(2)),
+                    BoolOp::AmtGe(AmountVar(2), AmountVar(3)),
+                    BoolOp::AmtGe(AmountVar(1), AmountVar(4)),
+                    BoolOp::AmtGe(AmountVar(1), AmountVar(5)),
+                    BoolOp::AmtGe(AmountVar(6), AmountVar(6)),
+                    BoolOp::AmtGe(AmountVar(2), AmountVar(2)),
+                    BoolOp::AmtEq(AmountVar(7), AmountVar(6)),
+                    BoolOp::AmtGe(AmountVar(5), AmountVar(5)),
+                    BoolOp::AmtEq(AmountVar(8), AmountVar(6)),
+                ],
+                assertions: vec![
+                    BoolVar(0),
+                    BoolVar(1),
+                    BoolVar(2),
+                    BoolVar(3),
+                    BoolVar(4),
+                    BoolVar(5),
+                    BoolVar(6),
+                    BoolVar(7),
+                    BoolVar(8),
+                ],
+                required_signatures: vec![],
+                txn_template: vec![
+                    TxnOp::Transfer(AmountVar(4), ResourceVar(0), None),
+                    TxnOp::Transfer(AmountVar(5), ResourceVar(0), Some(ResourceVar(2))),
+                    TxnOp::Transfer(AmountVar(2), ResourceVar(1), Some(ResourceVar(3))),
+                ],
+            },
+        ],
+    }
+}
+
+fn debt_globals(
+    code: &AssetTypeCode,
+    borrower: &XfrPublicKey,
+    interest_rate: Fraction,
+    fiat_type: AssetTypeCode,
+    amount: u64,
+) -> PolicyGlobals {
+    PolicyGlobals {
+        id_vars: vec![*borrower],
+        rt_vars: vec![(*code).val, fiat_type.val],
+        amt_vars: vec![amount],
+        frac_vars: vec![interest_rate],
+    }
+}
+
+fn policy_from_choice(
+    code: &AssetTypeCode,
+    borrower: &XfrPublicKey,
+    c: PolicyChoice,
+) -> Option<(Box<Policy>, PolicyGlobals)> {
+    match c {
+        PolicyChoice::Fungible() => None,
+        PolicyChoice::LoanToken(interest_rate, fiat_type, amount) => Some((
+            Box::new(debt_policy()),
+            debt_globals(code, borrower, interest_rate, fiat_type, amount),
+        )),
+    }
+}
+
+pub trait BuildsTransactions {
+    fn transaction(&self) -> &Transaction;
+    fn take_transaction(self) -> Transaction;
+    fn sign(&mut self, kp: &XfrKeyPair) -> &mut Self;
+    fn add_signature(
+        &mut self,
+        pk: &XfrPublicKey,
+        sig: SignatureOf<TransactionBody>,
+    ) -> Result<&mut Self>;
+    fn add_memo(&mut self, memo: Memo) -> &mut Self;
+    fn add_policy_option(
+        &mut self,
+        token_code: AssetTypeCode,
+        which_check: String,
+    ) -> &mut Self;
+    #[allow(clippy::too_many_arguments)]
+    fn add_operation_create_asset(
+        &mut self,
+        key_pair: &XfrKeyPair,
+        token_code: Option<AssetTypeCode>,
+        asset_rules: AssetRules,
+        memo: &str,
+        policy_choice: PolicyChoice,
+    ) -> Result<&mut Self>;
+    fn add_operation_issue_asset(
+        &mut self,
+        key_pair: &XfrKeyPair,
+        token_code: &AssetTypeCode,
+        seq_num: u64,
+        records: &[(TxOutput, Option<OwnerMemo>)],
+    ) -> Result<&mut Self>;
+    #[allow(clippy::too_many_arguments)]
+    fn add_operation_transfer_asset(
+        &mut self,
+        keys: &XfrKeyPair,
+        input_sids: Vec<TxoRef>,
+        input_records: &[OpenAssetRecord],
+        input_tracing_policies: Vec<Option<TracingPolicy>>,
+        input_identity_commitments: Vec<Option<ACCommitment>>,
+        output_records: &[AssetRecord],
+        output_identity_commitments: Vec<Option<ACCommitment>>,
+    ) -> Result<&mut Self>;
+    fn add_operation_update_memo(
+        &mut self,
+        auth_key_pair: &XfrKeyPair,
+        asset_code: AssetTypeCode,
+        new_memo: &str,
+    ) -> &mut Self;
+    fn add_operation_delegation(
+        &mut self,
+        keypair: &XfrKeyPair,
+        validator: TendermintAddr,
+    ) -> &mut Self;
+    fn add_operation_staking(
+        &mut self,
+        keypair: &XfrKeyPair,
+        td_pubkey: Vec<u8>,
+        commission_rate: [u64; 2],
+        memo: Option<StakerMemo>,
+    ) -> Result<&mut Self>;
+    fn add_operation_undelegation(
+        &mut self,
+        keypair: &XfrKeyPair,
+        pu: Option<PartialUnDelegation>,
+    ) -> &mut Self;
+    fn add_operation_claim(
+        &mut self,
+        keypair: &XfrKeyPair,
+        am: Option<u64>,
+    ) -> &mut Self;
+    fn add_operation_fra_distribution(
+        &mut self,
+        kps: &[&XfrKeyPair],
+        alloc_table: BTreeMap<XfrPublicKey, u64>,
+    ) -> Result<&mut Self>;
+    fn add_operation_governance(
+        &mut self,
+        kps: &[&XfrKeyPair],
+        byzantine_id: XfrPublicKey,
+        kind: ByzantineKind,
+        custom_amount: Option<[u64; 2]>,
+    ) -> Result<&mut Self>;
+    fn add_operation_update_validator(
+        &mut self,
+        kps: &[&XfrKeyPair],
+        h: BlockHeight,
+        v_set: Vec<Validator>,
+    ) -> Result<&mut Self>;
+
+    fn add_operation_bind_address(
+        &mut self,
+        kp: &XfrKeyPair,
+        smart_address: SmartAddress,
+    ) -> Result<&mut Self>;
+
+    fn add_operation_unbind_address(&mut self, kp: &XfrKeyPair) -> Result<&mut Self>;
+
+    fn serialize(&self) -> Vec<u8>;
+    fn serialize_str(&self) -> String;
+
+    fn add_operation(&mut self, op: Operation) -> &mut Self;
+
+    fn add_basic_issue_asset(
+        &mut self,
+        key_pair: &XfrKeyPair,
+        token_code: &AssetTypeCode,
+        seq_num: u64,
+        amount: u64,
+        confidentiality_flags: AssetRecordType,
+        zei_params: &PublicParams,
+    ) -> Result<&mut Self> {
+        let mut prng = ChaChaRng::from_entropy();
+        let ar = AssetRecordTemplate::with_no_asset_tracing(
+            amount,
+            token_code.val,
+            confidentiality_flags,
+            key_pair.get_pk(),
+        );
+
+        let (ba, _, owner_memo) =
+            build_blind_asset_record(&mut prng, &zei_params.pc_gens, &ar, vec![]);
+        self.add_operation_issue_asset(
+            key_pair,
+            token_code,
+            seq_num,
+            &[(
+                TxOutput {
+                    id: None,
+                    record: ba,
+                    lien: None,
+                },
+                owner_memo,
+            )],
+        )
+        .c(d!())
+    }
+
+    #[allow(clippy::comparison_chain)]
+    #[allow(clippy::too_many_arguments)]
+    fn add_basic_transfer_asset(
+        &mut self,
+        key_pair: &XfrKeyPair,
+        transfer_from: &[(&TxoRef, &BlindAssetRecord, u64, &Option<OwnerMemo>)],
+        input_tracing_policies: Vec<Option<TracingPolicy>>,
+        input_identity_commitments: Vec<Option<ACCommitment>>,
+        transfer_to: &[(u64, &AccountAddress)],
+        output_tracing_policies: Vec<Option<TracingPolicy>>,
+        output_identity_commitments: Vec<Option<ACCommitment>>,
+    ) -> Result<&mut Self> {
+        // TODO(fernando): where to get prng
+        let mut prng: ChaChaRng;
+        prng = ChaChaRng::from_entropy();
+
+        let input_sids: Vec<TxoRef> = transfer_from
+            .iter()
+            .map(|(ref txo_sid, _, _, _)| *(*txo_sid))
+            .collect();
+        let input_amounts: Vec<u64> = transfer_from
+            .iter()
+            .map(|(_, _, amount, _)| *amount)
+            .collect();
+        let input_oars: Result<Vec<OpenAssetRecord>> = transfer_from
+            .iter()
+            .map(|(_, ref ba, _, owner_memo)| {
+                open_blind_asset_record(&ba, owner_memo, &key_pair)
+            })
+            .collect();
+        let input_oars = input_oars.c(d!(PlatformError::ZeiError(None)))?;
+        let input_total: u64 = input_amounts.iter().sum();
+        let mut partially_consumed_inputs = Vec::new();
+        for ((input_amount, oar), input_tracing_policy) in input_amounts
+            .iter()
+            .zip(input_oars.iter())
+            .zip(input_tracing_policies.iter())
+        {
+            if input_amount > oar.get_amount() {
+                return Err(eg!(PlatformError::InputsError(None)));
+            } else if input_amount < oar.get_amount() {
+                let mut policies = TracingPolicies::new();
+                if let Some(policy) = &input_tracing_policy {
+                    policies.add(policy.clone());
+                }
+                let ar = AssetRecordTemplate::with_asset_tracing(
+                    oar.get_amount() - input_amount,
+                    *oar.get_asset_type(),
+                    oar.get_record_type(),
+                    *oar.get_pub_key(),
+                    policies,
+                );
+                partially_consumed_inputs.push(ar);
+            }
+        }
+        let output_total = transfer_to.iter().fold(0, |acc, (amount, _)| acc + amount);
+        if input_total != output_total {
+            return Err(eg!(PlatformError::InputsError(None)));
+        }
+        let asset_type = input_oars[0].get_asset_type();
+        let asset_record_type = input_oars[0].get_record_type();
+        let mut output_ars_templates = Vec::new();
+        for ((amount, ref addr), output_tracing_policy) in
+            transfer_to.iter().zip(output_tracing_policies.iter())
+        {
+            let mut policies = TracingPolicies::new();
+            if let Some(policy) = output_tracing_policy {
+                policies.add(policy.clone())
+            }
+            let template = AssetRecordTemplate::with_asset_tracing(
+                *amount,
+                *asset_type,
+                asset_record_type,
+                addr.key,
+                policies,
+            );
+            output_ars_templates.push(template);
+        }
+        output_ars_templates.append(&mut partially_consumed_inputs);
+        let output_ars: Result<Vec<AssetRecord>> = output_ars_templates
+            .iter()
+            .map(|x| AssetRecord::from_template_no_identity_tracing(&mut prng, x))
+            .collect();
+        let output_ars = output_ars.c(d!(PlatformError::ZeiError(None)))?;
+        self.add_operation_transfer_asset(
+            &key_pair,
+            input_sids,
+            &input_oars,
+            input_tracing_policies,
+            input_identity_commitments,
+            &output_ars,
+            output_identity_commitments,
+        )
+        .c(d!())?;
+
+        Ok(self)
+    }
+}
+
 pub struct FeeInput {
     /// Amount
     pub am: u64,
@@ -82,18 +516,15 @@ pub struct FeeInput {
 }
 
 #[derive(Default)]
-#[allow(missing_docs)]
 pub struct FeeInputs {
     pub inner: Vec<FeeInput>,
 }
 
 impl FeeInputs {
-    #[allow(missing_docs)]
     pub fn new() -> Self {
         FeeInputs::default()
     }
 
-    #[allow(missing_docs)]
     pub fn append(
         &mut self,
         am: u64,
@@ -106,27 +537,22 @@ impl FeeInputs {
     }
 }
 
-/// An simple builder for findora transaction
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionBuilder {
     txn: Transaction,
     outputs: u64,
-    #[allow(missing_docs)]
-    pub no_replay_token: NoReplayToken,
+    no_replay_token: NoReplayToken,
 }
 
 impl TransactionBuilder {
-    /// Convert builder to it's inner transaction
     pub fn into_transaction(self) -> Transaction {
         self.txn
     }
 
-    /// Get reference of it's inner transaction
     pub fn get_transaction(&self) -> &Transaction {
         &self.txn
     }
 
-    /// Get the outputs of asset `transfer` and `issue` operation in transaction
     pub fn get_relative_outputs(&self) -> Vec<(BlindAssetRecord, Option<OwnerMemo>)> {
         // lien outputs can NOT be used as fee
         macro_rules! seek {
@@ -259,17 +685,14 @@ impl TransactionBuilder {
         self.txn.check_fee()
     }
 
-    #[allow(missing_docs)]
     pub fn get_owner_memo_ref(&self, idx: usize) -> Option<&OwnerMemo> {
         self.txn.get_owner_memos_ref()[idx]
     }
 
-    #[allow(missing_docs)]
     pub fn get_output_ref(&self, idx: usize) -> TxOutput {
         self.txn.get_outputs_ref(true)[idx].clone()
     }
 
-    /// Create a instance from seq_id
     pub fn from_seq_id(seq_id: u64) -> Self {
         let mut prng = ChaChaRng::from_entropy();
         let no_replay_token = NoReplayToken::new(&mut prng, seq_id);
@@ -279,78 +702,53 @@ impl TransactionBuilder {
             no_replay_token,
         }
     }
-
-    #[allow(missing_docs)]
-    pub fn get_seq_id(&self) -> u64 {
-        self.no_replay_token.get_seq_id()
-    }
 }
 
-impl TransactionBuilder {
-    /// Add a basic asset issuing operation to builder and return modified builder
-    pub fn add_basic_issue_asset(
-        &mut self,
-        key_pair: &XfrKeyPair,
-        token_code: &AssetTypeCode,
-        seq_num: u64,
-        amount: u64,
-        confidentiality_flags: AssetRecordType,
-        zei_params: &PublicParams,
-    ) -> Result<&mut Self> {
-        let mut prng = ChaChaRng::from_entropy();
-        let ar = AssetRecordTemplate::with_no_asset_tracing(
-            amount,
-            token_code.val,
-            confidentiality_flags,
-            key_pair.get_pk(),
-        );
-
-        let (ba, _, owner_memo) =
-            build_blind_asset_record(&mut prng, &zei_params.pc_gens, &ar, vec![]);
-        self.add_operation_issue_asset(
-            key_pair,
-            token_code,
-            seq_num,
-            &[(
-                TxOutput {
-                    id: None,
-                    record: ba,
-                    lien: None,
-                },
-                owner_memo,
-            )],
-        )
-        .c(d!())
-    }
-
-    #[allow(missing_docs)]
-    pub fn transaction(&self) -> &Transaction {
+impl BuildsTransactions for TransactionBuilder {
+    fn transaction(&self) -> &Transaction {
         &self.txn
     }
 
-    #[allow(missing_docs)]
-    pub fn take_transaction(self) -> Transaction {
+    fn take_transaction(self) -> Transaction {
         self.txn
     }
 
-    /// Append a transaction memo
-    pub fn add_memo(&mut self, memo: Memo) -> &mut Self {
+    fn add_memo(&mut self, memo: Memo) -> &mut Self {
         self.txn.body.memos.push(memo);
         self
     }
 
-    /// Add asset creating operation to builder an return modified builder
-    pub fn add_operation_create_asset(
+    fn add_policy_option(
+        &mut self,
+        token_code: AssetTypeCode,
+        which_check: String,
+    ) -> &mut Self {
+        if self.txn.body.policy_options.is_none() {
+            self.txn.body.policy_options = Some(TxnPolicyData(vec![]));
+        }
+        self.txn
+            .body
+            .policy_options
+            .as_mut()
+            .unwrap()
+            .0
+            .push((token_code, TxnCheckInputs { which_check }));
+        self
+    }
+
+    fn add_operation_create_asset(
         &mut self,
         key_pair: &XfrKeyPair,
         token_code: Option<AssetTypeCode>,
         asset_rules: AssetRules,
         memo: &str,
+        policy_choice: PolicyChoice,
     ) -> Result<&mut Self> {
         let token_code = match token_code {
             Some(code) => code,
             None => AssetTypeCode::gen_random(),
         };
+        let pol = policy_from_choice(&token_code, key_pair.get_pk_ref(), policy_choice);
         let iss_keypair = IssuerKeyPair { keypair: &key_pair };
         self.txn.add_operation(Operation::DefineAsset(
             DefineAsset::new(
@@ -362,6 +760,7 @@ impl TransactionBuilder {
                     asset_rules,
                     Some(Memo(memo.into())),
                     Some(ConfidentialMemo {}),
+                    pol,
                 )
                 .c(d!())?,
                 &iss_keypair,
@@ -371,9 +770,7 @@ impl TransactionBuilder {
 
         Ok(self)
     }
-
-    /// Add asset issuing operation to builder and return modified builder
-    pub fn add_operation_issue_asset(
+    fn add_operation_issue_asset(
         &mut self,
         key_pair: &XfrKeyPair,
         token_code: &AssetTypeCode,
@@ -392,9 +789,7 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// Add asset transfer operation to builder and return modified builder
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_operation_transfer_asset(
+    fn add_operation_transfer_asset(
         &mut self,
         keys: &XfrKeyPair,
         input_sids: Vec<TxoRef>,
@@ -404,6 +799,7 @@ impl TransactionBuilder {
         output_records: &[AssetRecord],
         _output_identity_commitments: Vec<Option<ACCommitment>>,
     ) -> Result<&mut Self> {
+        // TODO(joe/noah): keep a prng around somewhere?
         let mut prng: ChaChaRng;
         prng = ChaChaRng::from_entropy();
         let mut input_asset_records = vec![];
@@ -420,7 +816,7 @@ impl TransactionBuilder {
                     oar.clone(),
                     policies,
                 )
-                .c(d!())?,
+                .c(d!(PlatformError::ZeiError(None)))?,
             );
         }
 
@@ -443,8 +839,7 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// Add a operation to updating asset memo
-    pub fn add_operation_update_memo(
+    fn add_operation_update_memo(
         &mut self,
         auth_key_pair: &XfrKeyPair,
         asset_code: AssetTypeCode,
@@ -465,31 +860,22 @@ impl TransactionBuilder {
         self
     }
 
-    /// Add a operation to delegating finddra accmount to a tendermint validator.
-    /// The transfer operation to BLACK_HOLE_PUBKEY_STAKING should be sent along with.
-    pub fn add_operation_delegation(
+    fn add_operation_delegation(
         &mut self,
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
     ) -> &mut Self {
-        let op = DelegationOps::new(
-            keypair,
-            None,
-            validator,
-            None,
-            self.txn.body.no_replay_token,
-        );
+        let op =
+            DelegationOps::new(keypair, validator, None, self.txn.body.no_replay_token);
         self.add_operation(Operation::Delegation(op))
     }
 
-    /// Add a operation to updating staker memo and commission_rate
-    pub fn add_operation_update_staker(
+    fn add_operation_staking(
         &mut self,
         keypair: &XfrKeyPair,
-        vltor_key: &PrivateKey,
         td_pubkey: Vec<u8>,
         commission_rate: [u64; 2],
-        memo: StakerMemo,
+        memo: Option<StakerMemo>,
     ) -> Result<&mut Self> {
         let v_id = keypair.get_pk();
 
@@ -500,56 +886,13 @@ impl TransactionBuilder {
             return Err(eg!("invalid pubkey, invalid address"));
         }
 
-        let op = UpdateStakerOps::new(
-            keypair,
-            vltor_key,
-            vaddr,
-            v,
-            self.txn.body.no_replay_token,
-        );
-
-        Ok(self.add_operation(Operation::UpdateStaker(op)))
-    }
-
-    /// Add a staking operation to add a tendermint node as a validator
-    pub fn add_operation_staking(
-        &mut self,
-        keypair: &XfrKeyPair,
-        vltor_key: &PrivateKey,
-        td_pubkey: Vec<u8>,
-        commission_rate: [u64; 2],
-        memo: Option<String>,
-    ) -> Result<&mut Self> {
-        let v_id = keypair.get_pk();
-
-        let memo = if memo.is_some() {
-            serde_json::from_str(memo.unwrap().as_str()).c(d!())?
-        } else {
-            Default::default()
-        };
-
-        let v = Validator::new_staker(td_pubkey, v_id, commission_rate, memo).c(d!())?;
-        let vaddr = td_addr_to_string(&v.td_addr);
-
-        if !is_valid_tendermint_addr(&vaddr) {
-            return Err(eg!("invalid pubkey, invalid address"));
-        }
-
-        let op = DelegationOps::new(
-            keypair,
-            Some(vltor_key),
-            vaddr,
-            Some(v),
-            self.txn.body.no_replay_token,
-        );
+        let op =
+            DelegationOps::new(keypair, vaddr, Some(v), self.txn.body.no_replay_token);
 
         Ok(self.add_operation(Operation::Delegation(op)))
     }
 
-    /// Add a operation to reduce delegation amount of a findora account.
-    /// If no validator address and FRA amount provided, it will be a full un-delegation
-    /// Otherwise, it will withdraw some FRA from the validator
-    pub fn add_operation_undelegation(
+    fn add_operation_undelegation(
         &mut self,
         keypair: &XfrKeyPair,
         pu: Option<PartialUnDelegation>,
@@ -558,8 +901,7 @@ impl TransactionBuilder {
         self.add_operation(Operation::UnDelegation(Box::new(op)))
     }
 
-    /// Add a operation to claim all the rewards
-    pub fn add_operation_claim(
+    fn add_operation_claim(
         &mut self,
         keypair: &XfrKeyPair,
         am: Option<u64>,
@@ -568,8 +910,7 @@ impl TransactionBuilder {
         self.add_operation(Operation::Claim(op))
     }
 
-    #[allow(missing_docs)]
-    pub fn add_operation_fra_distribution(
+    fn add_operation_fra_distribution(
         &mut self,
         kps: &[&XfrKeyPair],
         alloc_table: BTreeMap<XfrPublicKey, u64>,
@@ -579,8 +920,7 @@ impl TransactionBuilder {
             .map(move |op| self.add_operation(Operation::FraDistribution(op)))
     }
 
-    #[allow(missing_docs)]
-    pub fn add_operation_governance(
+    fn add_operation_governance(
         &mut self,
         kps: &[&XfrKeyPair],
         byzantine_id: XfrPublicKey,
@@ -598,8 +938,7 @@ impl TransactionBuilder {
         .map(move |op| self.add_operation(Operation::Governance(op)))
     }
 
-    /// Add a operation update the validator set at specified block height.
-    pub fn add_operation_update_validator(
+    fn add_operation_update_validator(
         &mut self,
         kps: &[&XfrKeyPair],
         h: BlockHeight,
@@ -610,20 +949,38 @@ impl TransactionBuilder {
             .map(move |op| self.add_operation(Operation::UpdateValidator(op)))
     }
 
-    #[allow(missing_docs)]
-    pub fn add_operation(&mut self, op: Operation) -> &mut Self {
+    fn add_operation_bind_address(
+        &mut self,
+        kp: &XfrKeyPair,
+        smart_address: SmartAddress,
+    ) -> Result<&mut Self> {
+        self.add_operation(Operation::BindAddressOp(BindAddressOp::new(
+            kp,
+            smart_address,
+            self.txn.body.no_replay_token,
+        )));
+        Ok(self)
+    }
+
+    fn add_operation_unbind_address(&mut self, kp: &XfrKeyPair) -> Result<&mut Self> {
+        self.add_operation(Operation::UnbindAddressOp(UnbindAddressOp::new(
+            kp,
+            self.txn.body.no_replay_token,
+        )));
+        Ok(self)
+    }
+
+    fn add_operation(&mut self, op: Operation) -> &mut Self {
         self.txn.add_operation(op);
         self
     }
 
-    /// Signing this transaction with XfrKeyPair
-    pub fn sign(&mut self, kp: &XfrKeyPair) -> &mut Self {
+    fn sign(&mut self, kp: &XfrKeyPair) -> &mut Self {
         self.txn.sign(kp);
         self
     }
 
-    /// Check and append signature to transaction
-    pub fn add_signature(
+    fn add_signature(
         &mut self,
         pk: &XfrPublicKey,
         sig: SignatureOf<TransactionBody>,
@@ -633,15 +990,13 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    #[allow(missing_docs)]
-    pub fn serialize(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         // Unwrap is safe beacuse the underlying transaction is guaranteed to be serializable.
         let j = serde_json::to_string(&self.txn).unwrap();
         j.as_bytes().to_vec()
     }
 
-    #[allow(missing_docs)]
-    pub fn serialize_str(&self) -> String {
+    fn serialize_str(&self) -> String {
         // Unwrap is safe because the underlying transaction is guaranteed to be serializable.
         serde_json::to_string(&self.txn).unwrap()
     }
@@ -658,6 +1013,9 @@ pub(crate) fn build_record_and_get_blinds<R: CryptoRng + RngCore>(
     // - if no policy, then no identity proof needed
     // - if policy and identity tracing, then identity proof is needed
     // - if policy but no identity tracing, then no identity proof is needed
+    // TODO (fernando) this code does not handle more than one policy, hence the following assert
+    // REDMINE #104
+    debug_assert!(template.asset_tracing_policies.len() <= 1);
     let asset_tracing = !template.asset_tracing_policies.is_empty();
     if !asset_tracing && identity_proof.is_some()
         || asset_tracing
@@ -678,7 +1036,7 @@ pub(crate) fn build_record_and_get_blinds<R: CryptoRng + RngCore>(
                     .is_none()
                     && identity_proof.is_some())
     {
-        return Err(eg!());
+        return Err(eg!(PlatformError::InputsError(None)));
     }
     // 1. get ciphertext and proofs from identity proof structure
     let (attr_ctext, reveal_proof) = match identity_proof {
@@ -713,15 +1071,33 @@ pub(crate) fn build_record_and_get_blinds<R: CryptoRng + RngCore>(
             asset_tracers_memos: asset_tracing_memos,
         },
         (
-            open_asset_record.amount_blinds.0 .0,
-            open_asset_record.amount_blinds.1 .0,
+            open_asset_record.amount_blinds.0.0,
+            open_asset_record.amount_blinds.1.0,
         ),
         open_asset_record.type_blind.0,
     ))
 }
 
-/// TransferOperationBuilder constructs transfer operations using the factory pattern
-/// Inputs and outputs are added iteratively before being signed by all input record owners
+// TransferOperationBuilder constructs transfer operations using the factory pattern
+// Inputs and outputs are added iteratively before being signed by all input record owners
+//
+// Example usage:
+//
+//    let alice = XfrKeyPair::generate(&mut prng);
+//    let bob = XfrKeyPair::generate(&mut prng);
+//
+//    let ar = AssetRecord::new(1000, code_1.val, *alice.get_pk_ref()).c(d!())?;
+//    let ba = build_blind_asset_record(&mut prng, &params.pc_gens, &ar_1, false, false, &None);
+//
+//    let builder = TransferOperationBuilder::new()..add_input(TxoRef::Relative(1),
+//                                       open_blind_asset_record(&ba, &alice).c(d!())?,
+//                                       None,
+//                                       20)?
+//                            .add_output(20, bob.get_pk_ref(), code_1)?
+//                            .balance()?
+//                            .create(TransferType::Standard)?
+//                            .sign(&alice)?;
+//
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct TransferOperationBuilder {
     input_sids: Vec<TxoRef>,
@@ -737,13 +1113,12 @@ pub struct TransferOperationBuilder {
 }
 
 impl TransferOperationBuilder {
-    #[allow(missing_docs)]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// TxoRef is the location of the input on the ledger and the amount is how much of the record
-    /// should be spent in the transfer. See tests for example usage.
+    // TxoRef is the location of the input on the ledger and the amount is how much of the record
+    // should be spent in the transfer. See tests for example usage.
     pub fn add_input(
         &mut self,
         txo_sid: TxoRef,
@@ -753,9 +1128,9 @@ impl TransferOperationBuilder {
         amount: u64,
     ) -> Result<&mut Self> {
         if self.transfer.is_some() {
-            return Err(eg!(
-                ("Cannot mutate a transfer that has been signed".to_string())
-            ));
+            return Err(eg!(inv_fail!(
+                "Cannot mutate a transfer that has been signed".to_string()
+            )));
         }
         let policies = tracing_policies.unwrap_or_default();
 
@@ -765,7 +1140,7 @@ impl TransferOperationBuilder {
                 open_ar,
                 policies.clone(),
             )
-            .c(d!())?;
+            .c(d!(PlatformError::ZeiError(None)))?;
         self.input_sids.push(txo_sid);
         self.input_records.push(asset_record);
         self.inputs_tracing_policies.push(policies);
@@ -774,7 +1149,6 @@ impl TransferOperationBuilder {
         Ok(self)
     }
 
-    #[allow(missing_docs)]
     pub fn add_output(
         &mut self,
         asset_record_template: &AssetRecordTemplate,
@@ -784,9 +1158,9 @@ impl TransferOperationBuilder {
     ) -> Result<&mut Self> {
         let prng = &mut ChaChaRng::from_entropy();
         if self.transfer.is_some() {
-            return Err(eg!(
-                ("Cannot mutate a transfer that has been signed".to_string())
-            ));
+            return Err(eg!(inv_fail!(
+                "Cannot mutate a transfer that has been signed".to_string()
+            )));
         }
         let policies = tracing_policies.unwrap_or_default();
         let ar = if let Some((user_secret_key, credential, commitment_key)) =
@@ -819,9 +1193,9 @@ impl TransferOperationBuilder {
         blinds: &mut ((Scalar, Scalar), Scalar),
     ) -> Result<&mut Self> {
         if self.transfer.is_some() {
-            return Err(eg!(
-                ("Cannot mutate a transfer that has been signed".to_string())
-            ));
+            return Err(eg!(inv_fail!(
+                "Cannot mutate a transfer that has been signed".to_string()
+            )));
         }
         let (ar, amount_blinds, type_blind) =
             if let Some((user_secret_key, credential, commitment_key)) =
@@ -830,13 +1204,13 @@ impl TransferOperationBuilder {
                 match asset_record_template.asset_tracing_policies.get_policy(0) {
                     None => {
                         // identity tracing must have asset_tracing policy
-                        return Err(eg!());
+                        return Err(eg!(PlatformError::InputsError(None)));
                     }
                     Some(policy) => {
                         match &policy.identity_tracing {
                             // policy must have a identity tracing policy
                             None => {
-                                return Err(eg!());
+                                return Err(eg!(PlatformError::InputsError(None)));
                             }
                             Some(reveal_policy) => {
                                 let conf_ac = ac_confidential_open_commitment(
@@ -848,7 +1222,7 @@ impl TransferOperationBuilder {
                                     &reveal_policy.reveal_map,
                                     &[],
                                 )
-                                .c(d!())?;
+                                .c(d!(PlatformError::ZeiError(None)))?;
                                 build_record_and_get_blinds(
                                     prng,
                                     &asset_record_template,
@@ -864,7 +1238,7 @@ impl TransferOperationBuilder {
                     asset_record_template.asset_tracing_policies.get_policy(0)
                 {
                     if policy.identity_tracing.is_some() {
-                        return Err(eg!());
+                        return Err(eg!(PlatformError::InputsError(None)));
                     }
                 }
                 build_record_and_get_blinds(prng, &asset_record_template, None)?
@@ -878,33 +1252,27 @@ impl TransferOperationBuilder {
         Ok(self)
     }
 
-    /// Ensures that outputs and inputs are balanced by adding remainder outputs for leftover asset
-    /// amounts
+    // Ensures that outputs and inputs are balanced by adding remainder outputs for leftover asset
+    // amounts
     pub fn balance(&mut self) -> Result<&mut Self> {
         let mut prng = ChaChaRng::from_entropy();
         if self.transfer.is_some() {
-            return Err(eg!(
-                ("Cannot mutate a transfer that has been signed".to_string())
-            ));
+            return Err(eg!(inv_fail!(
+                "Cannot mutate a transfer that has been signed".to_string()
+            )));
         }
-
-        // for: repeated/idempotent balance
-        let mut amt_cache = vec![];
-
         let spend_total: u64 = self.spend_amounts.iter().sum();
         let mut partially_consumed_inputs = Vec::new();
-
-        for (idx, ((spend_amount, ar), policies)) in self
+        for ((spend_amount, ar), policies) in self
             .spend_amounts
             .iter()
             .zip(self.input_records.iter())
             .zip(self.inputs_tracing_policies.iter())
-            .enumerate()
         {
             let amt = ar.open_asset_record.get_amount();
-            match spend_amount.cmp(amt) {
+            match spend_amount.cmp(&amt) {
                 Ordering::Greater => {
-                    return Err(eg!());
+                    return Err(eg!(PlatformError::InputsError(None)));
                 }
                 Ordering::Less => {
                     let asset_type = *ar.open_asset_record.get_asset_type();
@@ -925,36 +1293,24 @@ impl TransferOperationBuilder {
                     partially_consumed_inputs.push(ar);
                     self.outputs_tracing_policies.push(policies.clone());
                     self.output_identity_commitments.push(None);
-
-                    // for: repeated/idempotent balance
-                    amt_cache.push((idx, *amt));
                 }
                 _ => {}
             }
         }
-
         let output_total = self
             .output_records
             .iter()
             .fold(0, |acc, ar| acc + ar.open_asset_record.amount);
         if spend_total != output_total {
-            return Err(eg!(format!("{} != {}", spend_total, output_total)));
+            return Err(eg!(PlatformError::InputsError(None)));
         }
         self.output_records.append(&mut partially_consumed_inputs);
-
-        // for: repeated/idempotent balance
-        amt_cache.into_iter().for_each(|(idx, am)| {
-            self.spend_amounts[idx] = am;
-        });
-
         Ok(self)
     }
 
-    /// Finalize the transaction and prepare for signing. Once called, the transaction cannot be
-    /// modified.
+    // Finalize the transaction and prepare for signing. Once called, the transaction cannot be
+    // modified.
     pub fn create(&mut self, transfer_type: TransferType) -> Result<&mut Self> {
-        self.balance().c(d!())?;
-
         let mut prng = ChaChaRng::from_entropy();
         let num_inputs = self.input_records.len();
         let num_outputs = self.output_records.len();
@@ -978,7 +1334,6 @@ impl TransferOperationBuilder {
         Ok(self)
     }
 
-    #[allow(missing_docs)]
     pub fn get_output_record(&self, idx: usize) -> Option<BlindAssetRecord> {
         self.transfer
             .as_ref()?
@@ -989,7 +1344,7 @@ impl TransferOperationBuilder {
             .cloned()
     }
 
-    /// All input owners must sign eventually for the transaction to be valid.
+    // All input owners must sign eventually for the transaction to be valid.
     pub fn sign(&mut self, kp: &XfrKeyPair) -> Result<&mut Self> {
         if self.transfer.is_none() {
             return Err(eg!(no_transfer_err!()));
@@ -998,7 +1353,6 @@ impl TransferOperationBuilder {
         Ok(self)
     }
 
-    #[allow(missing_docs)]
     pub fn create_input_signature(
         &self,
         keypair: &XfrKeyPair,
@@ -1011,7 +1365,19 @@ impl TransferOperationBuilder {
         Ok(sig)
     }
 
-    #[allow(missing_docs)]
+    pub fn create_cosignature(
+        &self,
+        keypair: &XfrKeyPair,
+        input_idx: usize,
+    ) -> Result<IndexedSignature<TransferAssetBody>> {
+        let sig = self
+            .transfer
+            .as_ref()
+            .c(d!(no_transfer_err!()))?
+            .create_cosignature(keypair, input_idx);
+        Ok(sig)
+    }
+
     pub fn attach_signature(
         &mut self,
         sig: IndexedSignature<TransferAssetBody>,
@@ -1024,7 +1390,18 @@ impl TransferOperationBuilder {
         Ok(self)
     }
 
-    /// Return the transaction operation
+    // Add a co-signature for an input.
+    pub fn sign_cosignature(
+        &mut self,
+        kp: &XfrKeyPair,
+        input_idx: usize,
+    ) -> Result<&mut Self> {
+        let mut new_transfer = self.transfer.as_mut().c(d!(no_transfer_err!()))?.clone();
+        new_transfer.sign_cosignature(&kp, input_idx);
+        Ok(self)
+    }
+
+    // Return the transaction operation
     pub fn transaction(&self) -> Result<Operation> {
         if self.transfer.is_none() {
             return Err(eg!(no_transfer_err!()));
@@ -1032,7 +1409,7 @@ impl TransferOperationBuilder {
         Ok(Operation::TransferAsset(self.transfer.clone().c(d!())?))
     }
 
-    /// Checks to see whether all necessary signatures are present and valid
+    // Checks to see whether all necessary signatures are present and valid
     pub fn validate_signatures(&mut self) -> Result<&mut Self> {
         if self.transfer.is_none() {
             return Err(eg!(no_transfer_err!()));
@@ -1042,14 +1419,14 @@ impl TransferOperationBuilder {
         let mut sig_keys = HashSet::new();
         for sig in &trn.body_signatures {
             if !sig.verify(&trn.body) {
-                return Err(eg!(("Invalid signature")));
+                return Err(eg!(inv_fail!("Invalid signature")));
             }
             sig_keys.insert(sig.address.key.zei_to_bytes());
         }
 
         for record in &trn.body.transfer.inputs {
             if !sig_keys.contains(&record.public_key.zei_to_bytes()) {
-                return Err(eg!(("Not all signatures present")));
+                return Err(eg!(inv_fail!("Not all signatures present")));
             }
         }
         Ok(self)
@@ -1057,11 +1434,10 @@ impl TransferOperationBuilder {
 }
 
 #[cfg(test)]
-#[allow(missing_docs)]
 mod tests {
     use super::*;
-    use ledger::data_model::{TxnEffect, TxoRef};
-    use ledger::store::{utils::fra_gen_initial_tx, LedgerState};
+    use ledger::data_model::TxoRef;
+    use ledger::store::{fra_gen_initial_tx, LedgerAccess, LedgerState, LedgerUpdate};
     use rand_chacha::ChaChaRng;
     use rand_core::SeedableRng;
     use zei::setup::PublicParams;
@@ -1280,7 +1656,7 @@ mod tests {
 
     #[test]
     fn test_check_fee_with_ledger() {
-        let mut ledger = LedgerState::tmp_ledger();
+        let mut ledger = LedgerState::test_ledger();
         let fra_owner_kp = XfrKeyPair::generate(&mut ChaChaRng::from_entropy());
         let bob_kp = XfrKeyPair::generate(&mut ChaChaRng::from_entropy());
         assert_eq!(
@@ -1313,7 +1689,7 @@ mod tests {
                     .add_input(
                         TxoRef::Absolute($txo_sid),
                         open_blind_asset_record(
-                            &ledger.get_utxo_light($txo_sid).unwrap().utxo.0.record,
+                            &ledger.get_utxo($txo_sid).unwrap().utxo.0.record,
                             &None,
                             &fra_owner_kp,
                         )
@@ -1357,18 +1733,23 @@ mod tests {
 
         // (0) transfer first time
         let mut fi = FeeInputs::new();
-        let utxo = ledger.get_utxo_light(txo_sid[0]).unwrap();
+        let utxo = ledger.get_utxo(txo_sid[0]).unwrap();
         fi.append(
             TX_FEE_MIN,
             TxoRef::Absolute(txo_sid[0]),
             utxo.utxo.0,
-            utxo.txn.txn.get_owner_memos_ref()[utxo.utxo_location.0].cloned(),
+            utxo.authenticated_txn
+                .finalized_txn
+                .txn
+                .get_owner_memos_ref()[utxo.utxo_location.0]
+                .cloned(),
             bob_kp.get_sk().into_keypair(),
         );
         let mut tx3 = TransactionBuilder::from_seq_id(2);
-        pnk!(tx3
-            .add_operation(transfer_to_bob!(txo_sid[2], bob_kp.get_pk()))
-            .add_fee(fi));
+        pnk!(
+            tx3.add_operation(transfer_to_bob!(txo_sid[2], bob_kp.get_pk()))
+                .add_fee(fi)
+        );
         assert!(tx3.check_fee());
 
         let effect = TxnEffect::compute_effect(tx3.into_transaction()).unwrap();
@@ -1387,12 +1768,16 @@ mod tests {
 
         // (2) transfer second time
         let mut fi = FeeInputs::new();
-        let utxo = ledger.get_utxo_light(txo_sid[0]).unwrap();
+        let utxo = ledger.get_utxo(txo_sid[0]).unwrap();
         fi.append(
             TX_FEE_MIN,
             TxoRef::Absolute(txo_sid[0]),
             utxo.utxo.0,
-            utxo.txn.txn.get_owner_memos_ref()[utxo.utxo_location.0].cloned(),
+            utxo.authenticated_txn
+                .finalized_txn
+                .txn
+                .get_owner_memos_ref()[utxo.utxo_location.0]
+                .cloned(),
             bob_kp.get_sk().into_keypair(),
         );
         let mut tx4 = TransactionBuilder::from_seq_id(3);
@@ -1412,5 +1797,6 @@ mod tests {
         let effect = TxnEffect::compute_effect(tx).unwrap();
         let mut block = ledger.start_block().unwrap();
         assert!(ledger.apply_transaction(&mut block, effect, false).is_err());
+        ledger.abort_block(block);
     }
 }
