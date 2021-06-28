@@ -1685,6 +1685,7 @@ pub struct Delegation {
 /// Detail of each reward entry.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DelegationRwdDetail {
+    bond: Amount,
     amount: Amount,
     return_rate: [u128; 2],
     commission_rate: [u64; 2],
@@ -1778,6 +1779,7 @@ impl Delegation {
                     self.rwd_detail.insert(
                         cur_height,
                         DelegationRwdDetail {
+                            bond: self.amount(),
                             amount: n,
                             return_rate,
                             commission_rate,
