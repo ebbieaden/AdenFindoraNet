@@ -48,7 +48,7 @@ impl UnDelegationOps {
     }
 
     #[inline(always)]
-    fn check_context(tx: &Transaction) -> Result<Option<PartialUnDelegation>> {
+    fn check_context(tx: &Transaction) -> Result<Option<&PartialUnDelegation>> {
         check_undelegation_context(tx).c(d!())
     }
 
@@ -117,7 +117,7 @@ impl Data {
 }
 
 #[inline(always)]
-fn check_undelegation_context(tx: &Transaction) -> Result<Option<PartialUnDelegation>> {
+fn check_undelegation_context(tx: &Transaction) -> Result<Option<&PartialUnDelegation>> {
     let ud = tx
         .body
         .operations
@@ -132,7 +132,7 @@ fn check_undelegation_context(tx: &Transaction) -> Result<Option<PartialUnDelega
         .collect::<Vec<_>>();
 
     if 1 == ud.len() {
-        Ok(ud[0].body.pu)
+        Ok(ud[0].body.pu.as_ref())
     } else {
         Err(eg!())
     }

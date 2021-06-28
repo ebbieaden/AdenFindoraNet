@@ -11,7 +11,7 @@
 ## Example
 
 ```shell
-**You can download**:
+**You can download (outdated)**:
 
 - Linux
     - https://github.com/FindoraNetwork/iii/releases/download/fnstest/fns.linux
@@ -41,8 +41,8 @@ tendermint init
 
 curl https://dev-qa01.dev.findora.org:26657/genesis \
     | jq -c \
-    | perl -pi -e 's/^{"jsonrpc":"2.0","id":-1,"result":{"genesis"://' \
-    | perl -pi -e 's/}}$//' \
+    | perl -pe 's/^{"jsonrpc":"2.0","id":-1,"result":{"genesis"://' \
+    | perl -pe 's/}}$//' \
     | jq > ~/.tendermint/config/genesis.json
 
 perl -pi -e 's#(create_empty_blocks_interval = ).*#$1"15s"#' ~/.tendermint/config/config.toml
@@ -72,8 +72,7 @@ fns setup -S https://dev-qa01.dev.findora.org
 fns setup -O $(pwd)/mnemonic.key
 
 # set the tendermint public key of your node
-pubkey=$(grep -A 2 'pub_key' ~/.tendermint/config/priv_validator_key.json | grep '"value":' | grep -o '[^"]\+"$' | sed 's/"//')
-fns setup -K $pubkey
+fns setup -K "${HOME}/.tendermint/config/priv_validator_key.json"
 
 # stake your node to FindoraNetwork,
 # at least 1000000 FRAs are needed

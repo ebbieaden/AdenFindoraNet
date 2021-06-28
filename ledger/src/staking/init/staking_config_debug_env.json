@@ -6,14 +6,16 @@
       "td_addr": "611C922247C3BE7EA13455B191B6EFD909F10196",
       "td_pubkey": "6mITXUxjZYhcBF66D8C4v+Z89YljjmbgE2U+PZa/RUI=",
       "td_power": null,
-      "memo": null
+      "memo": null,
+      "kind": "Initor"
     },
     {
       "id": "cO59Dn_2VfCCm8VQVhL77PH9ng6U_peZ2l5wEMFE9iE=",
       "td_addr": "5A006EA8455C6DB35B4B60B7218774B2E589482B",
       "td_pubkey": "jPtIT40lXioxg9kwI35Fa4jT/CroIQzkIoOpMPWGBys=",
       "td_power": null,
-      "memo": null
+      "memo": null,
+      "kind": "Staker"
     },
     {
       "id": "YwgZyiFMXrQfaKSpG40xz_PsRF3hgbvmbYz8AOWyWao=",
