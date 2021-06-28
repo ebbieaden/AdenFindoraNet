@@ -3,6 +3,7 @@ use abci::*;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::TxnEffect,
+    staking::is_coinbase_tx,
     store::{LedgerAccess, LedgerUpdate},
 };
 use parking_lot::Mutex;
@@ -66,7 +67,8 @@ pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseC
     // Get the Tx [u8] and convert to u64
     if let Some(tx) = convert_tx(req.get_tx()) {
         let mut resp = ResponseCheckTx::new();
-        if !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
+        if is_coinbase_tx(&tx)
+            || !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
             || ruc::info!(TxnEffect::compute_effect(tx)).is_err()
         {
             resp.set_code(1);
@@ -84,7 +86,9 @@ pub fn deliver_tx(
 ) -> ResponseDeliverTx {
     if let Some(tx) = convert_tx(req.get_tx()) {
         let mut resp = ResponseDeliverTx::new();
-        if tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)) {
+        if !is_coinbase_tx(&tx)
+            && tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
+        {
             // set attr(tags) if any
             let attr = utils::gen_tendermint_attr(&tx);
             if 0 < attr.len() {
@@ -138,7 +142,20 @@ pub fn end_block(
 ) -> ResponseEndBlock {
     let mut resp = ResponseEndBlock::new();
 
+    let begin_block_req = REQ_BEGIN_BLOCK.lock();
+    let header = pnk!(begin_block_req.header.as_ref());
+
     let mut la = s.la.write();
+
+    // mint coinbase, cache system transactions to ledger
+    {
+        let laa = la.get_committed_state().write();
+        if let Some(tx) = staking::system_mint_pay(&*laa) {
+            drop(laa);
+            // this unwrap should be safe
+            la.cache_transaction(tx).unwrap();
+        }
+    }
 
     if la.block_txn_count() == 0 {
         la.pulse_block();
@@ -152,18 +169,11 @@ pub fn end_block(
         }
     }
 
-    let begin_block_req = REQ_BEGIN_BLOCK.lock();
-    let header = pnk!(begin_block_req.header.as_ref());
-
-    let is_replaying = !begin_block_req.appHashCurReplay.is_empty();
-
-    if !is_replaying {
-        if let Ok(Some(vs)) = ruc::info!(staking::get_validators(
-            la.get_committed_state().read().get_staking(),
-            begin_block_req.last_commit_info.as_ref(),
-        )) {
-            resp.set_validator_updates(RepeatedField::from_vec(vs));
-        }
+    if let Ok(Some(vs)) = ruc::info!(staking::get_validators(
+        la.get_committed_state().read().get_staking(),
+        begin_block_req.last_commit_info.as_ref()
+    )) {
+        resp.set_validator_updates(RepeatedField::from_vec(vs));
     }
 
     staking::system_ops(
@@ -171,8 +181,6 @@ pub fn end_block(
         &header,
         begin_block_req.last_commit_info.as_ref(),
         &begin_block_req.byzantine_validators.as_slice(),
-        la.get_fwder().as_ref(),
-        is_replaying,
     );
 
     s.app.end_block(req);

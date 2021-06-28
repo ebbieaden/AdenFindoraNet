@@ -15,12 +15,12 @@ use cryptohash::sha256;
 use ledger::{
     data_model::{
         AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
-        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
+        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
     },
     policies::{DebtMemo, Fraction},
     staking::{
-        PartialUnDelegation, TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
-        MAX_DELEGATION_AMOUNT, MIN_DELEGATION_AMOUNT,
+        td_addr_to_bytes, PartialUnDelegation, TendermintAddr, MAX_DELEGATION_AMOUNT,
+        MIN_DELEGATION_AMOUNT,
     },
 };
 use rand_chacha::ChaChaRng;
@@ -528,12 +528,16 @@ impl TransactionBuilder {
         mut self,
         keypair: &XfrKeyPair,
         am: u64,
-        rwd_receiver: XfrPublicKey,
-        target_validator: XfrPublicKey,
+        target_validator: TendermintAddr,
     ) -> Result<TransactionBuilder, JsValue> {
+        let middle_pk = new_keypair().get_pk();
         self.get_builder_mut().add_operation_undelegation(
             keypair,
-            Some(PartialUnDelegation::new(am, rwd_receiver, target_validator)),
+            Some(PartialUnDelegation::new(
+                am,
+                middle_pk,
+                td_addr_to_bytes(&target_validator).map_err(error_to_jsvalue)?,
+            )),
         );
         Ok(self)
     }
@@ -1453,13 +1457,13 @@ pub fn get_delegation_target_address() -> String {
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_address() -> String {
-    wallet::public_key_to_base64(&COINBASE_PK)
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_principal_address() -> String {
-    wallet::public_key_to_base64(&COINBASE_PRINCIPAL_PK)
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]

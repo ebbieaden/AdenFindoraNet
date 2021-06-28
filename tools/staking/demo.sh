@@ -17,7 +17,7 @@ cd $EXEC_PATH || exit 1
 
 SERVER_HOST=http://localhost
 RWD_KEY_PATH=/tmp/staking_rwd.key
-TD_NODE_PUBKEY=BSiMm6HFCzWBPB8s1ZOEqtWm6u6dj2Ftamm1s4msg24=
+TD_NODE_KEY="${HOME}/.tendermint/config/priv_validator_key.json"
 FRA_TOTAL_AMOUNT=21000000000000000
 
 export LEDGER_DIR=/tmp/xx
@@ -59,7 +59,7 @@ init() {
 
     fns setup -S ${SERVER_HOST} || exit 1
     fns setup -O ${RWD_KEY_PATH} || exit 1
-    fns setup -K ${TD_NODE_PUBKEY} || exit 1
+    fns setup -K ${TD_NODE_KEY} || exit 1
 
     stt init || exit 1
 }

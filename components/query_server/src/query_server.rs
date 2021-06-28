@@ -37,6 +37,7 @@ where
     addresses_to_utxos: HashMap<XfrAddress, HashSet<TxoSID>>,
     related_transactions: HashMap<XfrAddress, HashSet<TxnSID>>, // Set of transactions related to a ledger address
     related_transfers: HashMap<AssetTypeCode, HashSet<TxnSID>>, // Set of transfer transactions related to an asset code
+    claim_hist_txns: HashMap<XfrAddress, Vec<TxnSID>>, // List of claim transactions related to a ledger address
     created_assets: HashMap<IssuerPublicKey, Vec<DefineAsset>>,
     traced_assets: HashMap<IssuerPublicKey, Vec<AssetTypeCode>>, // List of assets traced by a ledger address
     issuances: HashMap<IssuerPublicKey, Issuances>, // issuance mapped by public key
@@ -60,6 +61,7 @@ where
             addresses_to_utxos: map! {},
             related_transactions: map! {},
             related_transfers: map! {},
+            claim_hist_txns: map! {},
             owner_memos: map! {},
             created_assets: map! {},
             traced_assets: map! {},
@@ -111,6 +113,55 @@ where
         issuer: &IssuerPublicKey,
     ) -> Option<&Vec<AssetTypeCode>> {
         self.traced_assets.get(issuer)
+    }
+
+    // Returns a list of claim transactions of a given ledger address
+    pub fn get_claim_transactions(
+        &self,
+        address: &XfrAddress,
+        start: usize,
+        end: usize,
+        order_desc: bool,
+    ) -> Result<Vec<Option<Transaction>>> {
+        if let Some(hist) = self.claim_hist_txns.get(address) {
+            let len = hist.len();
+            if len > start {
+                let slice = match order_desc {
+                    false => {
+                        let mut new_end = len;
+                        if len > end {
+                            new_end = end;
+                        }
+                        hist[start..new_end].to_vec()
+                    }
+                    true => {
+                        let mut new_start = 0;
+                        if len > end {
+                            new_start = len - end;
+                        }
+                        let mut tmp = hist[new_start..len - start].to_vec();
+                        tmp.reverse();
+                        tmp
+                    }
+                };
+
+                let ledger = Arc::clone(&self.committed_state);
+                let ledger = ledger.read();
+
+                return Ok(slice
+                    .iter()
+                    .map(|h| {
+                        if let Some(txn) = ledger.get_transaction(*h) {
+                            Some(txn.finalized_txn.txn)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect());
+            }
+        }
+
+        Err(eg!("Record not found"))
     }
 
     // Returns the set of transactions that are in some way related to a given ledger address.
@@ -286,8 +337,25 @@ where
                     (addresses, owner_memos)
                 };
 
+                let classify_op = |op: &Operation| {
+                    if let Operation::Claim(i) = op {
+                        let key = i.get_claim_publickey();
+                        let hist = self
+                            .claim_hist_txns
+                            .entry(XfrAddress { key })
+                            .or_insert_with(Vec::new);
+
+                        // keep it in ascending order to reduce memory movement count
+                        match hist.binary_search_by(|a| a.0.cmp(&txn_sid.0)) {
+                            Ok(_) => { /*skip if txn_sid already exists*/ }
+                            Err(idx) => hist.insert(idx, txn_sid),
+                        }
+                    };
+                };
+
                 // Update related addresses
-                let related_addresses = get_related_addresses(&curr_txn);
+                // Apply classify_op for each operation in curr_txn
+                let related_addresses = get_related_addresses(&curr_txn, classify_op);
                 for address in &related_addresses {
                     self.related_transactions
                         .entry(*address)
@@ -351,14 +419,16 @@ where
         pnk!(self.apply_new_blocks());
     }
 }
-
 // An xfr address is related to a transaction if it is one of the following:
 // 1. Owner of a transfer output
 // 2. Transfer signer (owner of input or co-signer)
 // 3. Signer of a an issuance txn
 // 4. Signer of a kv_update txn
 // 5. Signer of a memo_update txn
-fn get_related_addresses(txn: &Transaction) -> HashSet<XfrAddress> {
+fn get_related_addresses<F>(txn: &Transaction, mut classify: F) -> HashSet<XfrAddress>
+where
+    F: FnMut(&Operation),
+{
     let mut related_addresses = HashSet::new();
 
     macro_rules! staking_gen {
@@ -370,6 +440,7 @@ fn get_related_addresses(txn: &Transaction) -> HashSet<XfrAddress> {
     }
 
     for op in &txn.body.operations {
+        classify(op);
         match op {
             Operation::Delegation(i) => staking_gen!(i),
             Operation::UnDelegation(i) => staking_gen!(i),
@@ -377,6 +448,7 @@ fn get_related_addresses(txn: &Transaction) -> HashSet<XfrAddress> {
             Operation::UpdateValidator(i) => staking_gen!(i),
             Operation::Governance(i) => staking_gen!(i),
             Operation::FraDistribution(i) => staking_gen!(i),
+            Operation::MintFra(i) => staking_gen!(i),
 
             Operation::TransferAsset(transfer) => {
                 for input in transfer.body.transfer.inputs.iter() {

@@ -144,14 +144,17 @@ impl TxnEffect {
             match op {
                 Operation::Delegation(i) => {
                     check_nonce!(i);
+                    i.verify().c(d!())?;
                     delegations.push(i.clone());
                 }
                 Operation::UnDelegation(i) => {
                     check_nonce!(i);
+                    i.verify().c(d!())?;
                     undelegations.push(i.as_ref().clone());
                 }
                 Operation::Claim(i) => {
                     check_nonce!(i);
+                    i.verify().c(d!())?;
                     claims.push(i.clone());
                 }
                 Operation::UpdateValidator(i) => {
@@ -168,6 +171,12 @@ impl TxnEffect {
                 Operation::FraDistribution(i) => {
                     check_nonce!(i);
                     fra_distributions.push(i.clone());
+                }
+                Operation::MintFra(i) => {
+                    i.entries.iter().for_each(|et| {
+                        txos.push(Some(et.utxo.clone()));
+                        txo_count += 1;
+                    });
                 }
 
                 // An asset creation is valid iff:

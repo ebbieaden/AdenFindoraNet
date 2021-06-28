@@ -113,14 +113,15 @@ else
 	$(call pack_musl_debug,$(target_dir))
 endif
 
-test: staking_test
+test:
 	cargo test --release --workspace -- --test-threads=1
+	cargo test --release --features="abci_mock" abci_mock -- --test-threads=1
 	cargo test --release --workspace -- --ignored
 
 staking_test:
 	$(unset LEDGER_DIR)
-	cargo test staking -- --test-threads=1 --nocapture
-	cargo test staking --features="abci_mock" -- --test-threads=1 --nocapture
+	cargo test --release staking -- --test-threads=1 --nocapture
+	cargo test --release staking --features="abci_mock" -- --test-threads=1 --nocapture
 
 staking_cfg:
 	cargo run --bin staking_cfg_generator
@@ -220,6 +221,9 @@ endif
 ####@./scripts/devnet/snapshot.sh <user_nick> <password> <token_name> <max_units> <genesis_issuance> <memo> <memo_updatable>
 snapshot:
 	@./scripts/devnet/snapshot.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
+
+network:
+	@./scripts/devnet/startnetwork.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
 
 ####@./scripts/devnet/resetnodes.sh <num_of_validator_nodes> <num_of_normal_nodes>
 mainnet:
