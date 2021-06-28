@@ -1956,9 +1956,13 @@ impl LedgerAccess for LedgerState {
                     sid,
                     (
                         au.utxo,
-                        au.authenticated_txn.finalized_txn.txn.get_owner_memos_ref()
-                            [au.utxo_location.0]
-                            .cloned(),
+                        au.authenticated_txn
+                            .finalized_txn
+                            .txn
+                            .get_owner_memos_ref()
+                            .get(au.utxo_location.0)
+                            .map(|i| i.cloned())
+                            .flatten(),
                     ),
                 )
             })

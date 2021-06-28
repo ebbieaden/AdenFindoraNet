@@ -8,13 +8,14 @@ use crate::{
     policy_script::{Policy, PolicyGlobals, TxnPolicyData},
     ser_fail,
     staking::{
+        is_coinbase_tx,
         ops::{
             claim::ClaimOps, delegation::DelegationOps,
             fra_distribution::FraDistributionOps, governance::GovernanceOps,
-            undelegation::UnDelegationOps, update_validator::UpdateValidatorOps,
+            mint_fra::MintFraOps, undelegation::UnDelegationOps,
+            update_validator::UpdateValidatorOps,
         },
-        Staking, TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
-        MAX_POWER_PERCENT_PER_VALIDATOR,
+        Staking, TendermintAddr, MAX_POWER_PERCENT_PER_VALIDATOR,
     },
 };
 
@@ -630,7 +631,7 @@ impl NoReplayToken {
         NoReplayToken(prng.next_u64().to_be_bytes(), seq_id)
     }
 
-    pub fn testonly_new(rand: u64, seq_id: u64) -> Self {
+    pub fn unsafe_new(rand: u64, seq_id: u64) -> Self {
         NoReplayToken(rand.to_be_bytes(), seq_id)
     }
 
@@ -994,6 +995,7 @@ pub enum Operation {
     FraDistribution(FraDistributionOps),
     BindAddressOp(BindAddressOp),
     UnbindAddressOp(UnbindAddressOp),
+    MintFra(MintFraOps),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
@@ -1114,6 +1116,7 @@ impl Validator {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ValidatorDetail {
     pub addr: TendermintAddr,
+    pub kind: String,
     pub is_online: bool,
     pub voting_power: u64,
     pub voting_power_rank: usize,
@@ -1135,11 +1138,8 @@ pub struct DelegatorInfo {
 }
 
 impl DelegatorInfo {
-    pub fn new(key: &XfrPublicKey, am: &u64) -> Self {
-        Self {
-            addr: wallet::public_key_to_base64(key),
-            amount: *am,
-        }
+    pub fn new(addr: String, amount: u64) -> Self {
+        DelegatorInfo { addr, amount }
     }
 }
 
@@ -1157,9 +1157,10 @@ impl DelegatorList {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DelegationInfo {
     pub bond: u64,
+    pub bond_entries: Vec<(String, u64)>,
     pub unbond: u64,
     pub rewards: u64,
-    pub return_rate: [u64; 2],
+    pub return_rate: [u128; 2],
     pub global_delegation: u64,
     pub global_staking: u64,
     pub start_height: u64,
@@ -1179,14 +1180,16 @@ impl DelegationInfo {
 
     pub fn new(
         bond: u64,
+        bond_entries: Vec<(String, u64)>,
         unbond: u64,
         rewards: u64,
-        return_rate: [u64; 2],
+        return_rate: [u128; 2],
         global_delegation: u64,
         global_staking: u64,
     ) -> Self {
         Self {
             bond,
+            bond_entries,
             unbond,
             rewards,
             return_rate,
@@ -1457,6 +1460,8 @@ lazy_static! {
     /// The destination of Fee is an black hole,
     /// all token transfered to it will be burned.
     pub static ref BLACK_HOLE_PUBKEY: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[0; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
+    /// BlackHole of Staking
+    pub static ref BLACK_HOLE_PUBKEY_STAKING: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[1; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
 }
 
 /// see [**mainnet-v1.0 defination**](https://www.notion.so/findora/Transaction-Fees-Analysis-d657247b70f44a699d50e1b01b8a2287)
@@ -1484,37 +1489,34 @@ impl Transaction {
         //
         // But it seems enough for v1.0 when we combined it with limiting
         // the payload size of submission-server's http-requests.
-        self.body.operations.iter().any(|ops| {
-            if let Operation::TransferAsset(ref x) = ops {
-                return x.body.outputs.iter().any(|o| {
-                    if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                        if ty == ASSET_TYPE_FRA
-                            && *BLACK_HOLE_PUBKEY == o.record.public_key
-                        {
-                            if let XfrAmount::NonConfidential(am) = o.record.amount {
-                                if am > (TX_FEE_MIN - 1) {
-                                    return true;
+        is_coinbase_tx(self)
+            || self.body.operations.iter().any(|ops| {
+                if let Operation::TransferAsset(ref x) = ops {
+                    return x.body.outputs.iter().any(|o| {
+                        if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
+                            if ty == ASSET_TYPE_FRA
+                                && *BLACK_HOLE_PUBKEY == o.record.public_key
+                            {
+                                if let XfrAmount::NonConfidential(am) = o.record.amount {
+                                    if am > (TX_FEE_MIN - 1) {
+                                        return true;
+                                    }
                                 }
                             }
                         }
+                        false
+                    });
+                } else if let Operation::DefineAsset(ref x) = ops {
+                    if x.body.asset.code.val == ASSET_TYPE_FRA {
+                        return true;
                     }
-                    false
-                }) || (!x.body.transfer.inputs.is_empty()
-                    && x.body.transfer.inputs.iter().all(|i| {
-                        *COINBASE_PK == i.public_key
-                            || *COINBASE_PRINCIPAL_PK == i.public_key
-                    }));
-            } else if let Operation::DefineAsset(ref x) = ops {
-                if x.body.asset.code.val == ASSET_TYPE_FRA {
-                    return true;
+                } else if let Operation::IssueAsset(ref x) = ops {
+                    if x.body.code.val == ASSET_TYPE_FRA {
+                        return true;
+                    }
                 }
-            } else if let Operation::IssueAsset(ref x) = ops {
-                if x.body.code.val == ASSET_TYPE_FRA {
-                    return true;
-                }
-            }
-            false
-        })
+                false
+            })
     }
 
     /// Issuing FRA is denied except in the genesis block.
@@ -1522,7 +1524,7 @@ impl Transaction {
         // block height of mainnet has been higher than this value
         const HEIGHT_LIMIT: i64 = 10_0000;
 
-        // **mainnet v1.0**:
+        // **mainnet v0.1**:
         // FRA is defined and issued in genesis block.
         if HEIGHT_LIMIT > tendermint_block_height {
             return true;
@@ -1612,6 +1614,18 @@ impl Transaction {
         tx
     }
 
+    pub fn from_operation_coinbase_mint(op: Operation, seq_id: u64) -> Self {
+        let mut tx = Transaction {
+            body: TransactionBody::from_token(NoReplayToken::unsafe_new(
+                seq_id.saturating_add(1357).saturating_mul(89),
+                seq_id,
+            )),
+            signatures: Vec::new(),
+        };
+        tx.add_operation(op);
+        tx
+    }
+
     pub fn add_operation(&mut self, mut op: Operation) {
         set_no_replay_token(&mut op, self.body.no_replay_token);
         self.body.operations.push(op);
@@ -1635,7 +1649,7 @@ impl Transaction {
     }
 
     pub fn get_owner_memos_ref(&self) -> Vec<Option<&OwnerMemo>> {
-        let mut memos = vec![];
+        let mut memos = Vec::new();
         for op in self.body.operations.iter() {
             match op {
                 Operation::TransferAsset(xfr_asset) => {
@@ -1658,7 +1672,7 @@ impl Transaction {
             eff.txos.into_iter().flatten().collect()
         } else {
             let mut spent = eff.internally_spent_txos.into_iter();
-            let mut ret = vec![];
+            let mut ret = Vec::new();
             for txo in eff.txos.into_iter() {
                 if let Some(txo) = txo {
                     ret.push(txo);
@@ -1669,8 +1683,8 @@ impl Transaction {
             ret
         }
 
-        // let mut outputs = vec![];
-        // let mut spent_indices = vec![];
+        // let mut outputs = Vec::new();
+        // let mut spent_indices = Vec::new();
         // for op in self.body.operations.iter() {
         //   match op {
         //     Operation::TransferAsset(xfr_asset) => {
@@ -1951,8 +1965,8 @@ mod tests {
                 asset_type_and_amount_proof: AssetTypeAndAmountProof::NoProof,
                 asset_tracing_proof: Default::default(),
             },
-            asset_tracing_memos: vec![],
-            owners_memos: vec![],
+            asset_tracing_memos: Vec::new(),
+            owners_memos: Vec::new(),
         };
 
         let no_policies = TracingPolicies::new();
@@ -1969,7 +1983,7 @@ mod tests {
             outputs: Vec::new(),
             policies,
             transfer: Box::new(xfr_note),
-            lien_assignments: vec![],
+            lien_assignments: Vec::new(),
             transfer_type: TransferType::Standard,
         };
 

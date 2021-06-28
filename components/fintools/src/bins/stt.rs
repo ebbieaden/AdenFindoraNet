@@ -13,10 +13,10 @@ use clap::{crate_authors, crate_version, App, SubCommand};
 use fintools::fns::utils as fns;
 use lazy_static::lazy_static;
 use ledger::{
-    data_model::Transaction,
+    data_model::{Transaction, BLACK_HOLE_PUBKEY_STAKING},
     staking::{
-        check_delegation_amount, BLOCK_INTERVAL, COINBASE_KP, COINBASE_PK,
-        COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK, FRA, FRA_TOTAL_AMOUNT,
+        check_delegation_amount, gen_random_keypair, td_addr_to_bytes, BLOCK_INTERVAL,
+        FRA, FRA_TOTAL_AMOUNT,
     },
     store::fra_gen_initial_tx,
 };
@@ -52,10 +52,12 @@ fn run() -> Result<()> {
     let subcmd_init = SubCommand::with_name("init");
     let subcmd_delegate = SubCommand::with_name("delegate")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
-        .arg_from_usage("-n, --amount=[Amount] 'how much FRA to delegate'")
+        .arg_from_usage("-n, --amount=[Amount] 'how much FRA units to delegate'")
         .arg_from_usage("-v, --validator=[Validator] 'which validator to delegate to'");
     let subcmd_undelegate = SubCommand::with_name("undelegate")
-        .arg_from_usage("-u, --user=[User] 'user name of delegator'");
+        .arg_from_usage("-u, --user=[User] 'user name of the delegator'")
+        .arg_from_usage("-n, --amount=[Amount] 'how much FRA to undelegate, needed for partial undelegation'")
+        .arg_from_usage("-v, --validator=[Validator] 'which validator to undelegate from, needed for partial undelegation'");
     let subcmd_claim = SubCommand::with_name("claim")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to claim'");
@@ -64,7 +66,6 @@ fn run() -> Result<()> {
         .arg_from_usage("-t, --to-user=[User] 'transfer receiver'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to transfer'");
     let subcmd_show = SubCommand::with_name("show")
-        .arg_from_usage("-b, --coinbase 'show the infomation about coinbase'")
         .arg_from_usage("-r, --root-mnemonic 'show the pre-defined root mnemonic'")
         .arg_from_usage("-U, --user-list 'show the pre-defined user list'")
         .arg_from_usage("-v, --validator-list 'show the pre-defined validator list'")
@@ -99,11 +100,17 @@ fn run() -> Result<()> {
         }
     } else if let Some(m) = matches.subcommand_matches("undelegate") {
         let user = m.value_of("user");
+        let amount = m.value_of("amount");
+        let validator = m.value_of("validator");
 
-        if user.is_none() {
+        if user.is_none()
+            || user.unwrap().trim().is_empty()
+            || matches!((amount, validator), (Some(_), None) | (None, Some(_)))
+        {
             println!("{}", m.usage());
         } else {
-            undelegate::gen_tx(user.unwrap())
+            let amount = amount.and_then(|am| am.parse::<u64>().ok());
+            undelegate::gen_tx(user.unwrap(), amount, validator)
                 .c(d!())
                 .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
         }
@@ -127,24 +134,28 @@ fn run() -> Result<()> {
         let to = m.value_of("to-user");
         let amount = m.value_of("amount");
 
-        if from.is_none() || to.is_none() || amount.is_none() {
-            println!("{}", m.usage());
-        } else {
-            let amount = amount.unwrap().parse::<u64>().c(d!())?;
-            let owner_kp = search_kp(from.unwrap()).c(d!())?;
-            let target_pk = search_kp(to.unwrap()).c(d!())?.get_pk_ref();
-            let target = vec![(target_pk, amount)];
-            fns::transfer_batch(owner_kp, target).c(d!())?;
+        match (from, to, amount) {
+            (Some(sender), Some(receiver), Some(am)) => {
+                let am = am.parse::<u64>().c(d!())?;
+                let owner_kp = search_kp(sender).c(d!())?;
+                let target_pk = search_kp(receiver)
+                    .c(d!())
+                    .map(|kp| kp.get_pk())
+                    .or_else(|e| wallet::public_key_from_base64(receiver).c(d!(e)))?;
+                fns::transfer(owner_kp, &target_pk, am).c(d!())?;
+            }
+            _ => {
+                println!("{}", m.usage());
+            }
         }
     } else if let Some(m) = matches.subcommand_matches("show") {
-        let cb = m.is_present("coinbase");
         let rm = m.is_present("root-mnemonic");
         let ul = m.is_present("user-list");
         let vl = m.is_present("validator-list");
         let u = m.value_of("user");
 
-        if cb || rm || ul || vl || u.is_some() {
-            print_info(cb, rm, ul, vl, u).c(d!())?;
+        if rm || ul || vl || u.is_some() {
+            print_info(rm, ul, vl, u).c(d!())?;
         } else {
             println!("{}", m.usage());
         }
@@ -165,8 +176,8 @@ mod init {
         println!(">>> define and issue FRA...");
         fns::send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
 
-        println!(">>> wait 2 blocks...");
-        sleep_n_block!(2);
+        println!(">>> wait 4 blocks...");
+        sleep_n_block!(4);
 
         println!(">>> set initial validator set...");
         fns::set_initial_validators(&root_kp).c(d!())?;
@@ -174,20 +185,18 @@ mod init {
         println!(">>> wait 4 blocks...");
         sleep_n_block!(4);
 
-        let mut target_list = USER_LIST
+        let target_list = USER_LIST
             .values()
             .map(|u| &u.pubkey)
             .chain(VALIDATOR_LIST.values().map(|v| &v.pubkey))
             .map(|pk| (pk, FRA_TOTAL_AMOUNT / 10000))
             .collect::<Vec<_>>();
 
-        target_list.push((&*COINBASE_PK, 4_000_000_000_000));
-
         println!(">>> transfer FRAs to validators...");
         fns::transfer_batch(&root_kp, target_list).c(d!())?;
 
-        println!(">>> wait 2 blocks ...");
-        sleep_n_block!(2);
+        println!(">>> wait 6 blocks ...");
+        sleep_n_block!(6);
 
         println!(">>> propose self-delegations...");
         for v in VALIDATOR_LIST.values() {
@@ -220,7 +229,7 @@ mod delegate {
 
         let mut builder = fns::new_tx_builder().c(d!())?;
 
-        fns::gen_transfer_op(owner_kp, vec![(&COINBASE_PRINCIPAL_PK, amount)])
+        fns::gen_transfer_op(owner_kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, amount)])
             .c(d!())
             .map(|principal_op| {
                 builder.add_operation(principal_op);
@@ -233,16 +242,35 @@ mod delegate {
 
 mod undelegate {
     use super::*;
+    use ledger::staking::PartialUnDelegation;
 
-    pub fn gen_tx(user: NameRef) -> Result<Transaction> {
-        let owner_kp = &USER_LIST.get(user).c(d!())?.keypair;
+    pub fn gen_tx(
+        user: NameRef,
+        amount: Option<u64>,
+        validator: Option<NameRef>,
+    ) -> Result<Transaction> {
+        let owner_kp = &USER_LIST.get(user.trim()).c(d!())?.keypair;
+        let validator = validator
+            .and_then(|v| VALIDATOR_LIST.get(v))
+            .map(|x| pnk!(td_addr_to_bytes(&x.td_addr)));
 
         let mut builder = fns::new_tx_builder().c(d!())?;
 
         fns::gen_fee_op(owner_kp).c(d!()).map(|op| {
             builder.add_operation(op);
-            // TODO: suit for partial un-delegations
-            builder.add_operation_undelegation(owner_kp, None);
+            if let Some(amount) = amount {
+                // partial undelegation
+                builder.add_operation_undelegation(
+                    owner_kp,
+                    Some(PartialUnDelegation::new(
+                        amount,
+                        gen_random_keypair().get_pk(),
+                        validator.unwrap(),
+                    )),
+                );
+            } else {
+                builder.add_operation_undelegation(owner_kp, None);
+            }
         })?;
 
         Ok(builder.take_transaction())
@@ -267,26 +295,11 @@ mod claim {
 }
 
 fn print_info(
-    show_coinbse: bool,
     show_root_mnemonic: bool,
     show_user_list: bool,
     show_validator_list: bool,
     user: Option<NameRef>,
 ) -> Result<()> {
-    if show_coinbse {
-        let cb_balance = fns::get_balance(&COINBASE_KP).c(d!())?;
-        let cb_principal_balance = fns::get_balance(&COINBASE_PRINCIPAL_KP).c(d!())?;
-
-        println!(
-            "\x1b[31;01mCOINBASE BALANCE:\x1b[00m\n{} FRA units\n",
-            cb_balance
-        );
-        println!(
-            "\x1b[31;01mCOINBASE PRINCIPAL BALANCE:\x1b[00m\n{} FRA units\n",
-            cb_principal_balance
-        );
-    }
-
     if show_root_mnemonic {
         println!("\x1b[31;01mROOT MNEMONIC:\x1b[00m\n{}\n", ROOT_MNEMONIC);
     }

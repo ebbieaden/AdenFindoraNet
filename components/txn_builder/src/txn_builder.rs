@@ -33,6 +33,7 @@ use rand_core::{CryptoRng, RngCore, SeedableRng};
 use ruc::*;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
+use tendermint::PrivateKey;
 use utils::SignatureOf;
 use zei::api::anon_creds::{
     ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
@@ -322,6 +323,7 @@ pub trait BuildsTransactions {
     fn add_operation_staking(
         &mut self,
         keypair: &XfrKeyPair,
+        vltor_key: &PrivateKey,
         td_pubkey: Vec<u8>,
         commission_rate: [u64; 2],
         memo: Option<StakerMemo>,
@@ -865,14 +867,20 @@ impl BuildsTransactions for TransactionBuilder {
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
     ) -> &mut Self {
-        let op =
-            DelegationOps::new(keypair, validator, None, self.txn.body.no_replay_token);
+        let op = DelegationOps::new(
+            keypair,
+            None,
+            validator,
+            None,
+            self.txn.body.no_replay_token,
+        );
         self.add_operation(Operation::Delegation(op))
     }
 
     fn add_operation_staking(
         &mut self,
         keypair: &XfrKeyPair,
+        vltor_key: &PrivateKey,
         td_pubkey: Vec<u8>,
         commission_rate: [u64; 2],
         memo: Option<StakerMemo>,
@@ -886,8 +894,13 @@ impl BuildsTransactions for TransactionBuilder {
             return Err(eg!("invalid pubkey, invalid address"));
         }
 
-        let op =
-            DelegationOps::new(keypair, vaddr, Some(v), self.txn.body.no_replay_token);
+        let op = DelegationOps::new(
+            keypair,
+            Some(vltor_key),
+            vaddr,
+            Some(v),
+            self.txn.body.no_replay_token,
+        );
 
         Ok(self.add_operation(Operation::Delegation(op)))
     }
