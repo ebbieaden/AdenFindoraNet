@@ -1243,16 +1243,22 @@ impl TransferOperationBuilder {
                 "Cannot mutate a transfer that has been signed".to_string()
             )));
         }
+
+        // for: repeated/idempotent balance
+        let mut amt_cache = vec![];
+
         let spend_total: u64 = self.spend_amounts.iter().sum();
         let mut partially_consumed_inputs = Vec::new();
-        for ((spend_amount, ar), policies) in self
+
+        for (idx, ((spend_amount, ar), policies)) in self
             .spend_amounts
             .iter()
             .zip(self.input_records.iter())
             .zip(self.inputs_tracing_policies.iter())
+            .enumerate()
         {
             let amt = ar.open_asset_record.get_amount();
-            match spend_amount.cmp(&amt) {
+            match spend_amount.cmp(amt) {
                 Ordering::Greater => {
                     return Err(eg!(PlatformError::InputsError(None)));
                 }
@@ -1275,10 +1281,14 @@ impl TransferOperationBuilder {
                     partially_consumed_inputs.push(ar);
                     self.outputs_tracing_policies.push(policies.clone());
                     self.output_identity_commitments.push(None);
+
+                    // for: repeated/idempotent balance
+                    amt_cache.push((idx, *amt));
                 }
                 _ => {}
             }
         }
+
         let output_total = self
             .output_records
             .iter()
@@ -1287,12 +1297,20 @@ impl TransferOperationBuilder {
             return Err(eg!(PlatformError::InputsError(None)));
         }
         self.output_records.append(&mut partially_consumed_inputs);
+
+        // for: repeated/idempotent balance
+        amt_cache.into_iter().for_each(|(idx, am)| {
+            self.spend_amounts[idx] = am;
+        });
+
         Ok(self)
     }
 
     // Finalize the transaction and prepare for signing. Once called, the transaction cannot be
     // modified.
     pub fn create(&mut self, transfer_type: TransferType) -> Result<&mut Self> {
+        self.balance().c(d!())?;
+
         let mut prng = ChaChaRng::from_entropy();
         let num_inputs = self.input_records.len();
         let num_outputs = self.output_records.len();
