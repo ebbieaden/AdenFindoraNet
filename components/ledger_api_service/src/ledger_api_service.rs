@@ -5,8 +5,10 @@ extern crate actix_web;
 extern crate ledger;
 extern crate serde_json;
 
+mod response;
+
 use actix_cors::Cors;
-use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer};
+use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
 use ledger::address::{AddressBinder, SmartAddress};
 use ledger::staking::TendermintAddr;
 use ledger::{
@@ -466,7 +468,7 @@ where
 async fn query_address_map_by_xfr(
     data: web::Data<Arc<RwLock<AddressBinder>>>,
     address: web::Path<String>,
-) -> actix_web::Result<String> {
+) -> actix_web::Result<impl Responder> {
     let pk = wallet::public_key_from_base64(address.as_str())
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
@@ -477,17 +479,18 @@ async fn query_address_map_by_xfr(
         .get(&sa)
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    let ss = match result {
-        Some(addr) => addr.to_string(),
-        None => String::new(),
+    let result = if let Some(addr) = result {
+        response::Response::new_success(Some(addr.to_string()))
+    } else {
+        response::Response::new_no_address()
     };
-    Ok(ss)
+    Ok(web::Json(result))
 }
 
 async fn query_address_map_by_eth(
     data: web::Data<Arc<RwLock<AddressBinder>>>,
     address: web::Path<String>,
-) -> actix_web::Result<String> {
+) -> actix_web::Result<impl Responder> {
     let sa = SmartAddress::from_ethereum_address(&address)
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
@@ -497,11 +500,12 @@ async fn query_address_map_by_eth(
         .get(&sa)
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    let ss = match result {
-        Some(addr) => addr.to_string(),
-        None => String::new(),
+    let result = if let Some(addr) = result {
+        response::Response::new_success(Some(addr.to_string()))
+    } else {
+        response::Response::new_no_address()
     };
-    Ok(ss)
+    Ok(web::Json(result))
 }
 
 async fn query_delegation_info<SA>(
