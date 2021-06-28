@@ -1,7 +1,10 @@
 use serde::Serialize;
 
 #[derive(Serialize, Clone, Debug)]
-pub struct Response<T> where T: Serialize {
+pub struct Response<T>
+where
+    T: Serialize,
+{
     pub code: i64,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,4 +28,3 @@ impl<T: Serialize> Response<T> {
         }
     }
 }
-
