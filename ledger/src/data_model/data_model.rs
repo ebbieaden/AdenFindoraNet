@@ -1412,6 +1412,7 @@ impl FinalizedTransaction {
 
     pub fn set_txo_id(&mut self) {
         let ids = mem::take(&mut self.txo_ids);
+
         self.txn
             .body
             .operations
@@ -1641,6 +1642,9 @@ impl Transaction {
             match op {
                 Operation::TransferAsset(xfr_asset) => {
                     memos.append(&mut xfr_asset.get_owner_memos_ref());
+                }
+                Operation::MintFra(mint_asset) => {
+                    memos.append(&mut mint_asset.get_owner_memos_ref());
                 }
                 Operation::IssueAsset(issue_asset) => {
                     memos.append(&mut issue_asset.get_owner_memos_ref());

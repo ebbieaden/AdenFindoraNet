@@ -17,7 +17,7 @@ use zei::{
     setup::PublicParams,
     xfr::{
         asset_record::{build_blind_asset_record, AssetRecordType},
-        structs::AssetRecordTemplate,
+        structs::{AssetRecordTemplate, OwnerMemo},
     },
 };
 
@@ -42,6 +42,12 @@ impl MintFraOps {
     #[allow(missing_docs)]
     pub fn get_related_pubkeys(&self) -> Vec<XfrPublicKey> {
         self.entries.iter().map(|e| e.target_pk).collect()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_owner_memos_ref(&self) -> Vec<Option<&OwnerMemo>> {
+        vec![None; self.entries.len()]
     }
 }
 
