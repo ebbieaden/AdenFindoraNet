@@ -4,6 +4,7 @@
 //! A more standard CoinBase implementation.
 //!
 
+use crate::staking::BlockHeight;
 use crate::{
     data_model::{TxOutput, ASSET_TYPE_FRA},
     staking::{Amount, FRA},
@@ -26,14 +27,15 @@ pub const MINT_AMOUNT_LIMIT: Amount = 420 * 100_0000 * FRA;
 #[allow(missing_docs)]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MintFraOps {
+    pub height: BlockHeight,
     pub entries: Vec<MintEntry>,
 }
 
 impl MintFraOps {
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn new(entries: Vec<MintEntry>) -> Self {
-        MintFraOps { entries }
+    pub fn new(height: BlockHeight, entries: Vec<MintEntry>) -> Self {
+        MintFraOps { height, entries }
     }
 
     #[inline(always)]

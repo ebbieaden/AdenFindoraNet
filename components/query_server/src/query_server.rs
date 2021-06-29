@@ -3,6 +3,8 @@
 use lazy_static::lazy_static;
 use ledger::data_model::errors::PlatformError;
 use ledger::data_model::*;
+use ledger::staking::ops::mint_fra::MintEntry;
+use ledger::staking::BlockHeight;
 use ledger::store::*;
 use parking_lot::{Condvar, Mutex, RwLock};
 use ruc::*;
@@ -38,6 +40,7 @@ where
     related_transactions: HashMap<XfrAddress, HashSet<TxnSID>>, // Set of transactions related to a ledger address
     related_transfers: HashMap<AssetTypeCode, HashSet<TxnSID>>, // Set of transfer transactions related to an asset code
     claim_hist_txns: HashMap<XfrAddress, Vec<TxnSID>>, // List of claim transactions related to a ledger address
+    coinbase_oper_hist: HashMap<XfrAddress, Vec<(BlockHeight, MintEntry)>>,
     created_assets: HashMap<IssuerPublicKey, Vec<DefineAsset>>,
     traced_assets: HashMap<IssuerPublicKey, Vec<AssetTypeCode>>, // List of assets traced by a ledger address
     issuances: HashMap<IssuerPublicKey, Issuances>, // issuance mapped by public key
@@ -62,6 +65,7 @@ where
             related_transactions: map! {},
             related_transfers: map! {},
             claim_hist_txns: map! {},
+            coinbase_oper_hist: map! {},
             owner_memos: map! {},
             created_assets: map! {},
             traced_assets: map! {},
@@ -113,6 +117,41 @@ where
         issuer: &IssuerPublicKey,
     ) -> Option<&Vec<AssetTypeCode>> {
         self.traced_assets.get(issuer)
+    }
+
+    pub fn get_coinbase_entries(
+        &self,
+        address: &XfrAddress,
+        start: usize,
+        end: usize,
+        order_desc: bool,
+    ) -> Result<Vec<(u64, MintEntry)>> {
+        if let Some(hist) = self.coinbase_oper_hist.get(address) {
+            let len = hist.len();
+            if len > start {
+                let slice = match order_desc {
+                    false => {
+                        let mut new_end = len;
+                        if len > end {
+                            new_end = end;
+                        }
+                        hist[start..new_end].to_vec()
+                    }
+                    true => {
+                        let mut new_start = 0;
+                        if len > end {
+                            new_start = len - end;
+                        }
+                        let mut tmp = hist[new_start..len - start].to_vec();
+                        tmp.reverse();
+                        tmp
+                    }
+                };
+                return Ok(slice);
+            }
+        }
+
+        Err(eg!("Record not found"))
     }
 
     // Returns a list of claim transactions of a given ledger address
@@ -338,18 +377,29 @@ where
                 };
 
                 let classify_op = |op: &Operation| {
-                    if let Operation::Claim(i) = op {
-                        let key = i.get_claim_publickey();
-                        let hist = self
-                            .claim_hist_txns
-                            .entry(XfrAddress { key })
-                            .or_insert_with(Vec::new);
+                    match op {
+                        Operation::Claim(i) => {
+                            let key = i.get_claim_publickey();
+                            let hist = self
+                                .claim_hist_txns
+                                .entry(XfrAddress { key })
+                                .or_insert_with(Vec::new);
 
-                        // keep it in ascending order to reduce memory movement count
-                        match hist.binary_search_by(|a| a.0.cmp(&txn_sid.0)) {
-                            Ok(_) => { /*skip if txn_sid already exists*/ }
-                            Err(idx) => hist.insert(idx, txn_sid),
+                            // keep it in ascending order to reduce memory movement count
+                            match hist.binary_search_by(|a| a.0.cmp(&txn_sid.0)) {
+                                Ok(_) => { /*skip if txn_sid already exists*/ }
+                                Err(idx) => hist.insert(idx, txn_sid),
+                            }
                         }
+                        Operation::MintFra(i) => i.entries.iter().for_each(|me| {
+                            let key = me.utxo.record.public_key;
+                            let hist = self
+                                .coinbase_oper_hist
+                                .entry(XfrAddress { key })
+                                .or_insert_with(Vec::new);
+                            hist.push((i.height, me.clone()));
+                        }),
+                        _ => { /* filter more operations before this line */ }
                     };
                 };
 

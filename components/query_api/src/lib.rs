@@ -9,6 +9,7 @@ use ledger::data_model::{
     b64dec, AssetTypeCode, DefineAsset, IssuerPublicKey, Transaction, TxOutput, TxnSID,
     TxoSID, XfrAddress,
 };
+use ledger::staking::ops::mint_fra::MintEntry;
 use ledger::{inp_fail, ser_fail};
 use log::info;
 use metrics::{Key as MetricsKey, KeyData};
@@ -316,7 +317,7 @@ where
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ClaimQueryParams {
+pub struct WalletQueryParams {
     address: String,
     page: usize,
     per_page: usize,
@@ -330,10 +331,50 @@ enum OrderOption {
     Asc,
 }
 
+async fn get_coinbase_oper_list<U>(
+    data: web::Data<Arc<RwLock<QueryServer<U>>>>,
+    web::Query(info): web::Query<WalletQueryParams>,
+) -> actix_web::Result<web::Json<Vec<(u64, MintEntry)>>>
+where
+    U: MetricsRenderer,
+{
+    // Convert from base64 representation
+    let key: XfrPublicKey = wallet::public_key_from_base64(&info.address)
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+
+    let query_server = data.read();
+
+    if info.page == 0 {
+        return Ok(web::Json(vec![]));
+    }
+
+    let start = (info.page - 1)
+        .checked_mul(info.per_page)
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+    let end = start
+        .checked_add(info.per_page)
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+
+    let records = query_server
+        .get_coinbase_entries(
+            &XfrAddress { key },
+            start,
+            end,
+            info.order == OrderOption::Desc,
+        )
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+
+    Ok(web::Json(records))
+}
+
 // Returns the list of claim transations of a given ledger address
 async fn get_claim_txns<U>(
     data: web::Data<Arc<RwLock<QueryServer<U>>>>,
-    web::Query(info): web::Query<ClaimQueryParams>,
+    web::Query(info): web::Query<WalletQueryParams>,
 ) -> actix_web::Result<web::Json<Vec<Option<Transaction>>>>
 where
     U: MetricsRenderer,
@@ -478,6 +519,10 @@ impl QueryApi {
                 .service(
                     web::resource("claim_history")
                         .route(web::get().to(get_claim_txns::<U>)),
+                )
+                .service(
+                    web::resource("coinbase_history")
+                        .route(web::get().to(get_coinbase_oper_list::<U>)),
                 )
                 .route(
                     &QueryServerRoutes::GetRelatedXfrs.with_arg_template("asset_token"),
