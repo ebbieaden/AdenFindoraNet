@@ -533,7 +533,7 @@ impl FeeInputs {
 pub struct TransactionBuilder {
     txn: Transaction,
     outputs: u64,
-    no_replay_token: NoReplayToken,
+    pub no_replay_token: NoReplayToken,
 }
 
 impl TransactionBuilder {
@@ -693,6 +693,10 @@ impl TransactionBuilder {
             outputs: 0,
             no_replay_token,
         }
+    }
+
+    pub fn get_seq_id(&self) -> u64 {
+        self.no_replay_token.get_seq_id()
     }
 }
 

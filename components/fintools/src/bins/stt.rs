@@ -272,7 +272,7 @@ mod issue {
             &AssetTypeCode {
                 val: ASSET_TYPE_FRA,
             },
-            0,
+            builder.get_seq_id(),
             &outputs,
         )
         .c(d!())?;
