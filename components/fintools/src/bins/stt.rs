@@ -50,6 +50,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let subcmd_init = SubCommand::with_name("init");
+    let subcmd_issue = SubCommand::with_name("issue");
     let subcmd_delegate = SubCommand::with_name("delegate")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA units to delegate'")
@@ -76,6 +77,7 @@ fn run() -> Result<()> {
         .author(crate_authors!())
         .about("A manual test tool for the staking function.")
         .subcommand(subcmd_init)
+        .subcommand(subcmd_issue)
         .subcommand(subcmd_delegate)
         .subcommand(subcmd_undelegate)
         .subcommand(subcmd_claim)
@@ -83,8 +85,10 @@ fn run() -> Result<()> {
         .subcommand(subcmd_show)
         .get_matches();
 
-    if matches.subcommand_matches("init").is_some() {
+    if matches.is_present("init") {
         init::init().c(d!())?;
+    } else if matches.is_present("issue") {
+        issue::issue().c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("delegate") {
         let user = m.value_of("user");
         let amount = m.value_of("amount");
@@ -207,6 +211,76 @@ mod init {
 
         println!(">>> DONE !");
         Ok(())
+    }
+}
+
+mod issue {
+    use super::*;
+    use ledger::{
+        data_model::{
+            AssetTypeCode, IssueAsset, IssueAssetBody, IssuerKeyPair, Operation,
+            TxOutput, ASSET_TYPE_FRA,
+        },
+        staking::FRA_TOTAL_AMOUNT,
+    };
+    use rand_chacha::rand_core::SeedableRng;
+    use rand_chacha::ChaChaRng;
+    use zei::setup::PublicParams;
+    use zei::xfr::{
+        asset_record::{build_blind_asset_record, AssetRecordType},
+        structs::AssetRecordTemplate,
+    };
+
+    pub fn issue() -> Result<()> {
+        gen_issue_tx()
+            .c(d!())
+            .and_then(|tx| fns::send_tx(&tx).c(d!()))
+    }
+
+    fn gen_issue_tx() -> Result<Transaction> {
+        let root_kp =
+            wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
+
+        let mut builder = fns::new_tx_builder().c(d!())?;
+
+        let template = AssetRecordTemplate::with_no_asset_tracing(
+            FRA_TOTAL_AMOUNT / 2,
+            ASSET_TYPE_FRA,
+            AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
+            root_kp.get_pk(),
+        );
+        let params = PublicParams::default();
+        let outputs = (0..2)
+            .map(|_| {
+                let (ba, _, _) = build_blind_asset_record(
+                    &mut ChaChaRng::from_entropy(),
+                    &params.pc_gens,
+                    &template,
+                    vec![],
+                );
+                (
+                    TxOutput {
+                        id: None,
+                        record: ba,
+                        lien: None,
+                    },
+                    None,
+                )
+            })
+            .collect::<Vec<_>>();
+        let aib = IssueAssetBody::new(
+            &AssetTypeCode {
+                val: ASSET_TYPE_FRA,
+            },
+            0,
+            &outputs,
+        )
+        .c(d!())?;
+        let asset_issuance_operation =
+            IssueAsset::new(aib, &IssuerKeyPair { keypair: &root_kp }).c(d!())?;
+
+        builder.add_operation(Operation::IssueAsset(asset_issuance_operation));
+        Ok(builder.take_transaction())
     }
 }
 
