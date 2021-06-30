@@ -379,8 +379,7 @@ where
 #[derive(Deserialize, Debug)]
 struct DelegationRwdQueryParams {
     address: String,
-    start: u64,
-    end: u64,
+    height: u64,
 }
 
 async fn get_delegation_reward<SA>(
@@ -395,10 +394,6 @@ where
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
 
-    if info.start > info.end {
-        return Ok(web::Json(vec![]));
-    }
-
     let read = data.read();
     let staking = read.get_staking();
 
@@ -408,9 +403,11 @@ where
         .map_err(error::ErrorBadRequest)?;
 
     Ok(web::Json(
-        (info.start..info.end)
+        (0..=info.height)
             .into_iter()
+            .rev()
             .filter_map(|i| di.rwd_detail.get(&i))
+            .take(1)
             .cloned()
             .collect(),
     ))
