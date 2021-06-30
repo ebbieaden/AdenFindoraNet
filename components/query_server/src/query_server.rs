@@ -119,6 +119,13 @@ where
         self.traced_assets.get(issuer)
     }
 
+    pub fn get_coinbase_entries_len(&self, address: &XfrAddress) -> Result<usize> {
+        self.coinbase_oper_hist
+            .get(address)
+            .c(d!())
+            .map(|i| i.len())
+    }
+
     pub fn get_coinbase_entries(
         &self,
         address: &XfrAddress,
