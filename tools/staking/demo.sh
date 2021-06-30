@@ -44,7 +44,7 @@ start_node() {
     abci_validator_node > /tmp/log 2>&1 &
 
     find ~/.tendermint -name LOCK | xargs rm -f
-    nohup tendermint node --db_backend cleveldb &
+    nohup tendermint node &
 }
 
 init() {
