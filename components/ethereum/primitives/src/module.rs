@@ -35,9 +35,6 @@ pub trait AppModuleGenesis {
 
 /// AppModule is the standard form for an application module
 pub trait AppModule: AppModuleBasic + AppModuleGenesis + Send + Sync {
-    // TODO frame_system::Config
-    // type Origin;
-
     /// query_route returns the application module's query response.
     fn query_route(
         &self,
