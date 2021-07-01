@@ -52,7 +52,7 @@ pub(super) fn read_height() -> Result<i64> {
         // the real-time state path in the abci container
         const STATE_PATH_FF: &str = "/root/.tendermint/data/priv_validator_state.json";
         lazy_static! {
-            static ref STATE_PATH: String = env::var("TENDERMINT_NODE_CONFIG_PATH")
+            static ref STATE_PATH: String = env::var("TENDERMINT_NODE_KEY_CONFIG_PATH")
                 .unwrap_or_else(|_| STATE_PATH_FF.to_owned());
         }
 
