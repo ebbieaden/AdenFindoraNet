@@ -1,6 +1,6 @@
 use crate::{types::convert_ethereum_transaction, RunTxMode};
 use abci::*;
-use primitives::module::AppModule;
+use fp_core::module::AppModule;
 use ruc::RucResult;
 
 impl Application for crate::BaseApp {

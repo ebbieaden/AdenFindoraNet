@@ -16,10 +16,17 @@ impl<T: Send + Sync + Sized + Debug + Eq + PartialEq + Clone + 'static> Member f
 
 /// A action (module function and argument values) that can be executed.
 pub trait Executable {
+    /// The caller
     type Origin;
+    /// The call to execute
+    type Call;
 
     /// Actually execute this action and return the result of it.
-    fn execute(self, origin: Option<Self::Origin>, ctx: Context) -> Result<()>;
+    fn execute(
+        origin: Option<Self::Origin>,
+        call: Self::Call,
+        ctx: Context,
+    ) -> Result<()>;
 }
 
 /// This is unchecked and so can contain a signature.
@@ -87,8 +94,9 @@ pub struct CheckedTransaction<Address, Call> {
 
 /// An "executable" action used by the transaction.
 pub trait Applyable {
+    type Origin;
     /// Type by which we can execute. Restricts the `UnsignedValidator` type.
-    type Call: Executable;
+    type Call;
 
     /// Checks to see if this is a valid *transaction*.
     fn validate<V: ValidateUnsigned<Call = Self::Call>>(
@@ -98,7 +106,13 @@ pub trait Applyable {
 
     /// Executes all necessary logic needed prior to execute and deconstructs into function call,
     /// index and sender.
-    fn apply<V: ValidateUnsigned<Call = Self::Call>>(self, ctx: Context) -> Result<()>;
+    fn apply<
+        V: ValidateUnsigned<Call = Self::Call>
+            + Executable<Origin = Self::Origin, Call = Self::Call>,
+    >(
+        self,
+        ctx: Context,
+    ) -> Result<()>;
 }
 
 /// Something that can validate unsigned transactions for the transaction pool.
@@ -124,10 +138,8 @@ pub trait ValidateUnsigned {
     fn validate_unsigned(call: &Self::Call, ctx: Context) -> Result<()>;
 }
 
-impl<Address, Call> Applyable for CheckedTransaction<Address, Call>
-where
-    Call: Executable<Origin = Address>,
-{
+impl<Address, Call> Applyable for CheckedTransaction<Address, Call> {
+    type Origin = Address;
     type Call = Call;
 
     fn validate<U: ValidateUnsigned<Call = Self::Call>>(
@@ -141,7 +153,11 @@ where
         }
     }
 
-    fn apply<U: ValidateUnsigned<Call = Self::Call>>(self, ctx: Context) -> Result<()> {
+    fn apply<U>(self, ctx: Context) -> Result<()>
+    where
+        U: ValidateUnsigned<Call = Self::Call>,
+        U: Executable<Origin = Self::Origin, Call = Self::Call>,
+    {
         let maybe_who = if let Some(id) = self.signed {
             Some(id)
         } else {
@@ -149,6 +165,7 @@ where
             None
         };
         // TODO
-        self.function.execute(maybe_who, ctx)
+        U::execute(maybe_who, self.function, ctx)
+        // self.function.execute(maybe_who, ctx)
     }
 }
