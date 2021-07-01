@@ -1,5 +1,5 @@
 use ethereum_types::{H160, H256, U256};
-use primitives::{context::Context, crypto::Address, transaction::Executable};
+use fp_core::{context::Context, crypto::Address, transaction::Executable};
 use ruc::Result;
 use serde::{Deserialize, Serialize};
 
@@ -42,22 +42,10 @@ pub enum Action {
     Create2(Create2),
 }
 
-impl Executable for Action {
-    type Origin = Address;
+pub trait Runner {
+    fn call(_args: Call) -> Result<()>;
 
-    // fn route_path(&self) -> String {
-    //     crate::MODULE_NAME.to_string()
-    // }
+    fn create(_args: Create) -> Result<()>;
 
-    fn execute(self, _origin: Option<Self::Origin>, _ctx: Context) -> Result<()> {
-        Ok(())
-    }
-
-    // fn validate(&self) -> Result<()> {
-    //     Ok(())
-    // }
-    //
-    // fn as_any(&self) -> &dyn std::any::Any {
-    //     self
-    // }
+    fn create2(_args: Create2) -> Result<()>;
 }

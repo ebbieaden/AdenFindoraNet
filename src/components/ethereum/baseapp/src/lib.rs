@@ -1,25 +1,21 @@
 mod app;
 mod types;
 
-use app_ethereum::EthereumModule;
-use app_evm::EvmModule;
-use parking_lot::RwLock;
-use primitives::{
-    context::{CacheState, CommitState, CommitStore},
+use abci::Header;
+use fp_core::{
+    context::{CacheState, CommitState, CommitStore, Context},
     crypto::Address,
-    module::AppModule,
+    module::{AppModule, AppModuleBasic},
+    parameter_types,
     transaction::{Applyable, Executable, ValidateUnsigned},
 };
+use parking_lot::RwLock;
+use primitive_types::U256;
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
 use storage::{db::FinDB, state::ChainState};
 
-use abci::Header;
-use primitive_types::U256;
-use primitives::context::Context;
-use primitives::module::AppModuleBasic;
-use primitives::parameter_types;
 pub use types::*;
 
 const APP_NAME: &str = "findora";
@@ -42,8 +38,8 @@ pub struct BaseApp {
     check_state: CacheState,
     deliver_state: CommitState,
     /// Ordered module set
-    ethereum_module: EthereumModule<Self>,
-    evm_module: EvmModule<Self>,
+    ethereum_module: module_ethereum::App<Self>,
+    evm_module: module_evm::App<Self>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
@@ -60,19 +56,8 @@ pub enum RunTxMode {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
-    Ethereum(app_ethereum::Action),
-    Evm(app_evm::Action),
-}
-
-impl Executable for Action {
-    type Origin = Address;
-
-    fn execute(self, origin: Option<Self::Origin>, ctx: Context) -> Result<()> {
-        match self {
-            Action::Ethereum(action) => action.execute(origin, ctx),
-            Action::Evm(action) => action.execute(origin, ctx),
-        }
-    }
+    Ethereum(module_ethereum::Action),
+    Evm(module_evm::Action),
 }
 
 parameter_types! {
@@ -80,9 +65,10 @@ parameter_types! {
     pub BlockGasLimit: U256 = U256::from(u32::max_value());
 }
 
-impl app_ethereum::Config for BaseApp {}
+impl module_ethereum::Config for BaseApp {}
 
-impl app_evm::Config for BaseApp {
+impl module_evm::Config for BaseApp {
+    type Runner = module_evm::App<Self>;
     type ChainId = ChainId;
     type BlockGasLimit = BlockGasLimit;
 }
@@ -101,7 +87,7 @@ impl BaseApp {
             check_state: CacheState::new(chain_state.clone()),
             deliver_state: CommitState::new(chain_state),
             ethereum_module: Default::default(),
-            evm_module: EvmModule::new(),
+            evm_module: module_evm::App::new(),
         })
     }
 
@@ -165,8 +151,8 @@ impl BaseApp {
         // add match field if tx is unsigned transaction
         match tx.function {
             Action::Ethereum(action) => Self::dispatch::<
-                app_ethereum::Action,
-                EthereumModule<BaseApp>,
+                module_ethereum::Action,
+                module_ethereum::App<BaseApp>,
             >(ctx.clone(), mode, action, checked),
             _ => Self::dispatch::<Action, BaseApp>(
                 ctx.clone(),
@@ -208,15 +194,16 @@ impl BaseApp {
 }
 
 impl BaseApp {
-    fn dispatch<
-        Call: Executable<Origin = Address>,
-        Module: ValidateUnsigned<Call = Call>,
-    >(
+    fn dispatch<Call, Module>(
         ctx: Context,
         mode: RunTxMode,
         action: Call,
         tx: CheckedTransaction,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        Module: ValidateUnsigned<Call = Call>,
+        Module: Executable<Origin = Address, Call = Call>,
+    {
         // TODO gas check、get ctx.store
 
         let origin_tx = convert_unsigned_transaction::<Call>(action, tx);
@@ -246,6 +233,24 @@ impl ValidateUnsigned for BaseApp {
             _ => Err(eg!(
                 "Could not find an unsigned validator for the unsigned transaction"
             )),
+        }
+    }
+}
+
+impl Executable for BaseApp {
+    type Origin = Address;
+    type Call = Action;
+
+    fn execute(
+        origin: Option<Self::Origin>,
+        call: Self::Call,
+        ctx: Context,
+    ) -> Result<()> {
+        match call {
+            Action::Ethereum(action) => {
+                module_ethereum::App::<Self>::execute(origin, action, ctx)
+            }
+            Action::Evm(action) => module_evm::App::<Self>::execute(origin, action, ctx),
         }
     }
 }

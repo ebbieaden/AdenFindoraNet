@@ -1,11 +1,11 @@
 [package]
-name = "primitives"
+name = "fp-core"
 version = "0.1.0"
 authors = ["Findora <tyler@findora.org>"]
 edition = "2018"
 homepage = "https://findora.org/technology"
 repository = "https://github.com/findoranetwork/platform/"
-description = "Primitive types for application"
+description = "Findora Primitive core types"
 readme = "README.md"
 
 [dependencies]

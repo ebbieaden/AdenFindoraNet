@@ -1,47 +1,47 @@
 mod client;
 mod genesis;
-mod keeper;
 mod message;
 
 use abci::*;
-use keeper::{EvmRunner, Keeper};
-pub use message::Action;
-use primitive_types::U256;
-use primitives::{
+use fp_core::{
+    context::Context,
+    crypto::Address,
     module::{AppModule, AppModuleBasic, AppModuleGenesis},
     support::*,
+    transaction::Executable,
 };
+use primitive_types::U256;
 use ruc::*;
 use std::marker::PhantomData;
 
+pub use message::*;
+
 pub const MODULE_NAME: &str = "evm";
 
-pub struct EvmModule<C> {
+pub struct App<C> {
     name: String,
-    keeper: Keeper,
     phantom: PhantomData<C>,
 }
 
 pub trait Config: Send + Sync {
-    // /// EVM execution runner.
-    // type Runner: EvmRunner;
+    /// EVM execution runner.
+    type Runner: Runner;
     /// Chain ID of EVM.
     type ChainId: Get<u64>;
     /// The block gas limit. Can be a simple constant, or an adjustment algorithm in another pallet.
     type BlockGasLimit: Get<U256>;
 }
 
-impl<C: Config> EvmModule<C> {
+impl<C: Config> App<C> {
     pub fn new() -> Self {
-        EvmModule {
+        App {
             name: MODULE_NAME.to_string(),
-            keeper: Keeper::new(),
             phantom: Default::default(),
         }
     }
 }
 
-impl<C: Config> AppModuleBasic for EvmModule<C> {
+impl<C: Config> AppModuleBasic for App<C> {
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -71,7 +71,7 @@ impl<C: Config> AppModuleBasic for EvmModule<C> {
     }
 }
 
-impl<C: Config> AppModuleGenesis for EvmModule<C> {
+impl<C: Config> AppModuleGenesis for App<C> {
     fn init_genesis(&self) {
         todo!()
     }
@@ -81,7 +81,7 @@ impl<C: Config> AppModuleGenesis for EvmModule<C> {
     }
 }
 
-impl<C: Config> AppModule for EvmModule<C> {
+impl<C: Config> AppModule for App<C> {
     fn query_route(&self, path: Vec<&str>, req: &RequestQuery) -> ResponseQuery {
         query_handler(path, req)
     }
@@ -105,6 +105,33 @@ impl<C: Config> AppModule for EvmModule<C> {
 //             Message::Create2(params) => k.create2(&params),
 //         })
 // }
+
+impl<C: Config> Executable for App<C> {
+    type Origin = Address;
+    type Call = Action;
+
+    fn execute(
+        _origin: Option<Self::Origin>,
+        _call: Self::Call,
+        _ctx: Context,
+    ) -> Result<()> {
+        todo!()
+    }
+}
+
+impl<C: Config> Runner for App<C> {
+    fn call(_args: Call) -> Result<()> {
+        todo!()
+    }
+
+    fn create(_args: Create) -> Result<()> {
+        todo!()
+    }
+
+    fn create2(_args: Create2) -> Result<()> {
+        todo!()
+    }
+}
 
 fn query_handler(_path: Vec<&str>, _req: &RequestQuery) -> ResponseQuery {
     ResponseQuery::new()

@@ -1,19 +1,17 @@
 mod client;
 mod genesis;
-mod keeper;
 
 use abci::*;
 use evm::backend::Basic as Account;
-use keeper::Keeper;
-use primitive_types::{H160, H256, U256};
-use primitives::crypto::secp256k1_ecdsa_recover;
-use primitives::{
+use fp_core::{
     context::Context,
-    crypto::Address32,
+    crypto::{secp256k1_ecdsa_recover, Address},
     module::*,
     support::Get,
     transaction::{Executable, ValidateUnsigned},
 };
+use module_evm::Runner;
+use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
@@ -21,46 +19,34 @@ use std::marker::PhantomData;
 
 pub const MODULE_NAME: &str = "ethereum";
 
-pub struct EthereumModule<C> {
+pub struct App<C> {
     name: String,
-    keeper: Keeper,
     phantom: PhantomData<C>,
 }
 
-pub trait Config: app_evm::Config + Send + Sync {}
+pub trait Config: module_evm::Config + Send + Sync {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
     Transact(ethereum::Transaction),
 }
 
-impl Executable for Action {
-    type Origin = Address32;
-
-    fn execute(self, _origin: Option<Self::Origin>, _ctx: Context) -> Result<()> {
-        match self {
-            Action::Transact(tx) => Ok(()),
-        }
-    }
-}
-
-impl<C: Config> EthereumModule<C> {
+impl<C: Config> App<C> {
     pub fn new() -> Self {
-        EthereumModule {
+        App {
             name: MODULE_NAME.to_string(),
-            keeper: Keeper::new(),
             phantom: Default::default(),
         }
     }
 }
 
-impl<C: Config> Default for EthereumModule<C> {
+impl<C: Config> Default for App<C> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<C: Config> AppModuleBasic for EthereumModule<C> {
+impl<C: Config> AppModuleBasic for App<C> {
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -90,7 +76,7 @@ impl<C: Config> AppModuleBasic for EthereumModule<C> {
     }
 }
 
-impl<C: Config> AppModuleGenesis for EthereumModule<C> {
+impl<C: Config> AppModuleGenesis for App<C> {
     fn init_genesis(&self) {
         todo!()
     }
@@ -100,7 +86,7 @@ impl<C: Config> AppModuleGenesis for EthereumModule<C> {
     }
 }
 
-impl<C: Config> AppModule for EthereumModule<C> {
+impl<C: Config> AppModule for App<C> {
     fn query_route(&self, path: Vec<&str>, req: &RequestQuery) -> ResponseQuery {
         ResponseQuery::new()
     }
@@ -114,7 +100,7 @@ impl<C: Config> AppModule for EthereumModule<C> {
     }
 }
 
-impl<C: Config> EthereumModule<C> {
+impl<C: Config> App<C> {
     fn recover_signer(transaction: &ethereum::Transaction) -> Option<H160> {
         let mut sig = [0u8; 65];
         let mut msg = [0u8; 32];
@@ -130,9 +116,141 @@ impl<C: Config> EthereumModule<C> {
             Keccak256::digest(&pubkey).as_slice(),
         )))
     }
+
+    fn do_transact(transaction: ethereum::Transaction) -> Result<()> {
+        // ensure!(
+        // 	fp_consensus::find_pre_log(&frame_system::Module::<T>::digest()).is_err(),
+        // 	Error::<T>::PreLogExists,
+        // );
+
+        // let source = Self::recover_signer(&transaction)
+        //     .ok_or_else(|| eg!("ExecuteTransaction: InvalidSignature"))?;
+        //
+        // let transaction_hash =
+        //     H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
+        // let transaction_index = Pending::get().len() as u32;
+        //
+        // let (to, contract_address, info) = Self::execute_transaction(
+        //     source,
+        //     transaction.input.clone(),
+        //     transaction.value,
+        //     transaction.gas_limit,
+        //     Some(transaction.gas_price),
+        //     Some(transaction.nonce),
+        //     transaction.action,
+        //     None,
+        // )?;
+        //
+        // let (reason, status, used_gas) = match info {
+        //     CallOrCreateInfo::Call(info) => (
+        //         info.exit_reason,
+        //         TransactionStatus {
+        //             transaction_hash,
+        //             transaction_index,
+        //             from: source,
+        //             to,
+        //             contract_address: None,
+        //             logs: info.logs.clone(),
+        //             logs_bloom: {
+        //                 let mut bloom: Bloom = Bloom::default();
+        //                 Self::logs_bloom(info.logs, &mut bloom);
+        //                 bloom
+        //             },
+        //         },
+        //         info.used_gas,
+        //     ),
+        //     CallOrCreateInfo::Create(info) => (
+        //         info.exit_reason,
+        //         TransactionStatus {
+        //             transaction_hash,
+        //             transaction_index,
+        //             from: source,
+        //             to,
+        //             contract_address: Some(info.value),
+        //             logs: info.logs.clone(),
+        //             logs_bloom: {
+        //                 let mut bloom: Bloom = Bloom::default();
+        //                 Self::logs_bloom(info.logs, &mut bloom);
+        //                 bloom
+        //             },
+        //         },
+        //         info.used_gas,
+        //     ),
+        // };
+        //
+        // let receipt = ethereum::Receipt {
+        //     state_root: match reason {
+        //         ExitReason::Succeed(_) => H256::from_low_u64_be(1),
+        //         ExitReason::Error(_) => H256::from_low_u64_le(0),
+        //         ExitReason::Revert(_) => H256::from_low_u64_le(0),
+        //         ExitReason::Fatal(_) => H256::from_low_u64_le(0),
+        //     },
+        //     used_gas,
+        //     logs_bloom: status.clone().logs_bloom,
+        //     logs: status.clone().logs,
+        // };
+        //
+        // Pending::append((transaction, status, receipt));
+        //
+        // Self::deposit_event(Event::Executed(
+        //     source,
+        //     contract_address.unwrap_or_default(),
+        //     transaction_hash,
+        //     reason,
+        // ));
+        // Ok(PostDispatchInfo {
+        //     actual_weight: Some(T::GasWeightMapping::gas_to_weight(
+        //         used_gas.unique_saturated_into(),
+        //     )),
+        //     pays_fee: Pays::No,
+        // })
+        // .into()
+        todo!()
+    }
+
+    // /// Execute an Ethereum transaction.
+    // pub fn execute_transaction(
+    //     from: H160,
+    //     input: Vec<u8>,
+    //     value: U256,
+    //     gas_limit: U256,
+    //     gas_price: Option<U256>,
+    //     nonce: Option<U256>,
+    //     action: ethereum::TransactionAction,
+    // ) -> Result<(Option<H160>, Option<H160>, CallOrCreateInfo)> {
+    //     match action {
+    //         ethereum::TransactionAction::Call(target) => {
+    //             let res = C::Runner::call(module_evm::Call {
+    //                 source: from,
+    //                 target,
+    //                 input: input.clone(),
+    //                 value,
+    //                 gas_limit: gas_limit.low_u64(),
+    //                 gas_price,
+    //                 nonce,
+    //             })?;
+    //
+    //             Ok((Some(target), None, CallOrCreateInfo::Call(res)))
+    //         }
+    //         ethereum::TransactionAction::Create => {
+    //             let res = T::Runner::create(
+    //                 from,
+    //                 input.clone(),
+    //                 value,
+    //                 gas_limit.low_u64(),
+    //                 gas_price,
+    //                 nonce,
+    //                 config.as_ref().unwrap_or(T::config()),
+    //             )
+    //             .map_err(Into::into)?;
+    //
+    //             Ok((None, Some(res.value), CallOrCreateInfo::Create(res)))
+    //         }
+    //     }
+    // }
 }
 
-impl<C: Config> ValidateUnsigned for EthereumModule<C> {
+impl<C: Config> ValidateUnsigned for App<C> {
     type Call = Action;
 
     fn validate_unsigned(call: &Self::Call, _ctx: Context) -> Result<()> {
@@ -189,5 +307,20 @@ impl<C: Config> ValidateUnsigned for EthereumModule<C> {
         //
         // builder.build()
         Ok(())
+    }
+}
+
+impl<C: Config> Executable for App<C> {
+    type Origin = Address;
+    type Call = Action;
+
+    fn execute(
+        _origin: Option<Self::Origin>,
+        call: Self::Call,
+        _ctx: Context,
+    ) -> Result<()> {
+        match call {
+            Action::Transact(tx) => Self::do_transact(tx),
+        }
     }
 }

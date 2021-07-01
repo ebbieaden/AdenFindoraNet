@@ -18,7 +18,7 @@ members = [
     "components/ethereum/baseapp",
     "components/ethereum/modules/ethereum",
     "components/ethereum/modules/evm",
-    "components/ethereum/primitives",
+    "components/ethereum/primitives/core",
     "components/ledger_api_service",
     "components/query_api",
     "components/query_server",

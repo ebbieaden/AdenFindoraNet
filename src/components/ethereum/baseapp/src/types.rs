@@ -1,5 +1,5 @@
 use crate::Action;
-use primitives::{
+use fp_core::{
     crypto::{Address, Signature},
     transaction,
 };
@@ -29,6 +29,6 @@ pub fn convert_ethereum_transaction(transaction: &[u8]) -> Result<UncheckedTrans
     let tx = serde_json::from_slice::<ethereum::Transaction>(transaction)
         .map_err(|e| eg!(e))?;
     Ok(UncheckedTransaction::new_unsigned(Action::Ethereum(
-        app_ethereum::Action::Transact(tx),
+        module_ethereum::Action::Transact(tx),
     )))
 }
