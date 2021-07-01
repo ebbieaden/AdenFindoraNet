@@ -1112,11 +1112,6 @@ impl Staking {
         let commission_rate = if let Some(Some(v)) =
             me.validator_get_current().map(|vd| vd.body.get(&pk))
         {
-            // Do not alloc rewards to initial validators
-            if ValidatorKind::Initor == v.kind {
-                return Ok(());
-            }
-
             v.commission_rate
         } else {
             return Err(eg!("not validator"));
@@ -1564,8 +1559,6 @@ pub struct Validator {
     commission_rate: [u64; 2],
     /// optional descriptive information
     pub memo: Option<StakerMemo>,
-    /// validator kind, "Initor" is a internal node type.
-    /// keep it private pls
     kind: ValidatorKind,
     /// use this field to mark
     /// if this validator signed last block
