@@ -10,6 +10,7 @@ use fp_core::{
     support::*,
     transaction::Executable,
 };
+use fp_evm::{CallInfo, CreateInfo};
 use primitive_types::U256;
 use ruc::*;
 use std::marker::PhantomData;
@@ -120,15 +121,15 @@ impl<C: Config> Executable for App<C> {
 }
 
 impl<C: Config> Runner for App<C> {
-    fn call(_args: Call) -> Result<()> {
+    fn call(_args: Call) -> Result<CallInfo> {
         todo!()
     }
 
-    fn create(_args: Create) -> Result<()> {
+    fn create(_args: Create) -> Result<CreateInfo> {
         todo!()
     }
 
-    fn create2(_args: Create2) -> Result<()> {
+    fn create2(_args: Create2) -> Result<CreateInfo> {
         todo!()
     }
 }

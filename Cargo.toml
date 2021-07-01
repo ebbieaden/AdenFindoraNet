@@ -6,6 +6,7 @@ members = [
     "components/ethereum/modules/ethereum",
     "components/ethereum/modules/evm",
     "components/ethereum/primitives/core",
+    "components/ethereum/primitives/evm",
     "components/ledger_api_service",
     "components/query_api",
     "components/query_server",
