@@ -6,26 +6,42 @@ mod message;
 use abci::*;
 use keeper::{EvmRunner, Keeper};
 pub use message::Action;
-use primitives::module::{AppModule, AppModuleBasic, AppModuleGenesis};
+use primitive_types::U256;
+use primitives::{
+    module::{AppModule, AppModuleBasic, AppModuleGenesis},
+    support::*,
+};
 use ruc::*;
+use std::marker::PhantomData;
 
 pub const MODULE_NAME: &str = "evm";
 
-pub struct EvmModule {
+pub struct EvmModule<C> {
     name: String,
     keeper: Keeper,
+    phantom: PhantomData<C>,
 }
 
-impl EvmModule {
-    pub fn new() -> EvmModule {
+pub trait Config: Send + Sync {
+    // /// EVM execution runner.
+    // type Runner: EvmRunner;
+    /// Chain ID of EVM.
+    type ChainId: Get<u64>;
+    /// The block gas limit. Can be a simple constant, or an adjustment algorithm in another pallet.
+    type BlockGasLimit: Get<U256>;
+}
+
+impl<C: Config> EvmModule<C> {
+    pub fn new() -> Self {
         EvmModule {
             name: MODULE_NAME.to_string(),
             keeper: Keeper::new(),
+            phantom: Default::default(),
         }
     }
 }
 
-impl AppModuleBasic for EvmModule {
+impl<C: Config> AppModuleBasic for EvmModule<C> {
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -55,7 +71,7 @@ impl AppModuleBasic for EvmModule {
     }
 }
 
-impl AppModuleGenesis for EvmModule {
+impl<C: Config> AppModuleGenesis for EvmModule<C> {
     fn init_genesis(&self) {
         todo!()
     }
@@ -65,7 +81,7 @@ impl AppModuleGenesis for EvmModule {
     }
 }
 
-impl AppModule for EvmModule {
+impl<C: Config> AppModule for EvmModule<C> {
     fn query_route(&self, path: Vec<&str>, req: &RequestQuery) -> ResponseQuery {
         query_handler(path, req)
     }

@@ -151,7 +151,7 @@ impl Verify for XfrSignature {
 ///
 /// Returns `Err` if the signature is bad, otherwise the 64-byte pubkey
 /// (doesn't include the 0x04 prefix).
-fn secp256k1_ecdsa_recover(sig: &[u8; 65], msg: &[u8; 32]) -> ruc::Result<[u8; 64]> {
+pub fn secp256k1_ecdsa_recover(sig: &[u8; 65], msg: &[u8; 32]) -> ruc::Result<[u8; 64]> {
     let rs = secp256k1::Signature::parse_slice(&sig[0..64])
         .map_err(|_| eg!("Ecdsa signature verify error: bad RS"))?;
     let v =

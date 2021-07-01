@@ -1,5 +1,6 @@
 use crate::{types::convert_ethereum_transaction, RunTxMode};
 use abci::*;
+use primitives::module::AppModule;
 use ruc::RucResult;
 
 impl Application for crate::BaseApp {
@@ -68,9 +69,11 @@ impl Application for crate::BaseApp {
     }
 
     fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
-        for m in self.modules.iter_mut() {
-            m.begin_block(req);
-        }
+        // for m in self.modules.iter_mut() {
+        //     m.begin_block(req);
+        // }
+        self.ethereum_module.begin_block(req);
+        self.evm_module.begin_block(req);
 
         ResponseBeginBlock::new()
     }
@@ -92,9 +95,11 @@ impl Application for crate::BaseApp {
     }
 
     fn end_block(&mut self, req: &RequestEndBlock) -> ResponseEndBlock {
-        for m in self.modules.iter_mut() {
-            m.end_block(req);
-        }
+        // for m in self.modules.iter_mut() {
+        //     m.end_block(req);
+        // }
+        self.ethereum_module.end_block(req);
+        self.evm_module.end_block(req);
 
         ResponseEndBlock::new()
     }

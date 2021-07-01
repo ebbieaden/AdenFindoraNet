@@ -16,7 +16,10 @@ use std::{path::Path, sync::Arc};
 use storage::{db::FinDB, state::ChainState};
 
 use abci::Header;
+use primitive_types::U256;
 use primitives::context::Context;
+use primitives::module::AppModuleBasic;
+use primitives::parameter_types;
 pub use types::*;
 
 const APP_NAME: &str = "findora";
@@ -36,10 +39,11 @@ pub struct BaseApp {
     ///
     /// check_state is set on InitChain and reset on Commit
     /// deliver_state is set on InitChain and BeginBlock and set to nil on Commit
-    check_state: CacheState, // for CheckTx
-    deliver_state: CommitState, // for DeliverTx
+    check_state: CacheState,
+    deliver_state: CommitState,
     /// Ordered module set
-    modules: Vec<Box<dyn AppModule>>,
+    ethereum_module: EthereumModule<Self>,
+    evm_module: EvmModule<Self>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
@@ -71,6 +75,18 @@ impl Executable for Action {
     }
 }
 
+parameter_types! {
+    pub const ChainId: u64 = 42;
+    pub BlockGasLimit: U256 = U256::from(u32::max_value());
+}
+
+impl app_ethereum::Config for BaseApp {}
+
+impl app_evm::Config for BaseApp {
+    type ChainId = ChainId;
+    type BlockGasLimit = BlockGasLimit;
+}
+
 impl BaseApp {
     pub fn new(path: &Path) -> Result<Self> {
         let fdb = FinDB::open(path)?;
@@ -84,7 +100,8 @@ impl BaseApp {
             commit_store: CommitStore::new(chain_state.clone()),
             check_state: CacheState::new(chain_state.clone()),
             deliver_state: CommitState::new(chain_state),
-            modules: vec![Box::new(EthereumModule::new()), Box::new(EvmModule::new())],
+            ethereum_module: Default::default(),
+            evm_module: EvmModule::new(),
         })
     }
 
@@ -113,17 +130,27 @@ impl BaseApp {
         }
 
         let module_name = path.remove(0);
-        if let Some(am) = self
-            .modules
-            .iter()
-            .find(|&m| m.name().as_str() == module_name)
-        {
-            am.query_route(path, req)
+        if module_name == self.ethereum_module.name().as_str() {
+            self.ethereum_module.query_route(path, req)
+        } else if module_name == self.evm_module.name().as_str() {
+            self.evm_module.query_route(path, req)
         } else {
             resp.set_code(1);
             resp.set_log(format!("Invalid query module route: {}!", module_name));
             resp
         }
+
+        // if let Some(am) = self
+        //     .modules
+        //     .iter()
+        //     .find(|&m| m.name().as_str() == module_name)
+        // {
+        //     am.query_route(path, req)
+        // } else {
+        //     resp.set_code(1);
+        //     resp.set_log(format!("Invalid query module route: {}!", module_name));
+        //     resp
+        // }
     }
 
     pub fn handle_tx(
@@ -139,7 +166,7 @@ impl BaseApp {
         match tx.function {
             Action::Ethereum(action) => Self::dispatch::<
                 app_ethereum::Action,
-                EthereumModule,
+                EthereumModule<BaseApp>,
             >(ctx.clone(), mode, action, checked),
             _ => Self::dispatch::<Action, BaseApp>(
                 ctx.clone(),
