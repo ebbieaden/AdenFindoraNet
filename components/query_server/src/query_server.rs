@@ -351,11 +351,7 @@ where
             return Err(eg!("The fucking world is over!"));
         }
 
-        for block in ledger
-            .blocks
-            .iter()
-            .skip(self.app_block_cnt.saturating_sub(1))
-        {
+        for block in ledger.blocks.iter().skip(self.app_block_cnt) {
             // Update ownership status
             for (txn_sid, txo_sids) in
                 block.txns.iter().map(|v| (v.tx_id, v.txo_ids.as_slice()))
