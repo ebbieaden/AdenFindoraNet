@@ -25,8 +25,8 @@ export TENDERMINT_PORT=20000
 export ABCI_PORT=10000
 export SUBMISSION_PORT=$((9000 + $RANDOM % 1000))
 export LEDGER_PORT=$((8000 + $RANDOM % 1000))
-
-export TD_NODE_SELF_ADDR=8DB4CBD00D8E6621826BE6A840A98C28D7F27CD9
+export TENDERMINT_NODE_KEY_CONFIG_PATH=${TD_NODE_KEY}
+export SELF_ADDR=8DB4CBD00D8E6621826BE6A840A98C28D7F27CD9
 
 println() {
     echo -e "\n\x1b[31;01m*===> ${1}\x1b[0m"
@@ -88,12 +88,12 @@ check() {
     # at least 88_8888 FRAs
     fns stake -n $((888888 * 1000000)) -R 0.2 -M demo || exit 1
     sleep 30
-    curl ${SERVER_HOST}:26657/validators | grep -A 5 ${TD_NODE_SELF_ADDR} 2>/dev/null || exit 1
+    curl ${SERVER_HOST}:26657/validators | grep -A 5 ${SELF_ADDR} 2>/dev/null || exit 1
     println "Our validator appears in the validator list after staking..."
 
     fns stake --append -n $((222222 * 1000000)) || exit 1
     sleep 30
-    curl ${SERVER_HOST}:26657/validators | grep -A 5 ${TD_NODE_SELF_ADDR} 2>/dev/null || exit 1
+    curl ${SERVER_HOST}:26657/validators | grep -A 5 ${SELF_ADDR} 2>/dev/null || exit 1
     println "Its vote power has been raised after appending a new staking..."
 
     println "Now we stop it..."
@@ -106,7 +106,7 @@ check() {
     println "Wait 10s..."
     sleep 10
 
-    grep ${TD_NODE_SELF_ADDR} nohup.out
+    grep ${SELF_ADDR} nohup.out
     println "Pay attention to its power change..."
 
     println "Now we unstake..."
