@@ -1,7 +1,7 @@
 use abci::Header;
-use parking_lot::RwLock;
+pub use parking_lot::RwLock;
 use protobuf::well_known_types::Timestamp;
-use std::sync::Arc;
+pub use std::sync::Arc;
 use storage::{
     db::FinDB,
     state::{ChainState, SessionedCache, State},

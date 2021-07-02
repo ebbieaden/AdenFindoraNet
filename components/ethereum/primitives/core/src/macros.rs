@@ -1,3 +1,5 @@
+pub use std::ops::{Deref, DerefMut};
+
 /// A trait for querying a single value from a type.
 ///
 /// It is not required that the value is constant.
@@ -70,7 +72,7 @@ macro_rules! parameter_types {
 			}
 		}
 
-		impl<I: From<$type>> $crate::support::Get<I> for $name {
+		impl<I: From<$type>> $crate::macros::Get<I> for $name {
 			fn get() -> I {
 				I::from($value)
 			}
@@ -84,10 +86,52 @@ macro_rules! parameter_types {
 			}
 		}
 
-		impl<I: From<$type>> $crate::support::Get<I> for $name {
+		impl<I: From<$type>> $crate::macros::Get<I> for $name {
 			fn get() -> I {
 				I::from($value)
 			}
 		}
 	};
+}
+
+/// Return Err of the expression: `return Err($expression);`.
+///
+/// Used as `fail!(expression)`.
+#[macro_export]
+macro_rules! fail {
+    ( $y:expr ) => {{
+        return Err(eg!($y));
+    }};
+}
+
+/// Evaluate `$x:expr` and if not true return `Err($y:expr)`.
+///
+/// Used as `ensure!(expression_to_ensure, expression_to_return_on_false)`.
+#[macro_export]
+macro_rules! ensure {
+    ( $x:expr, $y:expr $(,)? ) => {{
+        if !$x {
+            $crate::fail!($y);
+        }
+    }};
+}
+
+/// Deref tuple structs
+#[macro_export]
+macro_rules! tuple_structs_deref {
+    ($name:ty, $type:ty) => {
+        impl $crate::macros::Deref for $name {
+            type Target = $type;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl $crate::macros::DerefMut for $name {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+    };
 }
