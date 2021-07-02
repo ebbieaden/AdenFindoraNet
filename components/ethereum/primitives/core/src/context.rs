@@ -4,44 +4,14 @@ use protobuf::well_known_types::Timestamp;
 pub use std::sync::Arc;
 use storage::{
     db::FinDB,
-    state::{ChainState, SessionedCache, State},
+    state::{ChainState, State},
 };
 
-pub type CacheStore = SessionedCache;
-
-pub type CommitStore = State<FinDB>;
-
-pub struct CacheState {
-    pub sc: SessionedCache,
-    pub ctx: Context,
-}
-
-impl CacheState {
-    pub fn new(cs: Arc<RwLock<ChainState<FinDB>>>) -> Self {
-        CacheState {
-            sc: SessionedCache::new(),
-            ctx: Context::new(Arc::new(RwLock::new(CommitStore::new(cs)))),
-        }
-    }
-}
-
-pub struct CommitState {
-    pub cs: CommitStore,
-    pub ctx: Context,
-}
-
-impl CommitState {
-    pub fn new(cs: Arc<RwLock<ChainState<FinDB>>>) -> Self {
-        CommitState {
-            cs: CommitStore::new(cs.clone()),
-            ctx: Context::new(Arc::new(RwLock::new(CommitStore::new(cs)))),
-        }
-    }
-}
+pub type Store = State<FinDB>;
 
 #[derive(Clone)]
 pub struct Context {
-    pub store: Arc<RwLock<CommitStore>>,
+    pub store: Arc<RwLock<Store>>,
     pub header: Header,
     pub header_hash: Vec<u8>,
     pub chain_id: String,
@@ -52,9 +22,9 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(cs: Arc<RwLock<CommitStore>>) -> Self {
+    pub fn new(cs: Arc<RwLock<ChainState<FinDB>>>) -> Self {
         Context {
-            store: cs,
+            store: Arc::new(RwLock::new(Store::new(cs))),
             header: Default::default(),
             header_hash: vec![],
             chain_id: "".to_string(),
@@ -96,7 +66,7 @@ impl Context {
 }
 
 impl Context {
-    pub fn commit_store(&self) -> Arc<RwLock<CommitStore>> {
+    pub fn commit_store(&self) -> Arc<RwLock<Store>> {
         self.store.clone()
     }
 

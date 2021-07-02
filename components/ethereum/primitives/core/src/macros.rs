@@ -1,5 +1,3 @@
-pub use std::ops::{Deref, DerefMut};
-
 /// A trait for querying a single value from a type.
 ///
 /// It is not required that the value is constant.
@@ -114,24 +112,4 @@ macro_rules! ensure {
             $crate::fail!($y);
         }
     }};
-}
-
-/// Deref tuple structs
-#[macro_export]
-macro_rules! tuple_structs_deref {
-    ($name:ty, $type:ty) => {
-        impl $crate::macros::Deref for $name {
-            type Target = $type;
-
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-
-        impl $crate::macros::DerefMut for $name {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                &mut self.0
-            }
-        }
-    };
 }

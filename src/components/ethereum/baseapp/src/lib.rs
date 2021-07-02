@@ -3,7 +3,7 @@ mod types;
 
 use abci::Header;
 use fp_core::{
-    context::{CacheState, CommitState, CommitStore, Context},
+    context::Context,
     crypto::Address,
     module::{AppModule, AppModuleBasic},
     parameter_types,
@@ -30,13 +30,13 @@ pub struct BaseApp {
     /// if BaseApp is passed to the upgrade keeper's NewKeeper method.
     app_version: u64,
     /// Chain persistent state
-    commit_store: CommitStore,
+    chain_state: Arc<RwLock<ChainState<FinDB>>>,
     /// volatile states
     ///
     /// check_state is set on InitChain and reset on Commit
     /// deliver_state is set on InitChain and BeginBlock and set to nil on Commit
-    check_state: CacheState,
-    deliver_state: CommitState,
+    check_state: Context,
+    deliver_state: Context,
     /// Ordered module set
     ethereum_module: module_ethereum::App<Self>,
     evm_module: module_evm::App<Self>,
@@ -83,9 +83,9 @@ impl BaseApp {
             name: APP_NAME.to_string(),
             version: "1.0.0".to_string(),
             app_version: 1,
-            commit_store: CommitStore::new(chain_state.clone()),
-            check_state: CacheState::new(chain_state.clone()),
-            deliver_state: CommitState::new(chain_state),
+            chain_state: chain_state.clone(),
+            check_state: Context::new(chain_state.clone()),
+            deliver_state: Context::new(chain_state),
             ethereum_module: Default::default(),
             evm_module: module_evm::App::new(),
         })
@@ -114,12 +114,18 @@ impl BaseApp {
             resp.set_log("Invalid custom query path without module route!".to_string());
             return resp;
         }
+        let ctx = self.create_query_context(req.height, req.prove);
+        if let Err(e) = ctx {
+            resp.set_code(1);
+            resp.set_log(format!("Cannot create query context with err: {}!", e));
+            return resp;
+        }
 
         let module_name = path.remove(0);
         if module_name == self.ethereum_module.name().as_str() {
-            self.ethereum_module.query_route(path, req)
+            self.ethereum_module.query_route(ctx.unwrap(), path, req)
         } else if module_name == self.evm_module.name().as_str() {
-            self.evm_module.query_route(path, req)
+            self.evm_module.query_route(ctx.unwrap(), path, req)
         } else {
             resp.set_code(1);
             resp.set_log(format!("Invalid query module route: {}!", module_name));
@@ -166,11 +172,11 @@ impl BaseApp {
 
 impl BaseApp {
     pub fn set_check_state(&mut self, header: Header) {
-        self.check_state.ctx.header = header;
+        self.check_state.header = header;
     }
 
     pub fn set_deliver_state(&mut self, header: Header) {
-        self.deliver_state.ctx.header = header;
+        self.deliver_state.header = header;
     }
 
     /// retrieve the context for the txBytes and other memoized values.
@@ -180,9 +186,9 @@ impl BaseApp {
         tx_bytes: Vec<u8>,
     ) -> &mut Context {
         let ctx = if mode == RunTxMode::Deliver {
-            &mut self.deliver_state.ctx
+            &mut self.deliver_state
         } else {
-            &mut self.check_state.ctx
+            &mut self.check_state
         };
         ctx.tx = tx_bytes;
 
@@ -190,6 +196,25 @@ impl BaseApp {
             ctx.recheck_tx = true;
         }
         ctx
+    }
+
+    pub fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
+        if height < 0 {
+            return Err(eg!(
+                "cannot query with height < 0; please provide a valid height"
+            ));
+        }
+        // when a client did not provide a query height, manually inject the latest
+        if height == 0 {
+            height = self.chain_state.read().height()? as i64;
+        }
+        if height <= 1 && prove {
+            return Err(eg!(
+                "cannot query with proof when height <= 1; please provide a valid height"
+            ));
+        }
+
+        Ok(Context::new(self.chain_state.clone()))
     }
 }
 
