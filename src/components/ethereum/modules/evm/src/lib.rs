@@ -6,8 +6,8 @@ use abci::*;
 use fp_core::{
     context::Context,
     crypto::Address,
+    macros::*,
     module::{AppModule, AppModuleBasic, AppModuleGenesis},
-    support::*,
     transaction::Executable,
 };
 use fp_evm::{CallInfo, CreateInfo};
@@ -95,17 +95,6 @@ impl<C: Config> AppModule for App<C> {
         todo!()
     }
 }
-
-// fn msg_handler(k: &Keeper, msg: Box<dyn Executable>) -> Result<()> {
-//     msg.as_any()
-//         .downcast_ref::<Message>()
-//         .ok_or(eg!("invalid transaction message"))
-//         .and_then(|m| match m {
-//             Message::Call(params) => k.call(&params),
-//             Message::Create(params) => k.create(&params),
-//             Message::Create2(params) => k.create2(&params),
-//         })
-// }
 
 impl<C: Config> Executable for App<C> {
     type Origin = Address;

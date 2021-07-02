@@ -1,14 +1,20 @@
+mod basic;
 mod client;
 mod genesis;
+mod storage;
 
-use abci::*;
-use ethereum_types::{Bloom, BloomInput};
+use crate::storage::*;
+use abci::{
+    RequestBeginBlock, RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery,
+};
+use ethereum_types::{Bloom, BloomInput, H64};
 use evm::ExitReason;
 use fp_core::{
     context::Context,
     crypto::{secp256k1_ecdsa_recover, Address},
-    module::*,
-    support::Get,
+    ensure,
+    macros::Get,
+    module::AppModule,
     transaction::{Executable, ValidateUnsigned},
 };
 use fp_evm::{Account, CallOrCreateInfo, TransactionStatus};
@@ -18,8 +24,6 @@ use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 use std::marker::PhantomData;
-
-pub const MODULE_NAME: &str = "ethereum";
 
 pub struct App<C> {
     name: String,
@@ -36,7 +40,7 @@ pub enum Action {
 impl<C: Config> App<C> {
     pub fn new() -> Self {
         App {
-            name: MODULE_NAME.to_string(),
+            name: "ethereum".to_string(),
             phantom: Default::default(),
         }
     }
@@ -45,46 +49,6 @@ impl<C: Config> App<C> {
 impl<C: Config> Default for App<C> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl<C: Config> AppModuleBasic for App<C> {
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn default_genesis(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    fn validate_genesis(&self) -> Result<()> {
-        todo!()
-    }
-
-    fn register_rest_routes(&self) {
-        todo!()
-    }
-
-    fn register_grpc_gateway_routes(&self) {
-        todo!()
-    }
-
-    fn get_tx_cmd(&self) {
-        todo!()
-    }
-
-    fn get_query_cmd(&self) {
-        todo!()
-    }
-}
-
-impl<C: Config> AppModuleGenesis for App<C> {
-    fn init_genesis(&self) {
-        todo!()
-    }
-
-    fn export_genesis(&self) {
-        todo!()
     }
 }
 
@@ -119,20 +83,67 @@ impl<C: Config> App<C> {
         )))
     }
 
-    fn do_transact(transaction: ethereum::Transaction) -> Result<()> {
-        // ensure!(
-        // 	fp_consensus::find_pre_log(&frame_system::Module::<T>::digest()).is_err(),
-        // 	Error::<T>::PreLogExists,
-        // );
+    fn store_block(ctx: Context, block_number: U256) -> Result<()> {
+        let mut transactions = Vec::new();
+        let mut statuses = Vec::new();
+        let mut receipts = Vec::new();
+        let mut logs_bloom = Bloom::default();
+        let pending = get_pending(ctx.store.clone())?;
+        for (transaction, status, receipt) in (*pending).clone() {
+            transactions.push(transaction);
+            statuses.push(status);
+            receipts.push(receipt.clone());
+            Self::logs_bloom(receipt.logs.clone(), &mut logs_bloom);
+        }
 
+        let ommers = Vec::<ethereum::Header>::new();
+        let partial_header = ethereum::PartialHeader {
+            // parent_hash: Self::current_block_hash().unwrap_or_default(),
+            parent_hash: H256::default(),
+            // TODO find block author
+            beneficiary: H160::default(),
+            // TODO: figure out if there's better way to get a sort-of-valid state root.
+            state_root: H256::default(),
+            // TODO: check receipts hash.
+            receipts_root: H256::from_slice(
+                Keccak256::digest(&rlp::encode_list(&receipts)[..]).as_slice(),
+            ),
+            logs_bloom,
+            difficulty: U256::zero(),
+            number: block_number,
+            gas_limit: C::BlockGasLimit::get(),
+            gas_used: receipts
+                .clone()
+                .into_iter()
+                .fold(U256::zero(), |acc, r| acc + r.used_gas),
+            timestamp: ctx.block_time().get_seconds() as u64,
+            extra_data: Vec::new(),
+            mix_hash: H256::default(),
+            nonce: H64::default(),
+        };
+        let mut block =
+            ethereum::Block::new(partial_header, transactions.clone(), ommers);
+        // TODO cache root hash?
+        block.header.state_root =
+            H256::from_slice(ctx.store.read().root_hash().as_slice());
+
+        // CurrentBlock::put(block.clone());
+        // CurrentReceipts::put(receipts.clone());
+        // CurrentTransactionStatuses::put(statuses.clone());
+        Ok(())
+    }
+
+    fn do_transact(ctx: Context, transaction: ethereum::Transaction) -> Result<()> {
         let source = Self::recover_signer(&transaction)
             .ok_or_else(|| eg!("ExecuteTransaction: InvalidSignature"))?;
 
         let transaction_hash =
             H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
-        // TODO
-        // let transaction_index = Pending::get().len() as u32;
-        let transaction_index = 0;
+
+        let mut pending = get_pending(ctx.store.clone())?;
+
+        // Note: the index is not the transaction index in the real block.
+        let transaction_index = pending.len() as u32;
 
         let (to, contract_address, info) = Self::execute_transaction(
             source,
@@ -193,22 +204,10 @@ impl<C: Config> App<C> {
             logs: status.clone().logs,
         };
 
-        // Pending::append((transaction, status, receipt));
+        pending.push((transaction, status, receipt));
+        set_pending(ctx.store, &pending)
 
-        // Self::deposit_event(Event::Executed(
-        //     source,
-        //     contract_address.unwrap_or_default(),
-        //     transaction_hash,
-        //     reason,
-        // ));
-        // Ok(PostDispatchInfo {
-        //     actual_weight: Some(T::GasWeightMapping::gas_to_weight(
-        //         used_gas.unique_saturated_into(),
-        //     )),
-        //     pays_fee: Pays::No,
-        // })
-        // .into()
-        Ok(())
+        // TODO maybe events
     }
 
     /// Execute an Ethereum transaction.
@@ -300,22 +299,6 @@ impl<C: Config> ValidateUnsigned for App<C> {
             return Err(eg!("InvalidTransaction: Payment"));
         }
 
-        // let mut builder = ValidTransactionBuilder::default()
-        //         .and_provides((origin, transaction.nonce))
-        //         .priority(if min_gas_price == U256::zero() {
-        //             0
-        //         } else {
-        //             let target_gas = (transaction.gas_limit * transaction.gas_price) / min_gas_price;
-        //             T::GasWeightMapping::gas_to_weight(target_gas.unique_saturated_into())
-        //         });
-        //
-        // if transaction.nonce > account_data.nonce {
-        //     if let Some(prev_nonce) = transaction.nonce.checked_sub(1.into()) {
-        //         builder = builder.and_requires((origin, prev_nonce))
-        //     }
-        // }
-        //
-        // builder.build()
         Ok(())
     }
 }
@@ -325,12 +308,14 @@ impl<C: Config> Executable for App<C> {
     type Call = Action;
 
     fn execute(
-        _origin: Option<Self::Origin>,
+        origin: Option<Self::Origin>,
         call: Self::Call,
-        _ctx: Context,
+        ctx: Context,
     ) -> Result<()> {
+        ensure!(origin.is_none(), "InvalidTransaction: IllegalOrigin");
+
         match call {
-            Action::Transact(tx) => Self::do_transact(tx),
+            Action::Transact(tx) => Self::do_transact(ctx, tx),
         }
     }
 }
