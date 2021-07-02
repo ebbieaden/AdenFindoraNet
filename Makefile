@@ -41,15 +41,11 @@ bin_files_musl_debug = \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
 		$(shell go env GOPATH)/bin/tendermint
 
-WASM_PKG = wasm.tar.gz
-lib_files = ./$(WASM_PKG)
-
 define pack
 	-@ rm -rf $(target_dir)
 	mkdir $(target_dir)
 	cd $(target_dir); for i in $(release_subdirs); do mkdir $$i; done
 	cp $(bin_files) $(target_dir)/$(bin_dir)
-	cp $(lib_files) $(target_dir)/$(lib_dir)
 	cp $(target_dir)/$(bin_dir)/* ~/.cargo/bin/
 endef
 
@@ -58,11 +54,10 @@ define pack_musl_debug
 	mkdir $(target_dir)
 	cd $(target_dir); for i in $(release_subdirs); do mkdir $$i; done
 	cp $(bin_files_musl_debug) $(target_dir)/$(bin_dir)
-	cp $(lib_files) $(target_dir)/$(lib_dir)
 	cp $(target_dir)/$(bin_dir)/* ~/.cargo/bin/
 endef
 
-build: tendermint wasm
+build: tendermint
 ifdef DBG
 	cargo build --bins -p abciapp
 	$(call pack,$(target_dir))
@@ -71,7 +66,7 @@ else
 	@ exit 1
 endif
 
-build_release: tendermint wasm
+build_release: tendermint
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
@@ -80,7 +75,7 @@ else
 	$(call pack,$(target_dir))
 endif
 
-build_release_musl: tendermint wasm
+build_release_musl: tendermint
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
@@ -89,7 +84,7 @@ else
 	$(call pack_musl_debug,$(target_dir))
 endif
 
-build_release_debug: tendermint wasm
+build_release_debug: tendermint
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
@@ -98,7 +93,7 @@ else
 	$(call pack,$(target_dir))
 endif
 
-build_release_musl_debug: tendermint wasm
+build_release_musl_debug: tendermint
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
