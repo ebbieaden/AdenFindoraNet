@@ -76,7 +76,7 @@ ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --release --bins -p abciapp
+	cargo build --release --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
 endif
 
