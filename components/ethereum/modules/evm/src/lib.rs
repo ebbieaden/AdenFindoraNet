@@ -83,15 +83,24 @@ impl<C: Config> AppModuleGenesis for App<C> {
 }
 
 impl<C: Config> AppModule for App<C> {
-    fn query_route(&self, path: Vec<&str>, req: &RequestQuery) -> ResponseQuery {
-        query_handler(path, req)
-    }
-
-    fn begin_block(&mut self, _req: &RequestBeginBlock) {
+    fn query_route(
+        &self,
+        _ctx: Context,
+        _path: Vec<&str>,
+        _req: &RequestQuery,
+    ) -> ResponseQuery {
         todo!()
     }
 
-    fn end_block(&mut self, _req: &RequestEndBlock) -> ResponseEndBlock {
+    fn begin_block(&mut self, _ctx: &mut Context, _req: &RequestBeginBlock) {
+        todo!()
+    }
+
+    fn end_block(
+        &mut self,
+        _ctx: &mut Context,
+        _req: &RequestEndBlock,
+    ) -> ResponseEndBlock {
         todo!()
     }
 }
@@ -121,8 +130,4 @@ impl<C: Config> Runner for App<C> {
     fn create2(_args: Create2) -> Result<CreateInfo> {
         todo!()
     }
-}
-
-fn query_handler(_path: Vec<&str>, _req: &RequestQuery) -> ResponseQuery {
-    ResponseQuery::new()
 }

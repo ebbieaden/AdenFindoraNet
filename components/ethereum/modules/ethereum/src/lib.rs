@@ -4,9 +4,7 @@ mod genesis;
 mod storage;
 
 use crate::storage::*;
-use abci::{
-    RequestBeginBlock, RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery,
-};
+use abci::{RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery};
 use ethereum_types::{Bloom, BloomInput, H64};
 use evm::ExitReason;
 use fp_core::{
@@ -20,7 +18,7 @@ use fp_core::{
 use fp_evm::{Account, CallOrCreateInfo, TransactionStatus};
 use module_evm::Runner;
 use primitive_types::{H160, H256, U256};
-use ruc::{eg, Result};
+use ruc::{eg, Result, RucResult};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 use std::marker::PhantomData;
@@ -53,16 +51,22 @@ impl<C: Config> Default for App<C> {
 }
 
 impl<C: Config> AppModule for App<C> {
-    fn query_route(&self, _path: Vec<&str>, _req: &RequestQuery) -> ResponseQuery {
+    fn query_route(
+        &self,
+        _ctx: Context,
+        _path: Vec<&str>,
+        _req: &RequestQuery,
+    ) -> ResponseQuery {
         ResponseQuery::new()
     }
 
-    fn begin_block(&mut self, _req: &RequestBeginBlock) {
-        todo!()
-    }
-
-    fn end_block(&mut self, _req: &RequestEndBlock) -> ResponseEndBlock {
-        todo!()
+    fn end_block(
+        &mut self,
+        ctx: &mut Context,
+        req: &RequestEndBlock,
+    ) -> ResponseEndBlock {
+        let _ = ruc::info!(Self::store_block(ctx, U256::from(req.height)));
+        ResponseEndBlock::new()
     }
 }
 
@@ -83,12 +87,12 @@ impl<C: Config> App<C> {
         )))
     }
 
-    fn store_block(ctx: Context, block_number: U256) -> Result<()> {
+    fn store_block(ctx: &mut Context, block_number: U256) -> Result<()> {
         let mut transactions = Vec::new();
         let mut statuses = Vec::new();
         let mut receipts = Vec::new();
         let mut logs_bloom = Bloom::default();
-        let pending = get_pending(ctx.store.clone())?;
+        let pending = Pending::get(ctx.store.clone())?;
         for (transaction, status, receipt) in (*pending).clone() {
             transactions.push(transaction);
             statuses.push(status);
@@ -127,9 +131,9 @@ impl<C: Config> App<C> {
         block.header.state_root =
             H256::from_slice(ctx.store.read().root_hash().as_slice());
 
-        // CurrentBlock::put(block.clone());
-        // CurrentReceipts::put(receipts.clone());
-        // CurrentTransactionStatuses::put(statuses.clone());
+        CurrentBlock::set(ctx.store.clone(), &Some(block).into())?;
+        CurrentReceipts::set(ctx.store.clone(), &Some(receipts).into())?;
+        CurrentTransactionStatuses::set(ctx.store.clone(), &Some(statuses).into())?;
         Ok(())
     }
 
@@ -140,7 +144,7 @@ impl<C: Config> App<C> {
         let transaction_hash =
             H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
 
-        let mut pending = get_pending(ctx.store.clone())?;
+        let mut pending = Pending::get(ctx.store.clone())?;
 
         // Note: the index is not the transaction index in the real block.
         let transaction_index = pending.len() as u32;
@@ -205,7 +209,7 @@ impl<C: Config> App<C> {
         };
 
         pending.push((transaction, status, receipt));
-        set_pending(ctx.store, &pending)
+        Pending::set(ctx.store, &pending)
 
         // TODO maybe events
     }

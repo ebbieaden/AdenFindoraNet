@@ -1,3 +1,4 @@
+use crate::context::Context;
 use ruc::Result;
 
 /// AppModuleBasic is the standard form for basic non-dependant elements of an application module.
@@ -38,13 +39,18 @@ pub trait AppModule: AppModuleBasic + AppModuleGenesis + Send + Sync {
     /// query_route returns the application module's query response.
     fn query_route(
         &self,
+        _ctx: Context,
         _path: Vec<&str>,
         _req: &abci::RequestQuery,
     ) -> abci::ResponseQuery;
 
     /// Tendermint consensus connection: called at the start of processing a block of transactions.
-    fn begin_block(&mut self, _req: &abci::RequestBeginBlock);
+    fn begin_block(&mut self, _ctx: &mut Context, _req: &abci::RequestBeginBlock) {}
 
     /// Tendermint consensus connection: called at the end of the block.
-    fn end_block(&mut self, _req: &abci::RequestEndBlock) -> abci::ResponseEndBlock;
+    fn end_block(
+        &mut self,
+        _ctx: &mut Context,
+        _req: &abci::RequestEndBlock,
+    ) -> abci::ResponseEndBlock;
 }

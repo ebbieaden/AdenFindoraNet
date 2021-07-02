@@ -72,8 +72,9 @@ impl Application for crate::BaseApp {
         // for m in self.modules.iter_mut() {
         //     m.begin_block(req);
         // }
-        self.ethereum_module.begin_block(req);
-        self.evm_module.begin_block(req);
+        self.ethereum_module
+            .begin_block(&mut self.deliver_state, req);
+        self.evm_module.begin_block(&mut self.deliver_state, req);
 
         ResponseBeginBlock::new()
     }
@@ -98,8 +99,8 @@ impl Application for crate::BaseApp {
         // for m in self.modules.iter_mut() {
         //     m.end_block(req);
         // }
-        self.ethereum_module.end_block(req);
-        self.evm_module.end_block(req);
+        self.ethereum_module.end_block(&mut self.deliver_state, req);
+        self.evm_module.end_block(&mut self.deliver_state, req);
 
         ResponseEndBlock::new()
     }
