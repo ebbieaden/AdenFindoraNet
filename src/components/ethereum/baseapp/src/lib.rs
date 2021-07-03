@@ -9,6 +9,7 @@ use fp_core::{
     parameter_types,
     transaction::{Applyable, Executable, ValidateUnsigned},
 };
+use module_evm::{AddressMapping, FeeCalculator, OnChargeEVMTransaction};
 use parking_lot::RwLock;
 use primitive_types::U256;
 use ruc::{eg, Result};
@@ -68,9 +69,13 @@ parameter_types! {
 impl module_ethereum::Config for BaseApp {}
 
 impl module_evm::Config for BaseApp {
-    type Runner = module_evm::App<Self>;
+    type Runner = module_evm::runtime::runner::Runner<Self>;
     type ChainId = ChainId;
     type BlockGasLimit = BlockGasLimit;
+    type AddressMapping = module_evm::EthereumAddressMapping;
+    type FeeCalculator = ();
+    type OnChargeTransaction = module_evm::EVMCurrencyAdapter;
+    type Precompiles = ();
 }
 
 impl BaseApp {

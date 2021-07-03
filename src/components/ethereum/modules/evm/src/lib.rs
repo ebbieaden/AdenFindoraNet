@@ -1,85 +1,130 @@
+mod basic;
 mod client;
 mod genesis;
-mod message;
+pub mod runtime;
+mod storage;
 
-use abci::*;
+use abci::{RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery};
+use evm::Config as EvmConfig;
 use fp_core::{
-    context::Context,
-    crypto::Address,
-    macros::*,
-    module::{AppModule, AppModuleBasic, AppModuleGenesis},
+    context::Context, crypto::Address, macros::Get, module::AppModule,
     transaction::Executable,
 };
-use fp_evm::{CallInfo, CreateInfo};
-use primitive_types::U256;
-use ruc::*;
+use fp_evm::{Account, CallInfo, CreateInfo, PrecompileSet};
+use primitive_types::{H160, U256};
+use ruc::Result;
+use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
-pub use message::*;
+pub use runtime::*;
 
-pub const MODULE_NAME: &str = "evm";
+static ISTANBUL_CONFIG: EvmConfig = EvmConfig::istanbul();
 
 pub struct App<C> {
     name: String,
     phantom: PhantomData<C>,
 }
 
-pub trait Config: Send + Sync {
-    /// EVM execution runner.
-    type Runner: Runner;
-    /// Chain ID of EVM.
-    type ChainId: Get<u64>;
+pub trait Config: Send + Sync + Sized {
+    /// Mapping from address to account id.
+    type AddressMapping: AddressMapping;
     /// The block gas limit. Can be a simple constant, or an adjustment algorithm in another pallet.
     type BlockGasLimit: Get<U256>;
+    /// Chain ID of EVM.
+    type ChainId: Get<u64>;
+    /// Calculator for current gas price.
+    type FeeCalculator: FeeCalculator;
+    /// To handle fee deduction for EVM transactions.
+    type OnChargeTransaction: OnChargeEVMTransaction<Self>;
+    /// Precompiles associated with this EVM engine.
+    type Precompiles: PrecompileSet;
+    /// EVM execution runner.
+    type Runner: Runner;
+    /// EVM config used in the module.
+    fn config() -> &'static EvmConfig {
+        &ISTANBUL_CONFIG
+    }
+}
+
+/// Trait that outputs the current transaction gas price.
+pub trait FeeCalculator {
+    /// Return the minimal required gas price.
+    fn min_gas_price() -> U256;
+}
+
+impl FeeCalculator for () {
+    fn min_gas_price() -> U256 {
+        U256::zero()
+    }
+}
+
+pub trait AddressMapping {
+    fn into_account_id(address: H160) -> Address;
+}
+
+/// Ethereum address mapping.
+pub struct EthereumAddressMapping;
+
+impl AddressMapping for EthereumAddressMapping {
+    fn into_account_id(address: H160) -> Address {
+        todo!()
+    }
+}
+
+/// Handle withdrawing, refunding and depositing of transaction fees.
+/// Similar to `OnChargeTransaction` of `pallet_transaction_payment`
+pub trait OnChargeEVMTransaction<T: Config> {
+    type LiquidityInfo: Default;
+
+    /// Before the transaction is executed the payment of the transaction fees
+    /// need to be secured.
+    fn withdraw_fee(who: &H160, fee: U256) -> Result<Self::LiquidityInfo>;
+
+    /// After the transaction was executed the actual fee can be calculated.
+    /// This function should refund any overpaid fees and optionally deposit
+    /// the corrected amount.
+    fn correct_and_deposit_fee(
+        who: &H160,
+        corrected_fee: U256,
+        already_withdrawn: Self::LiquidityInfo,
+    ) -> Result<()>;
+}
+
+/// Implements the transaction payment for a module implementing the `Currency`
+/// trait (eg. the pallet_balances) using an unbalance handler (implementing
+/// `OnUnbalanced`).
+pub struct EVMCurrencyAdapter;
+
+impl<C: Config> OnChargeEVMTransaction<C> for EVMCurrencyAdapter {
+    type LiquidityInfo = ();
+
+    fn withdraw_fee(who: &H160, fee: U256) -> Result<Self::LiquidityInfo> {
+        todo!()
+    }
+
+    fn correct_and_deposit_fee(
+        who: &H160,
+        corrected_fee: U256,
+        already_withdrawn: Self::LiquidityInfo,
+    ) -> Result<()> {
+        todo!()
+    }
 }
 
 impl<C: Config> App<C> {
     pub fn new() -> Self {
         App {
-            name: MODULE_NAME.to_string(),
+            name: "evm".to_string(),
             phantom: Default::default(),
         }
     }
 }
 
-impl<C: Config> AppModuleBasic for App<C> {
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn default_genesis(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    fn validate_genesis(&self) -> Result<()> {
-        todo!()
-    }
-
-    fn register_rest_routes(&self) {
-        todo!()
-    }
-
-    fn register_grpc_gateway_routes(&self) {
-        todo!()
-    }
-
-    fn get_tx_cmd(&self) {
-        todo!()
-    }
-
-    fn get_query_cmd(&self) {
-        todo!()
-    }
-}
-
-impl<C: Config> AppModuleGenesis for App<C> {
-    fn init_genesis(&self) {
-        todo!()
-    }
-
-    fn export_genesis(&self) {
-        todo!()
-    }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Action {
+    Call(Call),
+    Create(Create),
+    Create2(Create2),
 }
 
 impl<C: Config> AppModule for App<C> {
@@ -89,10 +134,6 @@ impl<C: Config> AppModule for App<C> {
         _path: Vec<&str>,
         _req: &RequestQuery,
     ) -> ResponseQuery {
-        todo!()
-    }
-
-    fn begin_block(&mut self, _ctx: &mut Context, _req: &RequestBeginBlock) {
         todo!()
     }
 
@@ -118,16 +159,29 @@ impl<C: Config> Executable for App<C> {
     }
 }
 
-impl<C: Config> Runner for App<C> {
-    fn call(_args: Call) -> Result<CallInfo> {
-        todo!()
+impl<C: Config> App<C> {
+    /// Remove an account.
+    pub fn remove_account(_address: &H160) {
+        // if AccountCodes::contains_key(address) {
+        //     let account_id = T::AddressMapping::into_account_id(*address);
+        //     let _ = frame_system::Module::<T>::dec_consumers(&account_id);
+        // }
+        //
+        // AccountCodes::remove(address);
+        // AccountStorages::remove_prefix(address);
     }
 
-    fn create(_args: Create) -> Result<CreateInfo> {
-        todo!()
-    }
+    /// Get the account basic in EVM format.
+    pub fn account_basic(address: &H160) -> Account {
+        let _account_id = C::AddressMapping::into_account_id(*address);
 
-    fn create2(_args: Create2) -> Result<CreateInfo> {
+        // let nonce = frame_system::Module::<T>::account_nonce(&account_id);
+        // let balance = T::Currency::free_balance(&account_id);
+        //
+        // Account {
+        //     nonce: U256::from(UniqueSaturatedInto::<u128>::unique_saturated_into(nonce)),
+        //     balance: U256::from(UniqueSaturatedInto::<u128>::unique_saturated_into(balance)),
+        // }
         todo!()
     }
 }
