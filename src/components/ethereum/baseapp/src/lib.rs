@@ -69,13 +69,13 @@ parameter_types! {
 impl module_ethereum::Config for BaseApp {}
 
 impl module_evm::Config for BaseApp {
-    type Runner = module_evm::runtime::runner::Runner<Self>;
-    type ChainId = ChainId;
-    type BlockGasLimit = BlockGasLimit;
     type AddressMapping = module_evm::EthereumAddressMapping;
+    type BlockGasLimit = BlockGasLimit;
+    type ChainId = ChainId;
     type FeeCalculator = ();
     type OnChargeTransaction = module_evm::EVMCurrencyAdapter;
     type Precompiles = ();
+    type Runner = module_evm::runtime::runner::ActionRunner<Self>;
 }
 
 impl BaseApp {

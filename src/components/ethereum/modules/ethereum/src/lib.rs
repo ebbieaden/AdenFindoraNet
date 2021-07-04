@@ -28,7 +28,7 @@ pub struct App<C> {
     phantom: PhantomData<C>,
 }
 
-pub trait Config: module_evm::Config + Send + Sync {}
+pub trait Config: module_evm::Config {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
@@ -150,6 +150,7 @@ impl<C: Config> App<C> {
         let transaction_index = pending.len() as u32;
 
         let (to, contract_address, info) = Self::execute_transaction(
+            &ctx,
             source,
             transaction.input.clone(),
             transaction.value,
@@ -216,6 +217,7 @@ impl<C: Config> App<C> {
 
     /// Execute an Ethereum transaction.
     pub fn execute_transaction(
+        ctx: &Context,
         from: H160,
         input: Vec<u8>,
         value: U256,
@@ -226,27 +228,33 @@ impl<C: Config> App<C> {
     ) -> Result<(Option<H160>, Option<H160>, CallOrCreateInfo)> {
         match action {
             ethereum::TransactionAction::Call(target) => {
-                let res = C::Runner::call(module_evm::Call {
-                    source: from,
-                    target,
-                    input: input.clone(),
-                    value,
-                    gas_limit: gas_limit.low_u64(),
-                    gas_price,
-                    nonce,
-                })?;
+                let res = C::Runner::call(
+                    ctx,
+                    module_evm::Call {
+                        source: from,
+                        target,
+                        input: input.clone(),
+                        value,
+                        gas_limit: gas_limit.low_u64(),
+                        gas_price,
+                        nonce,
+                    },
+                )?;
 
                 Ok((Some(target), None, CallOrCreateInfo::Call(res)))
             }
             ethereum::TransactionAction::Create => {
-                let res = C::Runner::create(module_evm::Create {
-                    source: from,
-                    init: input.clone(),
-                    value,
-                    gas_limit: gas_limit.low_u64(),
-                    gas_price,
-                    nonce,
-                })?;
+                let res = C::Runner::create(
+                    ctx,
+                    module_evm::Create {
+                        source: from,
+                        init: input.clone(),
+                        value,
+                        gas_limit: gas_limit.low_u64(),
+                        gas_price,
+                        nonce,
+                    },
+                )?;
 
                 Ok((None, Some(res.value), CallOrCreateInfo::Create(res)))
             }

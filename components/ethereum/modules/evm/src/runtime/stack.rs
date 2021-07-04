@@ -1,8 +1,8 @@
 use crate::{AddressMapping, Config, OnChargeEVMTransaction};
-use evm::backend::Backend as BackendT;
+use evm::backend::Backend;
 use evm::executor::{StackExecutor, StackState as StackStateT, StackSubstateMetadata};
 use evm::{ExitError, ExitReason, Transfer};
-use fp_core::macros::Get;
+use fp_core::{context::Context, macros::Get};
 use fp_evm::{CallInfo, CreateInfo, ExecutionInfo, Log, Vicinity};
 use primitive_types::{H160, H256, U256};
 use sha3::{Digest, Keccak256};
@@ -10,14 +10,14 @@ use std::collections::btree_set::BTreeSet;
 use std::marker::PhantomData;
 use std::mem;
 
-pub struct SubstrateStackSubstate<'config> {
+pub struct FindoraStackSubstate<'config> {
     pub metadata: StackSubstateMetadata<'config>,
     pub deletes: BTreeSet<H160>,
     pub logs: Vec<Log>,
-    pub parent: Option<Box<SubstrateStackSubstate<'config>>>,
+    pub parent: Option<Box<FindoraStackSubstate<'config>>>,
 }
 
-impl<'config> SubstrateStackSubstate<'config> {
+impl<'config> FindoraStackSubstate<'config> {
     pub fn metadata(&self) -> &StackSubstateMetadata<'config> {
         &self.metadata
     }
@@ -99,22 +99,27 @@ impl<'config> SubstrateStackSubstate<'config> {
     }
 }
 
-/// Substrate backend for EVM.
-pub struct SubstrateStackState<'vicinity, 'config, T> {
+/// Findora backend for EVM.
+pub struct FindoraStackState<'context, 'vicinity, 'config, T> {
+    pub ctx: &'context Context,
     pub vicinity: &'vicinity Vicinity,
-    pub substate: SubstrateStackSubstate<'config>,
+    pub substate: FindoraStackSubstate<'config>,
     _marker: PhantomData<T>,
 }
 
-impl<'vicinity, 'config, T: Config> SubstrateStackState<'vicinity, 'config, T> {
+impl<'context, 'vicinity, 'config, T: Config>
+    FindoraStackState<'context, 'vicinity, 'config, T>
+{
     /// Create a new backend with given vicinity.
     pub fn new(
+        ctx: &'context Context,
         vicinity: &'vicinity Vicinity,
         metadata: StackSubstateMetadata<'config>,
     ) -> Self {
         Self {
+            ctx,
             vicinity,
-            substate: SubstrateStackSubstate {
+            substate: FindoraStackSubstate {
                 metadata,
                 deletes: BTreeSet::new(),
                 logs: Vec::new(),
@@ -125,8 +130,8 @@ impl<'vicinity, 'config, T: Config> SubstrateStackState<'vicinity, 'config, T> {
     }
 }
 
-impl<'vicinity, 'config, T: Config> BackendT
-    for SubstrateStackState<'vicinity, 'config, T>
+impl<'context, 'vicinity, 'config, C: Config> Backend
+    for FindoraStackState<'context, 'vicinity, 'config, C>
 {
     fn gas_price(&self) -> U256 {
         self.vicinity.gas_price
@@ -145,10 +150,8 @@ impl<'vicinity, 'config, T: Config> BackendT
     }
 
     fn block_number(&self) -> U256 {
-        // let number: u128 =
-        //     frame_system::Module::<T>::block_number().unique_saturated_into();
-        // U256::from(number)
-        todo!()
+        let number = self.ctx.block_height();
+        U256::from(number)
     }
 
     fn block_coinbase(&self) -> H160 {
@@ -171,7 +174,7 @@ impl<'vicinity, 'config, T: Config> BackendT
     }
 
     fn chain_id(&self) -> U256 {
-        U256::from(T::ChainId::get())
+        U256::from(C::ChainId::get())
     }
 
     fn exists(&self, _address: H160) -> bool {
@@ -203,8 +206,8 @@ impl<'vicinity, 'config, T: Config> BackendT
     }
 }
 
-impl<'vicinity, 'config, T: Config> StackStateT<'config>
-    for SubstrateStackState<'vicinity, 'config, T>
+impl<'context, 'vicinity, 'config, T: Config> StackStateT<'config>
+    for FindoraStackState<'context, 'vicinity, 'config, T>
 {
     fn metadata(&self) -> &StackSubstateMetadata<'config> {
         self.substate.metadata()

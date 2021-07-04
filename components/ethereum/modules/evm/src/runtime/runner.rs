@@ -1,10 +1,9 @@
-use super::stack::SubstrateStackState;
-use crate::runtime::{Call, Create, Create2, Runner as RunnerT};
+use super::stack::FindoraStackState;
+use crate::runtime::{Call, Create, Create2, Runner};
 use crate::{App, Config, FeeCalculator, OnChargeEVMTransaction};
-use evm::backend::Backend as BackendT;
 use evm::executor::{StackExecutor, StackSubstateMetadata};
 use evm::ExitReason;
-use fp_core::ensure;
+use fp_core::{context::Context, ensure};
 use fp_evm::{CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity};
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
@@ -12,13 +11,14 @@ use sha3::{Digest, Keccak256};
 use std::marker::PhantomData;
 
 #[derive(Default)]
-pub struct Runner<T: Config> {
-    _marker: PhantomData<T>,
+pub struct ActionRunner<C: Config> {
+    _marker: PhantomData<C>,
 }
 
-impl<T: Config> Runner<T> {
+impl<C: Config> ActionRunner<C> {
     /// Execute an EVM operation.
     pub fn execute<'config, F, R>(
+        ctx: &Context,
         source: H160,
         value: U256,
         gas_limit: u64,
@@ -29,14 +29,14 @@ impl<T: Config> Runner<T> {
     ) -> Result<ExecutionInfo<R>>
     where
         F: FnOnce(
-            &mut StackExecutor<'config, SubstrateStackState<'_, 'config, T>>,
+            &mut StackExecutor<'config, FindoraStackState<'_, '_, 'config, C>>,
         ) -> (ExitReason, R),
     {
         // Gas price check is skipped when performing a gas estimation.
         let gas_price = match gas_price {
             Some(gas_price) => {
                 ensure!(
-                    gas_price >= T::FeeCalculator::min_gas_price(),
+                    gas_price >= C::FeeCalculator::min_gas_price(),
                     "GasPriceTooLow"
                 );
                 gas_price
@@ -50,16 +50,16 @@ impl<T: Config> Runner<T> {
         };
 
         let metadata = StackSubstateMetadata::new(gas_limit, &config);
-        let state = SubstrateStackState::new(&vicinity, metadata);
+        let state = FindoraStackState::new(ctx, &vicinity, metadata);
         let mut executor =
-            StackExecutor::new_with_precompile(state, config, T::Precompiles::execute);
+            StackExecutor::new_with_precompile(state, config, C::Precompiles::execute);
 
         let total_fee = gas_price
             .checked_mul(U256::from(gas_limit))
             .ok_or(eg!("FeeOverflow"))?;
         let total_payment =
             value.checked_add(total_fee).ok_or(eg!("PaymentOverflow"))?;
-        let source_account = App::<T>::account_basic(&source);
+        let source_account = App::<C>::account_basic(&source);
         ensure!(source_account.balance >= total_payment, eg!("BalanceLow"));
 
         if let Some(nonce) = nonce {
@@ -67,7 +67,7 @@ impl<T: Config> Runner<T> {
         }
 
         // Deduct fee from the `source` account.
-        let fee = T::OnChargeTransaction::withdraw_fee(&source, total_fee)?;
+        let fee = C::OnChargeTransaction::withdraw_fee(&source, total_fee)?;
 
         // Execute the EVM call.
         let (reason, retv) = f(&mut executor);
@@ -85,7 +85,7 @@ impl<T: Config> Runner<T> {
         );
 
         // Refund fees to the `source` account if deducted more before,
-        T::OnChargeTransaction::correct_and_deposit_fee(&source, actual_fee, fee)?;
+        C::OnChargeTransaction::correct_and_deposit_fee(&source, actual_fee, fee)?;
 
         let state = executor.into_state();
 
@@ -95,7 +95,7 @@ impl<T: Config> Runner<T> {
                 "Deleting account at {:?}",
                 address
             );
-            App::<T>::remove_account(&address)
+            App::<C>::remove_account(&address)
         }
 
         for log in &state.substate.logs {
@@ -124,15 +124,16 @@ impl<T: Config> Runner<T> {
     }
 }
 
-impl<T: Config> RunnerT for Runner<T> {
-    fn call(args: Call) -> Result<CallInfo> {
+impl<C: Config> Runner for ActionRunner<C> {
+    fn call(ctx: &Context, args: Call) -> Result<CallInfo> {
         Self::execute(
+            ctx,
             args.source,
             args.value,
             args.gas_limit,
             args.gas_price,
             args.nonce,
-            T::config(),
+            C::config(),
             |executor| {
                 executor.transact_call(
                     args.source,
@@ -145,14 +146,15 @@ impl<T: Config> RunnerT for Runner<T> {
         )
     }
 
-    fn create(args: Create) -> Result<CreateInfo> {
+    fn create(ctx: &Context, args: Create) -> Result<CreateInfo> {
         Self::execute(
+            ctx,
             args.source,
             args.value,
             args.gas_limit,
             args.gas_price,
             args.nonce,
-            T::config(),
+            C::config(),
             |executor| {
                 let address = executor.create_address(evm::CreateScheme::Legacy {
                     caller: args.source,
@@ -170,15 +172,16 @@ impl<T: Config> RunnerT for Runner<T> {
         )
     }
 
-    fn create2(args: Create2) -> Result<CreateInfo> {
+    fn create2(ctx: &Context, args: Create2) -> Result<CreateInfo> {
         let code_hash = H256::from_slice(Keccak256::digest(&args.init).as_slice());
         Self::execute(
+            ctx,
             args.source,
             args.value,
             args.gas_limit,
             args.gas_price,
             args.nonce,
-            T::config(),
+            C::config(),
             |executor| {
                 let address = executor.create_address(evm::CreateScheme::Create2 {
                     caller: args.source,
