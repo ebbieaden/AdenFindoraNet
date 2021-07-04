@@ -2,6 +2,7 @@ pub mod runner;
 mod stack;
 
 use ethereum_types::{H160, H256, U256};
+use fp_core::context::Context;
 use fp_evm::{CallInfo, CreateInfo};
 use ruc::Result;
 use serde::{Deserialize, Serialize};
@@ -39,9 +40,9 @@ pub struct Create2 {
 }
 
 pub trait Runner {
-    fn call(_args: Call) -> Result<CallInfo>;
+    fn call(_ctx: &Context, _args: Call) -> Result<CallInfo>;
 
-    fn create(_args: Create) -> Result<CreateInfo>;
+    fn create(_ctx: &Context, _args: Create) -> Result<CreateInfo>;
 
-    fn create2(_args: Create2) -> Result<CreateInfo>;
+    fn create2(_ctx: &Context, _args: Create2) -> Result<CreateInfo>;
 }

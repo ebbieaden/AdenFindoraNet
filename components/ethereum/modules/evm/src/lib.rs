@@ -25,7 +25,7 @@ pub struct App<C> {
     phantom: PhantomData<C>,
 }
 
-pub trait Config: Send + Sync + Sized {
+pub trait Config: Sized {
     /// Mapping from address to account id.
     type AddressMapping: AddressMapping;
     /// The block gas limit. Can be a simple constant, or an adjustment algorithm in another pallet.
