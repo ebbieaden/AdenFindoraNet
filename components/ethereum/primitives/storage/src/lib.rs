@@ -52,11 +52,10 @@ macro_rules! generate_storage {
     ($module:ident, $name:ident => Value<$value:ty>) => {
         $crate::paste::paste! {
             $crate::generate_storage!(@GENERATE_INSTANCE_STRUCT $module, $name);
-            type $name = $crate::types::StorageValue<
+            pub type $name = $crate::types::StorageValue<
                 [<$name Instance>],
                 $crate::hash::Sha256,
                 $value,
-
             >;
         }
     };
@@ -64,7 +63,7 @@ macro_rules! generate_storage {
         $crate::paste::paste! {
             $crate::generate_storage!(@GENERATE_INSTANCE_STRUCT $module, $name);
             #[allow(type_alias_bounds)]
-            type $name<$t : $bounds> = $crate::types::StorageValue<
+            pub type $name<$t : $bounds> = $crate::types::StorageValue<
                 [<$name Instance>],
                 $crate::hash::Sha256,
                 $value,
@@ -74,7 +73,7 @@ macro_rules! generate_storage {
     ($module:ident, $name:ident => Map<$key:ty, $value:ty>) => {
         $crate::paste::paste! {
             $crate::generate_storage!(@GENERATE_INSTANCE_STRUCT $module, $name);
-            type $name = $crate::types::StorageMap<
+            pub type $name = $crate::types::StorageMap<
                 [<$name Instance>],
                 $crate::hash::Sha256,
                 $key,
@@ -86,7 +85,7 @@ macro_rules! generate_storage {
         $crate::paste::paste! {
             $crate::generate_storage!(@GENERATE_INSTANCE_STRUCT $module, $name);
             #[allow(type_alias_bounds)]
-            type $name<$t : $bounds> = $crate::types::StorageMap<
+            pub type $name<$t : $bounds> = $crate::types::StorageMap<
                 [<$name Instance>],
                 $crate::hash::Sha256,
                 $key,
@@ -97,7 +96,7 @@ macro_rules! generate_storage {
     ($module:ident, $name:ident => DoubleMap<$key1:ty, $key2:ty, $value:ty>) => {
         $crate::paste::paste! {
             $crate::generate_storage!(@GENERATE_INSTANCE_STRUCT $module, $name);
-            type $name = $crate::types::StorageDoubleMap<
+            pub type $name = $crate::types::StorageDoubleMap<
                 [<$name Instance>],
                 $crate::hash::Sha256,
                 $key1,
@@ -113,7 +112,7 @@ macro_rules! generate_storage {
         $crate::paste::paste! {
             $crate::generate_storage!(@GENERATE_INSTANCE_STRUCT $module, $name);
             #[allow(type_alias_bounds)]
-            type $name<$t : $bounds> = $crate::types::StorageDoubleMap<
+            pub type $name<$t : $bounds> = $crate::types::StorageDoubleMap<
                 [<$name Instance>],
                 $crate::hash::Sha256,
                 $key1,
@@ -126,7 +125,7 @@ macro_rules! generate_storage {
     // helper used in all arms.
     (@GENERATE_INSTANCE_STRUCT $module:ident, $name:ident) => {
         $crate::paste::paste! {
-            struct [<$name Instance>];
+            pub struct [<$name Instance>];
             impl $crate::StorageInstance for [<$name Instance>] {
                 fn module_prefix() -> &'static str { stringify!($module) }
                 const STORAGE_PREFIX: &'static str = stringify!($name);
