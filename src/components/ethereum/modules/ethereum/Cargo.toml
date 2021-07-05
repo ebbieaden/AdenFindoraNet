@@ -25,6 +25,7 @@ storage = { git = "https://github.com/FindoraNetwork/storage.git", branch = "mas
 # primitives
 fp-core = { path = "../../primitives/core" }
 fp-evm = { path = "../../primitives/evm" }
+fp-storage = { path = "../../primitives/storage" }
 
 # modules
 module-evm = { path = "../evm"}
