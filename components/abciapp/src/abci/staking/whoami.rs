@@ -4,6 +4,7 @@
 //! - sha256(pubkey)[:20]
 //!
 
+use lazy_static::lazy_static;
 use ledger::staking::td_addr_to_bytes;
 use ruc::*;
 use serde::Deserialize;
@@ -22,9 +23,13 @@ fn from_env() -> Result<Vec<u8>> {
 
 fn from_config_file() -> Result<Vec<u8>> {
     // the config path in the abci container
-    const CFG_PATH: &str = "/root/.tendermint/config/priv_validator_key.json";
+    const CFG_PATH_FF: &str = "/root/.tendermint/config/priv_validator_key.json";
+    lazy_static! {
+        static ref CFG_PATH: String = env::var("TENDERMINT_NODE_KEY_CONFIG_PATH")
+            .unwrap_or_else(|_| CFG_PATH_FF.to_owned());
+    }
 
-    fs::read_to_string(CFG_PATH)
+    fs::read_to_string(&*CFG_PATH)
         .c(d!())
         .and_then(|cfg| serde_json::from_str::<SelfAddr>(&cfg).c(d!()))
         .and_then(|sa| td_addr_to_bytes(&sa.address).c(d!()))

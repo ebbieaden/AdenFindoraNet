@@ -10,7 +10,7 @@ mod response;
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
 use ledger::address::{AddressBinder, SmartAddress};
-use ledger::staking::TendermintAddr;
+use ledger::staking::{DelegationRwdDetail, TendermintAddr};
 use ledger::{
     data_model::*,
     staking::{DelegationState, Staking, UNBOND_BLOCK_CNT},
@@ -377,6 +377,43 @@ where
     };
 
     Ok(web::Json(ValidatorList::new(vec![])))
+}
+
+#[derive(Deserialize, Debug)]
+struct DelegationRwdQueryParams {
+    address: String,
+    height: u64,
+}
+
+async fn get_delegation_reward<SA>(
+    data: web::Data<Arc<RwLock<SA>>>,
+    web::Query(info): web::Query<DelegationRwdQueryParams>,
+) -> actix_web::Result<web::Json<Vec<DelegationRwdDetail>>>
+where
+    SA: LedgerAccess,
+{
+    // Convert from base64 representation
+    let key: XfrPublicKey = wallet::public_key_from_base64(&info.address)
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+
+    let read = data.read();
+    let staking = read.get_staking();
+
+    let di = staking
+        .delegation_get(&key)
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+
+    Ok(web::Json(
+        (0..=info.height)
+            .into_iter()
+            .rev()
+            .filter_map(|i| di.rwd_detail.get(&i))
+            .take(1)
+            .cloned()
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize, Debug)]
@@ -861,6 +898,10 @@ where
         .service(
             web::resource("/delegator_list")
                 .route(web::get().to(get_delegators_with_params::<SA>)),
+        )
+        .service(
+            web::resource("/delegation_rewards")
+                .route(web::get().to(get_delegation_reward::<SA>)),
         )
         .route(
             &StakingAccessRoutes::ValidatorDetail.with_arg_template("NodeAddress"),

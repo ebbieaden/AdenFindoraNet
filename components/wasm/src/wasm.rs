@@ -19,8 +19,8 @@ use ledger::{
     },
     policies::{DebtMemo, Fraction},
     staking::{
-        td_addr_to_bytes, PartialUnDelegation, TendermintAddr, MAX_DELEGATION_AMOUNT,
-        MIN_DELEGATION_AMOUNT,
+        gen_random_keypair, td_addr_to_bytes, PartialUnDelegation, TendermintAddr,
+        MAX_DELEGATION_AMOUNT, MIN_DELEGATION_AMOUNT,
     },
 };
 use rand_chacha::ChaChaRng;
@@ -530,7 +530,7 @@ impl TransactionBuilder {
         am: u64,
         target_validator: TendermintAddr,
     ) -> Result<TransactionBuilder, JsValue> {
-        let middle_pk = new_keypair().get_pk();
+        let middle_pk = gen_random_keypair().get_pk();
         self.get_builder_mut().add_operation_undelegation(
             keypair,
             Some(PartialUnDelegation::new(
@@ -927,8 +927,7 @@ pub fn get_priv_key_str(key_pair: &XfrKeyPair) -> String {
 #[wasm_bindgen]
 /// Creates a new transfer key pair.
 pub fn new_keypair() -> XfrKeyPair {
-    let mut small_rng = rand::thread_rng();
-    XfrKeyPair::generate(&mut small_rng)
+    gen_random_keypair()
 }
 
 #[wasm_bindgen]

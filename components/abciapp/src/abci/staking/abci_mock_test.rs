@@ -1087,10 +1087,13 @@ fn staking_scene_1() -> Result<()> {
     assert!(is_failed(&tx_hash));
 
     // 30. make sure that user can NOT sent `MintFra` transactions
-    let mint_ops = Operation::MintFra(MintFraOps::new(vec![
-        MintEntry::new(MintKind::Claim, x_kp.get_pk(), None, 100),
-        MintEntry::new(MintKind::UnStake, x_kp.get_pk(), None, 900),
-    ]));
+    let mint_ops = Operation::MintFra(MintFraOps::new(
+        0u64,
+        vec![
+            MintEntry::new(MintKind::Claim, x_kp.get_pk(), None, 100),
+            MintEntry::new(MintKind::UnStake, x_kp.get_pk(), None, 900),
+        ],
+    ));
     let tx = Transaction::from_operation(mint_ops, get_seq_id());
     let tx_hash = gen_tx_hash(&tx);
     send_tx(tx).c(d!())?;

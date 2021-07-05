@@ -4,6 +4,7 @@
 //! A more standard CoinBase implementation.
 //!
 
+use crate::staking::BlockHeight;
 use crate::{
     data_model::{TxOutput, ASSET_TYPE_FRA},
     staking::{Amount, FRA},
@@ -16,7 +17,7 @@ use zei::{
     setup::PublicParams,
     xfr::{
         asset_record::{build_blind_asset_record, AssetRecordType},
-        structs::AssetRecordTemplate,
+        structs::{AssetRecordTemplate, OwnerMemo},
     },
 };
 
@@ -26,20 +27,27 @@ pub const MINT_AMOUNT_LIMIT: Amount = 420 * 100_0000 * FRA;
 #[allow(missing_docs)]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MintFraOps {
+    pub height: BlockHeight,
     pub entries: Vec<MintEntry>,
 }
 
 impl MintFraOps {
     #[inline(always)]
     #[allow(missing_docs)]
-    pub fn new(entries: Vec<MintEntry>) -> Self {
-        MintFraOps { entries }
+    pub fn new(height: BlockHeight, entries: Vec<MintEntry>) -> Self {
+        MintFraOps { height, entries }
     }
 
     #[inline(always)]
     #[allow(missing_docs)]
     pub fn get_related_pubkeys(&self) -> Vec<XfrPublicKey> {
         self.entries.iter().map(|e| e.target_pk).collect()
+    }
+
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn get_owner_memos_ref(&self) -> Vec<Option<&OwnerMemo>> {
+        vec![None; self.entries.len()]
     }
 }
 
