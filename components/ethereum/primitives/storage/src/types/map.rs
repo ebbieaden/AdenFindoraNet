@@ -31,11 +31,11 @@ where
     }
 
     /// Get the storage key used to fetch a value corresponding to a specific key.
-    pub fn hashed_key_for(key: Key) -> Vec<u8> {
+    pub fn hashed_key_for(key: &Key) -> Vec<u8> {
         let prefix_key: Vec<u8> =
             [Self::module_prefix(), Self::storage_prefix()].concat();
         let prefix_key_hashed = Hasher::hash(prefix_key.as_slice());
-        let data_key = serde_json::to_vec(&key).unwrap_or(vec![]);
+        let data_key = serde_json::to_vec(key).unwrap_or(vec![]);
         let mut final_key =
             Vec::with_capacity(prefix_key_hashed.len() + data_key.as_slice().len());
         final_key.extend_from_slice(&prefix_key_hashed[..]);
@@ -44,15 +44,29 @@ where
     }
 
     /// Does the value (explicitly) exist in storage?
-    pub fn contains_key(store: Arc<RwLock<Store>>, key: Key) -> bool {
+    pub fn contains_key(store: Arc<RwLock<Store>>, key: &Key) -> bool {
         store
             .read()
             .exists(Self::hashed_key_for(key).as_ref())
             .unwrap_or(false)
     }
 
+    /// Read the length of the storage value without decoding the entire value under the
+    /// given `key`.
+    pub fn decode_len(store: Arc<RwLock<Store>>, key: &Key) -> Option<usize> {
+        let output = store
+            .read()
+            .get(Self::hashed_key_for(key).as_ref())
+            .unwrap_or(None);
+        if let Some(val) = output {
+            Some(val.len())
+        } else {
+            None
+        }
+    }
+
     /// Load the value associated with the given key from the map.
-    pub fn get(store: Arc<RwLock<Store>>, key: Key) -> Option<Value> {
+    pub fn get(store: Arc<RwLock<Store>>, key: &Key) -> Option<Value> {
         let output = store
             .read()
             .get(Self::hashed_key_for(key).as_ref())
@@ -65,13 +79,13 @@ where
     }
 
     /// Store a value to be associated with the given key from the map.
-    pub fn insert(store: Arc<RwLock<Store>>, key: Key, val: Value) {
-        let _ = serde_json::to_vec(&val)
+    pub fn insert(store: Arc<RwLock<Store>>, key: &Key, val: &Value) {
+        let _ = serde_json::to_vec(val)
             .map(|v| store.write().set(Self::hashed_key_for(key).as_ref(), v));
     }
 
     /// Remove the value under a key.
-    pub fn remove(store: Arc<RwLock<Store>>, key: Key) {
+    pub fn remove(store: Arc<RwLock<Store>>, key: &Key) {
         let _ = store.write().delete(Self::hashed_key_for(key).as_ref());
     }
 
@@ -89,7 +103,6 @@ where
             IterOrder::Asc,
             &mut |(k, v)| -> bool {
                 kv_map.insert(k, v);
-                println!("==========");
                 false
             },
         );

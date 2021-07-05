@@ -1,10 +1,13 @@
 use super::stack::FindoraStackState;
 use crate::runtime::{Call, Create, Create2, Runner};
-use crate::{App, Config, FeeCalculator, OnChargeEVMTransaction};
+use crate::{App, Config};
 use evm::executor::{StackExecutor, StackSubstateMetadata};
 use evm::ExitReason;
 use fp_core::{context::Context, ensure};
-use fp_evm::{CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity};
+use fp_evm::{
+    traits::{FeeCalculator, OnChargeEVMTransaction},
+    CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity,
+};
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
 use sha3::{Digest, Keccak256};
@@ -95,7 +98,7 @@ impl<C: Config> ActionRunner<C> {
                 "Deleting account at {:?}",
                 address
             );
-            App::<C>::remove_account(&address)
+            App::<C>::remove_account(ctx, &address)
         }
 
         for log in &state.substate.logs {

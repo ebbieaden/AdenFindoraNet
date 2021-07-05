@@ -55,15 +55,18 @@ fn storage_map_test() {
     assert_eq!(Account::storage_prefix(), b"Account");
 
     let store = create_temp_db();
-    Account::insert(store.clone(), "a".to_string(), 10);
-    Account::insert(store.clone(), "b".to_string(), 20);
-    Account::insert(store.clone(), "c".to_string(), 30);
+    Account::insert(store.clone(), &"a".to_string(), &10);
+    Account::insert(store.clone(), &"b".to_string(), &20);
+    Account::insert(store.clone(), &"c".to_string(), &30);
 
-    assert_eq!(Account::get(store.clone(), "a".to_string()), Some(10));
-    assert_eq!(Account::contains_key(store.clone(), "a".to_string()), true);
-    Account::remove(store.clone(), "a".to_string());
-    assert_eq!(Account::get(store.clone(), "a".to_string()), None);
-    assert_eq!(Account::contains_key(store.clone(), "a".to_string()), false);
+    assert_eq!(Account::get(store.clone(), &"a".to_string()), Some(10));
+    assert_eq!(Account::contains_key(store.clone(), &"a".to_string()), true);
+    Account::remove(store.clone(), &"a".to_string());
+    assert_eq!(Account::get(store.clone(), &"a".to_string()), None);
+    assert_eq!(
+        Account::contains_key(store.clone(), &"a".to_string()),
+        false
+    );
 
     let kvs = Account::iterate(store.clone());
     assert_eq!(kvs, vec![("b".to_string(), 20), ("c".to_string(), 30)]);
@@ -82,18 +85,26 @@ fn storage_double_map_test() {
     assert_eq!(Data::storage_prefix(), b"Data");
 
     let store = create_temp_db();
-    Data::insert(store.clone(), 1, 2, 10);
-    Data::insert(store.clone(), 1, 3, 20);
-    Data::insert(store.clone(), 2, 3, 30);
+    Data::insert(store.clone(), &1, &2, &10);
+    Data::insert(store.clone(), &1, &3, &20);
+    Data::insert(store.clone(), &2, &3, &30);
+    Data::insert(store.clone(), &2, &4, &40);
 
-    assert_eq!(Data::get(store.clone(), 1, 2), Some(10));
-    assert_eq!(Data::contains_key(store.clone(), 1, 2), true);
-    Data::remove(store.clone(), 1, 2);
-    assert_eq!(Data::get(store.clone(), 1, 2), None);
-    assert_eq!(Data::contains_key(store.clone(), 1, 2), false);
+    assert_eq!(Data::get(store.clone(), &1, &2), Some(10));
+    assert_eq!(Data::contains_key(store.clone(), &1, &2), true);
+    Data::remove(store.clone(), &1, &2);
+    assert_eq!(Data::get(store.clone(), &1, &2), None);
+    assert_eq!(Data::contains_key(store.clone(), &1, &2), false);
 
-    let kvs = Data::iterate_prefix(store.clone(), 1);
+    let kvs = Data::iterate_prefix(store.clone(), &1);
     assert_eq!(kvs, vec![(3, 20)]);
+
+    let kvs = Data::iterate_prefix(store.clone(), &2);
+    assert_eq!(kvs, vec![(3, 30), (4, 40)]);
+
+    Data::remove_prefix(store.clone(), &2);
+    let kvs = Data::iterate_prefix(store.clone(), &2);
+    assert_eq!(kvs, vec![]);
 
     // TODO fix
     // store.write().commit(1).unwrap();
