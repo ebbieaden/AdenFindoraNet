@@ -1,8 +1,12 @@
 use super::stack::FindoraStackState;
-use crate::runtime::{Call, Create, Create2, Runner};
-use crate::{App, Config};
-use evm::executor::{StackExecutor, StackSubstateMetadata};
-use evm::ExitReason;
+use crate::{
+    runtime::{Call, Create, Create2, Runner},
+    App, Config,
+};
+use evm::{
+    executor::{StackExecutor, StackSubstateMetadata},
+    ExitReason,
+};
 use fp_core::{context::Context, ensure};
 use fp_evm::{
     traits::{FeeCalculator, OnChargeEVMTransaction},

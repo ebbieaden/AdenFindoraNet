@@ -10,9 +10,11 @@ use fp_core::{
     context::Context, crypto::Address, macros::Get, module::AppModule,
     transaction::Executable,
 };
-use fp_evm::traits::{AddressMapping, FeeCalculator, OnChargeEVMTransaction};
-use fp_evm::{Account, CallInfo, CreateInfo, PrecompileSet};
-use primitive_types::{H160, U256};
+use fp_evm::{
+    traits::{AddressMapping, FeeCalculator, OnChargeEVMTransaction},
+    PrecompileSet,
+};
+use primitive_types::U256;
 use ruc::Result;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -20,21 +22,6 @@ use std::marker::PhantomData;
 pub use runtime::*;
 
 static ISTANBUL_CONFIG: EvmConfig = EvmConfig::istanbul();
-
-pub mod storage {
-    use fp_storage::*;
-    use primitive_types::{H160, H256};
-
-    // The code corresponding to the contract account.
-    generate_storage!(EVM, AccountCodes => Map<H160, Vec<u8>>);
-    // Storage root hash related to the contract account.
-    generate_storage!(EVM, AccountStorages => DoubleMap<H160, H256, H256>);
-}
-
-pub struct App<C> {
-    name: String,
-    phantom: PhantomData<C>,
-}
 
 pub trait Config {
     /// Mapping from address to account id.
@@ -57,6 +44,28 @@ pub trait Config {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Action {
+    Call(Call),
+    Create(Create),
+    Create2(Create2),
+}
+
+pub mod storage {
+    use fp_storage::*;
+    use primitive_types::{H160, H256};
+
+    // The code corresponding to the contract account.
+    generate_storage!(EVM, AccountCodes => Map<H160, Vec<u8>>);
+    // Storage root hash related to the contract account.
+    generate_storage!(EVM, AccountStorages => DoubleMap<H160, H256, H256>);
+}
+
+pub struct App<C> {
+    name: String,
+    phantom: PhantomData<C>,
+}
+
 impl<C: Config> App<C> {
     pub fn new() -> Self {
         App {
@@ -66,11 +75,10 @@ impl<C: Config> App<C> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Action {
-    Call(Call),
-    Create(Create),
-    Create2(Create2),
+impl<C: Config> Default for App<C> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<C: Config> AppModule for App<C> {

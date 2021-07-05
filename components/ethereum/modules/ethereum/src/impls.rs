@@ -90,7 +90,8 @@ impl<C: Config> App<C> {
         // Note: the index is not the transaction index in the real block.
         let transaction_index = pending.len() as u32;
 
-        let (to, contract_address, info) = Self::execute_transaction(
+        // TODO
+        let (to, _contract_address, info) = Self::execute_transaction(
             &ctx,
             source,
             transaction.input.clone(),
@@ -153,8 +154,9 @@ impl<C: Config> App<C> {
         pending.push((transaction, status, receipt));
         Pending::put(ctx.store, pending);
 
-        Ok(())
         // TODO maybe events
+        // Self::deposit_event(Event::Executed(source, contract_address.unwrap_or_default(), transaction_hash, reason));
+        Ok(())
     }
 
     /// Execute an Ethereum transaction.

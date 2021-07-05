@@ -1,14 +1,13 @@
-use crate::{AddressMapping, Config, OnChargeEVMTransaction};
-use evm::backend::Backend;
-use evm::executor::{StackExecutor, StackState as StackStateT, StackSubstateMetadata};
-use evm::{ExitError, ExitReason, Transfer};
+use crate::{storage::*, AddressMapping, App, Config};
+use evm::{
+    backend::Backend,
+    executor::{StackState, StackSubstateMetadata},
+    ExitError, Transfer,
+};
 use fp_core::{context::Context, macros::Get};
-use fp_evm::{CallInfo, CreateInfo, ExecutionInfo, Log, Vicinity};
+use fp_evm::{Log, Vicinity};
 use primitive_types::{H160, H256, U256};
-use sha3::{Digest, Keccak256};
-use std::collections::btree_set::BTreeSet;
-use std::marker::PhantomData;
-use std::mem;
+use std::{collections::btree_set::BTreeSet, marker::PhantomData, mem};
 
 pub struct FindoraStackSubstate<'config> {
     pub metadata: StackSubstateMetadata<'config>,
@@ -140,7 +139,7 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
         self.vicinity.origin
     }
 
-    fn block_hash(&self, number: U256) -> H256 {
+    fn block_hash(&self, _number: U256) -> H256 {
         // if number > U256::from(u32::max_value()) {
         //     H256::default()
         // } else {
@@ -155,14 +154,11 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 
     fn block_coinbase(&self) -> H160 {
-        // Module::<T>::find_author()
-        todo!()
+        App::<C>::find_proposer(self.ctx)
     }
 
     fn block_timestamp(&self) -> U256 {
-        // let now: u128 = pallet_timestamp::Module::<T>::get().unique_saturated_into();
-        // U256::from(now / 1000)
-        todo!()
+        U256::from(self.ctx.block_time().get_nanos())
     }
 
     fn block_difficulty(&self) -> U256 {
@@ -182,23 +178,21 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 
     fn basic(&self, address: H160) -> evm::backend::Basic {
-        // let account = Module::<T>::account_basic(&address);
-        //
-        // evm::backend::Basic {
-        //     balance: account.balance,
-        //     nonce: account.nonce,
-        // }
-        todo!()
+        let account = App::<C>::account_basic(&address);
+
+        evm::backend::Basic {
+            balance: account.balance,
+            nonce: account.nonce,
+        }
     }
 
     fn code(&self, address: H160) -> Vec<u8> {
-        // AccountCodes::get(&address)
-        todo!()
+        AccountCodes::get(self.ctx.store.clone(), &address).unwrap_or_default()
     }
 
     fn storage(&self, address: H160, index: H256) -> H256 {
-        // AccountStorages::get(address, index)
-        todo!()
+        AccountStorages::get(self.ctx.store.clone(), &address, &index)
+            .unwrap_or_default()
     }
 
     fn original_storage(&self, _address: H160, _index: H256) -> Option<H256> {
@@ -206,8 +200,8 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 }
 
-impl<'context, 'vicinity, 'config, T: Config> StackStateT<'config>
-    for FindoraStackState<'context, 'vicinity, 'config, T>
+impl<'context, 'vicinity, 'config, C: Config> StackState<'config>
+    for FindoraStackState<'context, 'vicinity, 'config, C>
 {
     fn metadata(&self) -> &StackSubstateMetadata<'config> {
         self.substate.metadata()
@@ -234,8 +228,7 @@ impl<'context, 'vicinity, 'config, T: Config> StackStateT<'config>
     }
 
     fn is_empty(&self, address: H160) -> bool {
-        // Module::<T>::is_account_empty(&address)
-        todo!()
+        App::<C>::is_account_empty(self.ctx, &address)
     }
 
     fn deleted(&self, address: H160) -> bool {
@@ -243,36 +236,34 @@ impl<'context, 'vicinity, 'config, T: Config> StackStateT<'config>
     }
 
     fn inc_nonce(&mut self, address: H160) {
-        // let account_id = T::AddressMapping::into_account_id(address);
+        let _account_id = C::AddressMapping::into_account_id(address);
         // frame_system::Module::<T>::inc_account_nonce(&account_id);
         todo!()
     }
 
     fn set_storage(&mut self, address: H160, index: H256, value: H256) {
-        // if value == H256::default() {
-        //     log::debug!(
-        //         target: "evm",
-        //         "Removing storage for {:?} [index: {:?}]",
-        //         address,
-        //         index,
-        //     );
-        //     AccountStorages::remove(address, index);
-        // } else {
-        //     log::debug!(
-        //         target: "evm",
-        //         "Updating storage for {:?} [index: {:?}, value: {:?}]",
-        //         address,
-        //         index,
-        //         value,
-        //     );
-        //     AccountStorages::insert(address, index, value);
-        // }
-        todo!()
+        if value == H256::default() {
+            log::debug!(
+                target: "evm",
+                "Removing storage for {:?} [index: {:?}]",
+                address,
+                index,
+            );
+            AccountStorages::remove(self.ctx.store.clone(), &address, &index);
+        } else {
+            log::debug!(
+                target: "evm",
+                "Updating storage for {:?} [index: {:?}, value: {:?}]",
+                address,
+                index,
+                value,
+            );
+            AccountStorages::insert(self.ctx.store.clone(), &address, &index, &value);
+        }
     }
 
     fn reset_storage(&mut self, address: H160) {
-        // AccountStorages::remove_prefix(address);
-        todo!()
+        AccountStorages::remove_prefix(self.ctx.store.clone(), &address);
     }
 
     fn log(&mut self, address: H160, topics: Vec<H256>, data: Vec<u8>) {
@@ -290,13 +281,13 @@ impl<'context, 'vicinity, 'config, T: Config> StackStateT<'config>
             code.len(),
             address
         );
-        // Module::<T>::create_account(address, code);
-        todo!()
+        App::<C>::create_account(self.ctx, address, code);
     }
 
     fn transfer(&mut self, transfer: Transfer) -> Result<(), ExitError> {
-        // let source = T::AddressMapping::into_account_id(transfer.source);
-        // let target = T::AddressMapping::into_account_id(transfer.target);
+        // TODO target must bind fra address
+        let _source = C::AddressMapping::into_account_id(transfer.source);
+        let _target = C::AddressMapping::into_account_id(transfer.target);
         //
         // T::Currency::transfer(
         //     &source,
