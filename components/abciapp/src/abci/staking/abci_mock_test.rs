@@ -13,8 +13,8 @@ use cryptohash::sha256::{self, Digest};
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{
-        Operation, Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA,
-        BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
+        DelegationInfo, Operation, Transaction, TransferType, TxoRef, TxoSID, Utxo,
+        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
     },
     staking::{
         calculate_delegation_rewards,
@@ -22,9 +22,10 @@ use ledger::{
             governance::ByzantineKind,
             mint_fra::{MintEntry, MintFraOps, MintKind},
         },
-        td_addr_to_bytes, td_addr_to_string, td_pubkey_to_td_addr, DelegationState,
-        PartialUnDelegation, Staking, TendermintAddr, Validator as StakingValidator,
-        ValidatorKind, BLOCK_HEIGHT_MAX, FRA, FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
+        td_addr_to_bytes, td_addr_to_string, td_pubkey_to_td_addr, Delegation,
+        DelegationState, PartialUnDelegation, Staking, TendermintAddr,
+        Validator as StakingValidator, ValidatorKind, BLOCK_HEIGHT_MAX, FRA,
+        FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
     },
     store::{fra_gen_initial_tx, LedgerAccess},
 };
@@ -32,8 +33,10 @@ use parking_lot::{Mutex, RwLock};
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::*;
+use std::collections::HashMap;
 use std::{
     collections::BTreeMap,
+    convert::TryFrom,
     env, mem,
     sync::{
         atomic::{AtomicI64, Ordering},
@@ -165,6 +168,159 @@ impl AbciMocker {
                 }
             })
             .sum()
+    }
+
+    fn get_owned_reward(&self, addr: &XfrPublicKey) -> u64 {
+        self.0
+            .la
+            .read()
+            .get_committed_state()
+            .read()
+            .get_staking()
+            .delegation_get_rewards(addr)
+            .unwrap()
+    }
+
+    fn get_owned_delegation_principal(&self, addr: &XfrPublicKey) -> u64 {
+        self.0
+            .la
+            .read()
+            .get_committed_state()
+            .read()
+            .get_staking()
+            .delegation_get_principal(addr)
+            .unwrap_or_else(|b| {
+                d!(b);
+                0_u64
+            })
+    }
+
+    fn get_current_rate(&self) -> [u128; 2] {
+        let sub = self.0.la.read();
+        let la = sub.get_committed_state().read();
+        Staking::get_block_rewards_rate(&*la)
+    }
+
+    fn get_current_rate_str(&self) -> String {
+        let v = self.get_current_rate();
+        f64::try_from(i32::try_from(v[0]).unwrap())
+            .c(d!("overflow"))
+            .map(|molecular| {
+                f64::try_from(i32::try_from(v[1]).unwrap())
+                    .c(d!("overflow"))
+                    .map(|denominator| format!("{:.2}%", (molecular / denominator)))
+                    .unwrap()
+            })
+            .c(d!())
+            .unwrap()
+    }
+
+    fn calculate_delegation_rewards_for_one_block(&self, addr: &XfrPublicKey) -> u64 {
+        let principal = self.get_owned_delegation_principal(addr) as u128;
+
+        let rate = self.get_current_rate();
+
+        principal
+            .checked_mul(rate[0])
+            .and_then(|i| i.checked_div(rate[1]))
+            .c(d!("overflow"))
+            .and_then(|n| u64::try_from(n).c(d!()))
+            .unwrap()
+    }
+
+    fn get_delegation_by_addr(&self, addr: &XfrPublicKey) -> Option<Delegation> {
+        self.0
+            .la
+            .read()
+            .get_committed_state()
+            .read()
+            .get_staking()
+            .delegation_get(addr)
+            .cloned()
+    }
+
+    fn get_validators_by_delegation_addr(
+        &self,
+        addr: &XfrPublicKey,
+    ) -> Option<DelegationInfo> {
+        self.get_delegation_by_addr(addr).map(|d| {
+            let sub = self.0.la.read();
+
+            let la = sub.get_committed_state().read();
+
+            let staking = la.get_staking();
+
+            let bond_entries: Vec<(String, u64)> = d
+                .entries
+                .iter()
+                .filter_map(|(v_pk, am)| {
+                    staking
+                        .validator_app_pk_to_td_addr(v_pk)
+                        .ok()
+                        .map(|addr| (addr, *am))
+                })
+                .collect();
+            let mut bond_amount = d.amount();
+            let mut unbond_amount = 0;
+            match d.state {
+                DelegationState::Paid => {
+                    bond_amount = 0;
+                }
+                DelegationState::Free => {
+                    mem::swap(&mut bond_amount, &mut unbond_amount);
+                }
+                DelegationState::Bond => {
+                    if staking.cur_height()
+                        > d.end_height().saturating_sub(UNBOND_BLOCK_CNT)
+                    {
+                        mem::swap(&mut bond_amount, &mut unbond_amount);
+                    }
+                }
+            }
+
+            let mut di = DelegationInfo::new(
+                bond_amount,
+                bond_entries,
+                unbond_amount,
+                d.rwd_amount,
+                self.get_current_rate(),
+                staking.delegation_info_global_amount(),
+                staking.validator_global_power(),
+            );
+            di.start_height = d.start_height();
+            di.current_height = staking.cur_height();
+            di.end_height = d.end_height;
+            di.delegation_rwd_cnt = d.delegation_rwd_cnt;
+            di.proposer_rwd_cnt = d.proposer_rwd_cnt;
+
+            di
+        })
+    }
+
+    fn get_validator_power(&self, addr: &XfrPublicKey) -> Result<u64> {
+        self.0
+            .la
+            .read()
+            .get_committed_state()
+            .read()
+            .get_staking()
+            .validator_get_power(addr)
+            .c(d!("addr not exist"))
+    }
+
+    fn get_delegation_power(
+        &self,
+        addr: &XfrPublicKey,
+    ) -> Option<HashMap<XfrPublicKey, u64>> {
+        self.get_delegation_by_addr(addr).map(|d| {
+            d.entries
+                .iter()
+                .filter_map(|(v_pk, am)| {
+                    let power = pnk!(self.get_validator_power(v_pk).c(d!()));
+                    Some((v_pk.clone(), power))
+                })
+                .collect::<HashMap<XfrPublicKey, u64>>()
+        })
     }
 }
 
@@ -555,12 +711,19 @@ fn env_refresh(validator_num: u8) {
 }
 
 // mid-util:
-// send a tx to trigger next block
+// default send a tx to trigger next block
+// if param not empty,trigger n(param) block
 macro_rules! trigger_next_block {
     () => {
         let _ = transfer(&ROOT_KEYPAIR, &BLACK_HOLE_PUBKEY, 1).c(d!())?;
         wait_one_block();
     };
+    ($n: expr) => {{
+        for i in 0..$n {
+            trigger_next_block!();
+            wait_one_block();
+        }
+    }};
 }
 
 // Basic Scene Without Governance
@@ -638,9 +801,7 @@ fn staking_scene_1() -> Result<()> {
     assert!(is_successful(&tx_hash));
 
     // validators will be updated every 4 blocks
-    for _ in 0..3 {
-        trigger_next_block!();
-    }
+    trigger_next_block!(3);
 
     let td_mocker = TD_MOCKER.read();
     let td_v_set = &td_mocker.validators;
@@ -723,29 +884,11 @@ fn staking_scene_1() -> Result<()> {
 
     // 10. make sure the power of co-responding validator is increased
 
-    let power = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .validator_get_power(&v_set[0].id)
-        .c(d!())?;
+    let power = pnk!(ABCI_MOCKER.read().get_validator_power(&v_set[0].id).c(d!()));
 
     assert_eq!((32 + 64 + 100) * FRA + INITIAL_POWER, power);
 
-    let power = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .validator_get_power(&v_set[3].id)
-        .c(d!())?;
+    let power = pnk!(ABCI_MOCKER.read().get_validator_power(&v_set[3].id).c(d!()));
 
     assert_eq!((84 + 100) * FRA + INITIAL_POWER, power);
 
@@ -757,51 +900,24 @@ fn staking_scene_1() -> Result<()> {
 
     // 12. make sure the power of co-responding validator is decreased
 
-    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
-        trigger_next_block!();
-    }
+    trigger_next_block!(1 + UNBOND_BLOCK_CNT);
 
-    let power = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .validator_get_power(&v_set[0].id)
-        .c(d!())?;
+    let power = pnk!(ABCI_MOCKER.read().get_validator_power(&v_set[0].id).c(d!()));
 
     assert_eq!(100 * FRA + INITIAL_POWER, power);
 
-    let power = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .validator_get_power(&v_set[3].id)
-        .c(d!())?;
+    let power = pnk!(ABCI_MOCKER.read().get_validator_power(&v_set[3].id).c(d!()));
 
     assert_eq!(100 * FRA + INITIAL_POWER, power);
 
     // 13. make sure delegation reward is calculated and paid correctly
 
-    let return_rate = {
-        let la = ABCI_MOCKER.read();
-        let laa = la.0.la.read();
-        let laaa = laa.get_committed_state().read();
-        Staking::get_block_rewards_rate(&*laaa)
-    };
+    let return_rate = ABCI_MOCKER.read().get_current_rate();
 
     let rewards =
         calculate_delegation_rewards((32 + 64 + 85) * FRA, return_rate).c(d!())? * 10;
 
-    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
-        trigger_next_block!();
-    }
+    trigger_next_block!(1 + UNBOND_BLOCK_CNT);
 
     assert!(
         10000 * FRA - 5 * TX_FEE_MIN
@@ -889,9 +1005,7 @@ fn staking_scene_1() -> Result<()> {
 
     // 19. make sure no rewards will be paid
 
-    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
-        trigger_next_block!();
-    }
+    trigger_next_block!(1 + UNBOND_BLOCK_CNT);
 
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
     assert_eq!(old_balance - 41 * FRA - TX_FEE_MIN, new_balance);
@@ -903,9 +1017,7 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    for _ in 0..(4 + UNBOND_BLOCK_CNT) {
-        trigger_next_block!();
-    }
+    trigger_next_block!(4 + UNBOND_BLOCK_CNT);
 
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
     assert!((old_balance - 2 * TX_FEE_MIN) < new_balance);
@@ -936,9 +1048,7 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    for _ in 0..(1 + UNBOND_BLOCK_CNT) {
-        trigger_next_block!();
-    }
+    trigger_next_block!(1 + UNBOND_BLOCK_CNT);
 
     assert_eq!(
         ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk()),
@@ -950,9 +1060,7 @@ fn staking_scene_1() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    for _ in 0..(4 + UNBOND_BLOCK_CNT) {
-        trigger_next_block!();
-    }
+    trigger_next_block!(4 + UNBOND_BLOCK_CNT);
 
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
     assert!((100 + old_balance - 2 * TX_FEE_MIN) < new_balance);
@@ -1026,16 +1134,7 @@ fn staking_scene_1() -> Result<()> {
     );
 
     for v in v_set.iter().skip(1).take(n) {
-        let power = ABCI_MOCKER
-            .read()
-            .0
-            .la
-            .read()
-            .get_committed_state()
-            .read()
-            .get_staking()
-            .validator_get_power(&v.id)
-            .c(d!())?;
+        let power = pnk!(ABCI_MOCKER.read().get_validator_power(&v.id).c(d!()));
 
         assert_eq!((32 + 100) * FRA + INITIAL_POWER, power);
     }
@@ -1049,23 +1148,13 @@ fn staking_scene_1() -> Result<()> {
         assert!(is_successful(&tx_hash));
     }
 
-    for _ in 0..8 {
-        trigger_next_block!();
-    }
+    trigger_next_block!(8);
 
     // 27. make sure the power of each validator is decreased correctly
 
     for v in v_set.iter().skip(1).take(n) {
-        let power = ABCI_MOCKER
-            .read()
-            .0
-            .la
-            .read()
-            .get_committed_state()
-            .read()
-            .get_staking()
-            .validator_get_power(&v.id)
-            .c(d!())?;
+        let power = pnk!(ABCI_MOCKER.read().get_validator_power(&v.id).c(d!()));
+
         assert_eq!(100 * FRA + INITIAL_POWER, power);
     }
 
@@ -1205,33 +1294,15 @@ fn staking_scene_2() -> Result<()> {
     // 5. make sure the end-height of self-delegation is changed to `BLOCK_HEIGHT_MAX` automatically
 
     for v in v_set.iter() {
-        let end_height = ABCI_MOCKER
-            .read()
-            .0
-            .la
-            .read()
-            .get_committed_state()
-            .read()
-            .get_staking()
-            .delegation_get(&v.id)
-            .c(d!())?
-            .end_height;
+        let end_height =
+            pnk!(ABCI_MOCKER.read().get_delegation_by_addr(&v.id)).end_height;
 
         assert_eq!(BLOCK_HEIGHT_MAX, end_height);
     }
 
     // 6. governance the first one, and make sure its power is decreased to 1/3
 
-    let old_power = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .validator_get_power(&v_set[0].id)
-        .c(d!())?;
+    let old_power = pnk!(ABCI_MOCKER.read().get_validator_power(&v_set[0].id).c(d!()));
 
     let tx_hash = governance(
         &ROOT_KEYPAIR,
@@ -1243,16 +1314,7 @@ fn staking_scene_2() -> Result<()> {
     wait_one_block();
     assert!(is_successful(&tx_hash));
 
-    let new_power = ABCI_MOCKER
-        .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .validator_get_power(&v_set[0].id)
-        .c(d!())?;
+    let new_power = pnk!(ABCI_MOCKER.read().get_validator_power(&v_set[0].id).c(d!()));
 
     assert!(old_power > new_power);
 
@@ -1260,14 +1322,7 @@ fn staking_scene_2() -> Result<()> {
 
     let principal = ABCI_MOCKER
         .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .delegation_get_principal(&v_set[0].id)
-        .c(d!())?;
+        .get_owned_delegation_principal(&v_set[0].id);
 
     assert_eq!(100 * FRA * 95 / 100, principal as u64);
 
@@ -1275,14 +1330,7 @@ fn staking_scene_2() -> Result<()> {
 
     let user_principal = ABCI_MOCKER
         .read()
-        .0
-        .la
-        .read()
-        .get_committed_state()
-        .read()
-        .get_staking()
-        .delegation_get_principal(&x_kp.get_pk())
-        .c(d!())?;
+        .get_owned_delegation_principal(&x_kp.get_pk());
 
     assert_eq!(32 * FRA * 95 / 100, user_principal as u64);
 
@@ -1303,8 +1351,273 @@ fn staking_scene_2() -> Result<()> {
     Ok(())
 }
 
+// validator test staking process
+// *. init env
+// *. staking fra
+// *. query reward
+// *. query power
+// *. unstaking
+// *. query power again(query none)
+// *. get claim
+fn staking_scene_3() -> Result<()> {
+    // *. init env
+    const VALIDATORS_NUM: u8 = 11;
+    env_refresh(VALIDATORS_NUM);
+
+    // mint fra to root
+    let tx = fra_gen_initial_tx(&ROOT_KEYPAIR);
+    let tx_hash = gen_tx_hash(&tx);
+    send_tx(tx).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // init validator signer
+    let (mut v_set, mut kps) = gen_new_validators(VALIDATORS_NUM);
+    let mut initial_keypairs = INITIAL_KEYPAIR_LIST.iter().collect::<Vec<_>>();
+
+    let tx_hash =
+        update_validator(&ROOT_KEYPAIR, &initial_keypairs, 2, v_set.clone()).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // validators will be updated every 4 blocks
+    trigger_next_block!(4);
+
+    let td_mocker = TD_MOCKER.read();
+    let td_v_set = &td_mocker.validators;
+    assert_eq!(v_set.len(), td_v_set.len());
+    v_set.iter().for_each(|v| {
+        assert_eq!(
+            &INITIAL_POWER,
+            pnk!(td_v_set.get(&td_pubkey_to_td_addr(&v.td_pubkey)))
+        );
+    });
+    drop(td_mocker);
+
+    // *. self delegate staking fra
+    for (i, kp) in kps.iter().enumerate() {
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+
+        let tx_hash = delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 100 * FRA)
+            .c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+    }
+
+    // query balance
+    let old_balance = ABCI_MOCKER.read().get_owned_balance(&kps[0].get_pk());
+    assert_eq!(old_balance, 100 * FRA - TX_FEE_MIN);
+    let mut transaction_num = 0;
+
+    // *. query reward
+    let reward = ABCI_MOCKER.read().get_owned_reward(&kps[0].pub_key);
+
+    // *. query power
+    let p = pnk!(ABCI_MOCKER.read().get_validator_power(&kps[0].pub_key));
+
+    // *. unstaking
+    let tx_hash = undelegate(&kps[0]).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+    transaction_num += 1;
+
+    // if wait block > 6,query power is none
+    trigger_next_block!(1 + UNBOND_BLOCK_CNT);
+    // let p = pnk!(ABCI_MOCKER.read().get_validator_power(&kps[0].pub_key));
+
+    // *. get claim
+    let tx_hash = claim(&kps[0], reward).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+    transaction_num += 1;
+
+    // waiting to be paid
+    trigger_next_block!();
+
+    // query balance and judgment
+    let new_balance = ABCI_MOCKER.read().get_owned_balance(&kps[0].get_pk());
+    assert_eq!(
+        new_balance,
+        old_balance + reward - transaction_num * TX_FEE_MIN
+    );
+
+    Ok(())
+}
+
+// general user test delegate process
+// *. init env
+// *. delegate fra to validator0 and validator1
+// *. query validator0 and validator1 power
+// *. view rate
+// *. query DelegationInfo
+// *. undelegate validator0 and validator1
+// *. delegate fra to validator0
+// *. query DelegationInfo again
+// *. query reward
+// *. get claim
+fn staking_scene_4() -> Result<()> {
+    // *. init env
+    const VALIDATORS_NUM: u8 = 11;
+    env_refresh(VALIDATORS_NUM);
+
+    // mint fra to root
+    let tx = fra_gen_initial_tx(&ROOT_KEYPAIR);
+    let tx_hash = gen_tx_hash(&tx);
+    send_tx(tx).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // init validator signer
+    let (mut v_set, mut kps) = gen_new_validators(VALIDATORS_NUM);
+    let mut initial_keypairs = INITIAL_KEYPAIR_LIST.iter().collect::<Vec<_>>();
+
+    let tx_hash =
+        update_validator(&ROOT_KEYPAIR, &initial_keypairs, 2, v_set.clone()).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    // validators will be updated every 4 blocks
+    for _ in 0..3 {
+        trigger_next_block!();
+    }
+
+    let td_mocker = TD_MOCKER.read();
+    let td_v_set = &td_mocker.validators;
+    assert_eq!(v_set.len(), td_v_set.len());
+    v_set.iter().for_each(|v| {
+        assert_eq!(
+            &INITIAL_POWER,
+            pnk!(td_v_set.get(&td_pubkey_to_td_addr(&v.td_pubkey)))
+        );
+    });
+    drop(td_mocker);
+
+    for (i, kp) in kps.iter().enumerate() {
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+
+        let tx_hash = delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 100 * FRA)
+            .c(d!())?;
+        wait_one_block();
+        assert!(is_successful(&tx_hash));
+    }
+
+    // create general user
+    let x_kp = gen_keypair();
+    // root transfer 10000 * FRA to general user
+    let tx_hash = transfer(&ROOT_KEYPAIR, x_kp.get_pk_ref(), 1_0000 * FRA).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+
+    let old_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
+    assert_eq!(old_balance, 1_0000 * FRA);
+    let mut transaction_num = 0;
+
+    // *. delegate fra to validator0 and validator1
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 100 * FRA).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+    transaction_num += 1;
+
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[1].td_pubkey), 200 * FRA).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+    transaction_num += 1;
+
+    // *. view rate
+    let rate = ABCI_MOCKER.read().get_current_rate_str();
+
+    // *. query validator0 and validator1 power
+    let power_map = pnk!(ABCI_MOCKER.read().get_delegation_power(&x_kp.pub_key));
+
+    let judgment_power = |pk_key_vec: Vec<(&XfrPublicKey, u64)>| {
+        for (pk_key, vp) in pk_key_vec {
+            power_map.get(pk_key).map(|power| assert_eq!(*power, vp));
+        }
+    };
+
+    judgment_power(vec![
+        (&v_set[0].id, INITIAL_POWER + (100 + 100) * FRA),
+        (&v_set[1].id, INITIAL_POWER + (100 + 200) * FRA),
+    ]);
+
+    // * query DelegationInfo
+    let op = ABCI_MOCKER
+        .read()
+        .get_validators_by_delegation_addr(&x_kp.get_pk());
+
+    // *. undelegate validator0 and validator1
+    let tx_hash = undelegate(&x_kp).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+    transaction_num += 1;
+
+    // if redelegation,must wait 6 block commit,
+    trigger_next_block!(UNBOND_BLOCK_CNT);
+
+    let before_undelegation_reward = ABCI_MOCKER.read().get_owned_reward(&x_kp.pub_key);
+
+    // last block no reward,just confirm undelegation
+    trigger_next_block!();
+
+    //* query DelegationInfo again
+    let op = ABCI_MOCKER
+        .read()
+        .get_validators_by_delegation_addr(&x_kp.get_pk());
+
+    // *. delegate fra to validator0
+    let tx_hash =
+        delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 100 * FRA).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+    transaction_num += 1;
+
+    //* query DelegationInfo again
+    let op = ABCI_MOCKER
+        .read()
+        .get_validators_by_delegation_addr(&x_kp.get_pk());
+
+    // *. query reward
+    // query is 0,because reward and principal return together after that undelegation
+    let reward = ABCI_MOCKER.read().get_owned_reward(&x_kp.pub_key);
+
+    // *. get claim
+    // get 0
+    let tx_hash = claim(&x_kp, reward).c(d!())?;
+    wait_one_block();
+    assert!(is_successful(&tx_hash));
+    transaction_num += 1;
+
+    // waiting to be paid
+    trigger_next_block!();
+
+    // query balance and judgment
+    let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
+    assert_eq!(
+        new_balance,
+        old_balance + before_undelegation_reward - (transaction_num * TX_FEE_MIN)
+    );
+
+    Ok(())
+}
+
 #[test]
 fn staking_integration_abci_mock() {
     pnk!(staking_scene_1());
     pnk!(staking_scene_2());
+    pnk!(staking_scene_3());
+    pnk!(staking_scene_4());
 }
