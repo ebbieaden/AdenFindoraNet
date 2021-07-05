@@ -23,6 +23,15 @@ impl<C: Config> App<C> {
         AccountStorages::remove_prefix(ctx.store.clone(), address);
     }
 
+    /// Create an account.
+    pub fn create_account(ctx: &Context, address: H160, code: Vec<u8>) {
+        if code.is_empty() {
+            return;
+        }
+
+        AccountCodes::insert(ctx.store.clone(), &address, &code);
+    }
+
     /// Get the account basic in EVM format.
     pub fn account_basic(address: &H160) -> Account {
         let _account_id = C::AddressMapping::into_account_id(*address);
@@ -35,13 +44,18 @@ impl<C: Config> App<C> {
 
         Account { nonce, balance }
     }
+
+    /// Get the block proposer.
+    pub fn find_proposer(_ctx: &Context) -> H160 {
+        todo!()
+    }
 }
 
 /// Ethereum address mapping.
 pub struct EthereumAddressMapping;
 
 impl AddressMapping for EthereumAddressMapping {
-    fn into_account_id(address: H160) -> Address {
+    fn into_account_id(_address: H160) -> Address {
         todo!()
     }
 }
@@ -52,14 +66,14 @@ impl AddressMapping for EthereumAddressMapping {
 impl<C: Config> OnChargeEVMTransaction for App<C> {
     type LiquidityInfo = ();
 
-    fn withdraw_fee(who: &H160, fee: U256) -> Result<Self::LiquidityInfo> {
+    fn withdraw_fee(_who: &H160, _fee: U256) -> Result<Self::LiquidityInfo> {
         todo!()
     }
 
     fn correct_and_deposit_fee(
-        who: &H160,
-        corrected_fee: U256,
-        already_withdrawn: Self::LiquidityInfo,
+        _who: &H160,
+        _corrected_fee: U256,
+        _already_withdrawn: Self::LiquidityInfo,
     ) -> Result<()> {
         todo!()
     }

@@ -12,7 +12,7 @@ use fp_core::{
     module::AppModule,
     transaction::{Executable, ValidateUnsigned},
 };
-use fp_evm::Account;
+use fp_evm::traits::FeeCalculator;
 use primitive_types::U256;
 use ruc::{eg, Result, RucResult};
 use serde::{Deserialize, Serialize};
@@ -115,10 +115,8 @@ impl<C: Config> ValidateUnsigned for App<C> {
             return Err(eg!("TransactionValidationError: InvalidGasLimit"));
         }
 
-        // TODO
-        let account_data: Account = Default::default();
-        // let account_data = pallet_evm::Module::<T>::account_basic(&origin);
-        //
+        let account_data = module_evm::App::<C>::account_basic(&origin);
+
         if transaction.nonce < account_data.nonce {
             return Err(eg!("InvalidTransaction: Outdated"));
         }
@@ -129,9 +127,7 @@ impl<C: Config> ValidateUnsigned for App<C> {
             return Err(eg!("InvalidTransaction: InsufficientBalance"));
         }
 
-        // TODO
-        // let min_gas_price = T::FeeCalculator::min_gas_price();
-        let min_gas_price = U256::zero();
+        let min_gas_price = C::FeeCalculator::min_gas_price();
 
         if transaction.gas_price < min_gas_price {
             return Err(eg!("InvalidTransaction: Payment"));
