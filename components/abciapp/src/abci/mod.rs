@@ -64,6 +64,13 @@ pub fn run() -> Result<()> {
         .update();
     }
 
+   if env::var("ENABLE_ETH_API_SERVICE").is_ok() {
+        //let eth_api_service_hdr =
+        //submission_service_hdr.read().borrowable_ledger_state();
+        println!("###  Running eth json api#############################");
+        eth_api_service::service::run();
+    }
+
     let submission_host = config.submission_host.clone();
     let submission_port = config.submission_port;
     thread::spawn(move || {
