@@ -4,7 +4,7 @@ use ledger::{
         DelegationInfo, Operation, StateCommitmentData, Transaction, TransferType,
         TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
     },
-    staking::init::get_inital_validators,
+    staking::{init::get_inital_validators, FRA},
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -57,6 +57,9 @@ pub fn set_initial_validators(owner_kp: &XfrKeyPair) -> Result<()> {
 #[inline(always)]
 #[allow(missing_docs)]
 pub fn transfer(owner_kp: &XfrKeyPair, target_pk: &XfrPublicKey, am: u64) -> Result<()> {
+    if 200_0000 * FRA < am {
+        return Err(eg!("The transfer amount is too large!"));
+    }
     transfer_batch(owner_kp, vec![(target_pk, am)]).c(d!())
 }
 

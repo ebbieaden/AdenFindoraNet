@@ -50,7 +50,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let subcmd_init = SubCommand::with_name("init");
-    let subcmd_issue = SubCommand::with_name("issue");
+    let subcmd_issue = SubCommand::with_name("issue").about("issue FRA on demand");
     let subcmd_delegate = SubCommand::with_name("delegate")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA units to delegate'")
