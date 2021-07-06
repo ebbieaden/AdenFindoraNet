@@ -9,6 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 use submission_server::SubmissionServer;
 use tx_sender::TendermintForward;
+use ledger::address::store::BalanceStore;
 
 pub use tx_sender::forward_txn_with_mode;
 
@@ -18,6 +19,7 @@ pub mod tx_sender;
 pub struct ABCISubmissionServer {
     pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
     pub address_binder: Arc<RwLock<AddressBinder>>,
+    pub balance_store: Arc<RwLock<BalanceStore>>,
 }
 
 impl ABCISubmissionServer {
@@ -36,6 +38,13 @@ impl ABCISubmissionServer {
                 pnk!(AddressBinder::new(&base_dir.join("address_binder.db")))
             }
         };
+        
+        let balance_store = match base_dir {
+            None => BalanceStore::test()?,
+            Some(base_dir) => {
+                pnk!(BalanceStore::new(&base_dir.join("balance_store.db")))
+            }
+        };
 
         let prng = rand_chacha::ChaChaRng::from_entropy();
         Ok(ABCISubmissionServer {
@@ -48,6 +57,7 @@ impl ABCISubmissionServer {
                 .c(d!())?,
             )),
             address_binder: Arc::new(RwLock::new(address_binder)),
+            balance_store: Arc::new(RwLock::new(balance_store)),
         })
     }
 }

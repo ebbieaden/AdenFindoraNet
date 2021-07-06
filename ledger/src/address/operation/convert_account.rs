@@ -35,9 +35,9 @@ impl ConvertAccount {
             .c(d!())
     }
 
-    pub fn check_by_tx(&self, tx: &Transaction) -> Result<u64> {
-        check_convert_tx_amount(tx)
-    }
+//     pub fn check_by_tx(&self, tx: &Transaction) -> Result<u64> {
+        // check_convert_tx_amount(tx)
+    // }
 
     pub fn set_nonce(&mut self, nonce: NoReplayToken) {
         self.data.nonce = nonce;
@@ -68,7 +68,7 @@ impl Data {
     }
 }
 
-pub fn check_convert_tx_amount(tx: &Transaction) -> Result<u64> {
+pub fn check_convert_tx_amount(tx: &Transaction) -> Result<(u64, XfrPublicKey)> {
     let mut owner = None;
 
     let mut amount = 0;
@@ -100,5 +100,5 @@ pub fn check_convert_tx_amount(tx: &Transaction) -> Result<u64> {
     if owner.is_none() {
         return Err(eg!("this tx isn't a convert tx"));
     }
-    Ok(amount)
+    Ok((amount, owner.unwrap()))
 }

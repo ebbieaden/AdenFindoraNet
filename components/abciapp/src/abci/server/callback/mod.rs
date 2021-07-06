@@ -66,6 +66,7 @@ pub fn check_tx(_s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> Response
     if let Some(tx) = convert_tx(req.get_tx()) {
         if is_coinbase_tx(&tx)
             || !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
+            || _s.balance_store.read().check_tx(&tx)
             || ruc::info!(TxnEffect::compute_effect(tx)).is_err()
         {
             resp.set_code(1);
@@ -95,6 +96,7 @@ pub fn deliver_tx(
             }
 
             if s.address_binder.read().deliver_tx(&tx).is_ok()
+                && s.balance_store.write().deliver_tx(&tx).is_ok()
                 && s.la.write().cache_transaction(tx).is_ok()
             {
                 return resp;
