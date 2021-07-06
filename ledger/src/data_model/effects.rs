@@ -190,6 +190,10 @@ impl TxnEffect {
                     check_nonce!(i)
                 }
 
+                Operation::ConvertAccount(i) => {
+                    check_nonce!(i)
+                }
+
                 // An asset creation is valid iff:
                 //     1) The signature is valid.
                 //         - Fully checked here

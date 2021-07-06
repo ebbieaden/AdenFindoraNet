@@ -51,7 +51,7 @@ use super::effects::*;
 use ruc::*;
 use std::ops::Deref;
 
-use crate::address::operation::{BindAddressOp, UnbindAddressOp};
+use crate::address::operation::{BindAddressOp, UnbindAddressOp, ConvertAccount};
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -996,6 +996,7 @@ pub enum Operation {
     BindAddressOp(BindAddressOp),
     UnbindAddressOp(UnbindAddressOp),
     MintFra(MintFraOps),
+    ConvertAccount(ConvertAccount),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
