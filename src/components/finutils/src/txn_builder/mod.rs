@@ -8,6 +8,7 @@ extern crate serde_derive;
 
 use credentials::CredUserSecretKey;
 use curve25519_dalek::scalar::Scalar;
+use ledger::address::operation::ConvertAccount;
 use ledger::address::operation::{BindAddressOp, UnbindAddressOp};
 use ledger::address::SmartAddress;
 use ledger::data_model::errors::PlatformError;
@@ -362,6 +363,8 @@ pub trait BuildsTransactions {
     ) -> Result<&mut Self>;
 
     fn add_operation_unbind_address(&mut self, kp: &XfrKeyPair) -> Result<&mut Self>;
+
+    fn add_operation_convert_account(&mut self, kp: &XfrKeyPair) -> Result<&mut Self>;
 
     fn serialize(&self) -> Vec<u8>;
     fn serialize_str(&self) -> String;
@@ -964,6 +967,14 @@ impl BuildsTransactions for TransactionBuilder {
 
     fn add_operation_unbind_address(&mut self, kp: &XfrKeyPair) -> Result<&mut Self> {
         self.add_operation(Operation::UnbindAddressOp(UnbindAddressOp::new(
+            kp,
+            self.txn.body.no_replay_token,
+        )));
+        Ok(self)
+    }
+
+    fn add_operation_convert_account(&mut self, kp: &XfrKeyPair) -> Result<&mut Self> {
+        self.add_operation(Operation::ConvertAccount(ConvertAccount::new(
             kp,
             self.txn.body.no_replay_token,
         )));
