@@ -16,6 +16,7 @@ members = [
     "components/abciapp",
     "components/cli2",
     "components/contracts/baseapp",
+    "components/contracts/modules/account",
     "components/contracts/modules/ethereum",
     "components/contracts/modules/evm",
     "components/contracts/primitives/core",

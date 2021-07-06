@@ -5,7 +5,9 @@ use zei::serialization::ZeiFromToBytes;
 use zei::xfr::sig::{XfrPublicKey, XfrSignature};
 
 /// An opaque 32-byte cryptographic identifier.
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Default, Hash)]
+#[derive(
+    Clone, Eq, PartialEq, Ord, PartialOrd, Default, Hash, Serialize, Deserialize, Debug,
+)]
 pub struct Address32([u8; 32]);
 
 impl AsRef<[u8]> for Address32 {
