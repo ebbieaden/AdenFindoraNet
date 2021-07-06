@@ -35,8 +35,8 @@ impl ConvertAccount {
             .c(d!())
     }
 
-//     pub fn check_by_tx(&self, tx: &Transaction) -> Result<u64> {
-        // check_convert_tx_amount(tx)
+    //     pub fn check_by_tx(&self, tx: &Transaction) -> Result<u64> {
+    // check_convert_tx_amount(tx)
     // }
 
     pub fn set_nonce(&mut self, nonce: NoReplayToken) {

@@ -1,4 +1,5 @@
 use abci::*;
+use ledger::address::store::BalanceStore;
 use ledger::address::AddressBinder;
 use ledger::store::LedgerState;
 use parking_lot::RwLock;
@@ -9,7 +10,6 @@ use std::path::Path;
 use std::sync::Arc;
 use submission_server::SubmissionServer;
 use tx_sender::TendermintForward;
-use ledger::address::store::BalanceStore;
 
 pub use tx_sender::forward_txn_with_mode;
 
@@ -38,7 +38,7 @@ impl ABCISubmissionServer {
                 pnk!(AddressBinder::new(&base_dir.join("address_binder.db")))
             }
         };
-        
+
         let balance_store = match base_dir {
             None => BalanceStore::test()?,
             Some(base_dir) => {

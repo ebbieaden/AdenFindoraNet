@@ -1,3 +1,5 @@
+use crate::address::operation::check_convert_tx_amount;
+use crate::data_model::Transaction;
 use cryptohash::sha256::Digest;
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -5,8 +7,6 @@ use sparse_merkle_tree::{self, Key, SmtMap256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use zei::xfr::sig::XfrPublicKey;
-use crate::data_model::Transaction;
-use crate::address::operation::check_convert_tx_amount;
 
 #[derive(Serialize, Deserialize)]
 pub struct Balance {
@@ -63,7 +63,7 @@ impl BalanceStore {
         let key = Key::hash(address.as_bytes());
         match self.db.get(&key) {
             Some(result) => Ok(bincode::deserialize(result).c(d!())?),
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
