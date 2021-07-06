@@ -91,31 +91,8 @@ impl BalanceStore {
         balance.nonce += 1;
         balance.amount += amount;
 
-        self.set(&owner, &balance)
+        self.set(&owner, &balance)?;
+
+        self.save()
     }
 }
-
-//     fn set(&self, key: &SmartAddress, value: &SmartAddress) -> Result<()> {
-//     let key_sa = key.to_bytes().c(d!())?;
-//     let value_sa = IVec::from(value.to_bytes().c(d!())?);
-//     self.db.insert(key_sa, value_sa).c(d!())?;
-//     Ok(())
-// }
-//
-// pub fn del(&self, key: &SmartAddress) -> Result<()> {
-//     let key_sa = key.to_bytes().c(d!())?;
-//     self.db.remove(key_sa).c(d!())?;
-//     Ok(())
-// }
-//
-// /// Use this function to bind xfr address and eth address.
-// pub fn bind_xfr_and_sa(
-//     &self,
-//     xfr_address: XfrAddress,
-//     sa_address: SmartAddress,
-// ) -> Result<()> {
-//     let sa_xfr = SmartAddress::Xfr(xfr_address);
-//     self.set(&sa_xfr, &sa_address).c(d!())?;
-//     self.set(&sa_address, &sa_xfr).c(d!())?;
-//     Ok(())
-// }
