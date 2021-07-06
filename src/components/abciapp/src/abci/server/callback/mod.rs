@@ -1,9 +1,9 @@
 use crate::abci::{server::ABCISubmissionServer, staking};
 use abci::*;
-use fp_storage::hash::StorageHasher;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::TxnEffect,
+    staking::is_coinbase_tx,
     store::{LedgerAccess, LedgerUpdate},
 };
 use parking_lot::Mutex;
@@ -59,40 +59,36 @@ pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
     resp
 }
 
-pub fn query(s: &mut ABCISubmissionServer, req: &RequestQuery) -> ResponseQuery {
-    s.app.query(req)
-}
-
-pub fn init_chain(
-    s: &mut ABCISubmissionServer,
-    req: &RequestInitChain,
-) -> ResponseInitChain {
-    s.app.init_chain(req)
-}
-
-pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseCheckTx {
+pub fn check_tx(_s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseCheckTx {
     // Get the Tx [u8] and convert to u64
+    let mut resp = ResponseCheckTx::new();
+
     if let Some(tx) = convert_tx(req.get_tx()) {
-        let mut resp = ResponseCheckTx::new();
-        if !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
+        if is_coinbase_tx(&tx)
+            || !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
+            || _s.balance_store.read().check_tx(&tx)
             || ruc::info!(TxnEffect::compute_effect(tx)).is_err()
         {
             resp.set_code(1);
             resp.set_log(String::from("Check failed"));
         }
-        resp
     } else {
-        s.app.check_tx(req)
+        resp.set_code(1);
+        resp.set_log(String::from("Could not unpack transaction"));
     }
+
+    resp
 }
 
 pub fn deliver_tx(
     s: &mut ABCISubmissionServer,
     req: &RequestDeliverTx,
 ) -> ResponseDeliverTx {
+    let mut resp = ResponseDeliverTx::new();
     if let Some(tx) = convert_tx(req.get_tx()) {
-        let mut resp = ResponseDeliverTx::new();
-        if tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)) {
+        if !is_coinbase_tx(&tx)
+            && tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
+        {
             // set attr(tags) if any
             let attr = utils::gen_tendermint_attr(&tx);
             if 0 < attr.len() {
@@ -100,17 +96,17 @@ pub fn deliver_tx(
             }
 
             if s.address_binder.read().deliver_tx(&tx).is_ok()
+                && s.balance_store.write().deliver_tx(&tx).is_ok()
                 && s.la.write().cache_transaction(tx).is_ok()
             {
                 return resp;
             }
         }
-        resp.set_code(1);
-        resp.set_log(String::from("Failed to deliver transaction!"));
-        resp
-    } else {
-        s.app.deliver_tx(req)
     }
+
+    resp.set_code(1);
+    resp.set_log(String::from("Failed to deliver transaction!"));
+    resp
 }
 
 pub fn begin_block(
@@ -137,16 +133,29 @@ pub fn begin_block(
         pnk!(la.update_staking_simulator());
     }
 
-    s.app.begin_block(req)
+    ResponseBeginBlock::new()
 }
 
 pub fn end_block(
     s: &mut ABCISubmissionServer,
-    req: &RequestEndBlock,
+    _req: &RequestEndBlock,
 ) -> ResponseEndBlock {
     let mut resp = ResponseEndBlock::new();
 
+    let begin_block_req = REQ_BEGIN_BLOCK.lock();
+    let header = pnk!(begin_block_req.header.as_ref());
+
     let mut la = s.la.write();
+
+    // mint coinbase, cache system transactions to ledger
+    {
+        let laa = la.get_committed_state().write();
+        if let Some(tx) = staking::system_mint_pay(&*laa) {
+            drop(laa);
+            // this unwrap should be safe
+            la.cache_transaction(tx).unwrap();
+        }
+    }
 
     if la.block_txn_count() == 0 {
         la.pulse_block();
@@ -160,18 +169,11 @@ pub fn end_block(
         }
     }
 
-    let begin_block_req = REQ_BEGIN_BLOCK.lock();
-    let header = pnk!(begin_block_req.header.as_ref());
-
-    let is_replaying = !begin_block_req.appHashCurReplay.is_empty();
-
-    if !is_replaying {
-        if let Ok(Some(vs)) = ruc::info!(staking::get_validators(
-            la.get_committed_state().read().get_staking(),
-            begin_block_req.last_commit_info.as_ref(),
-        )) {
-            resp.set_validator_updates(RepeatedField::from_vec(vs));
-        }
+    if let Ok(Some(vs)) = ruc::info!(staking::get_validators(
+        la.get_committed_state().read().get_staking(),
+        begin_block_req.last_commit_info.as_ref()
+    )) {
+        resp.set_validator_updates(RepeatedField::from_vec(vs));
     }
 
     staking::system_ops(
@@ -179,16 +181,12 @@ pub fn end_block(
         &header,
         begin_block_req.last_commit_info.as_ref(),
         &begin_block_req.byzantine_validators.as_slice(),
-        la.get_fwder().as_ref(),
-        is_replaying,
     );
-
-    s.app.end_block(req);
 
     resp
 }
 
-pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseCommit {
+pub fn commit(s: &mut ABCISubmissionServer, _req: &RequestCommit) -> ResponseCommit {
     let mut r = ResponseCommit::new();
     let la = s.la.read();
 
@@ -199,7 +197,7 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
 
     // la.end_commit();
 
-    // r.set_data(commitment.0.as_ref().to_vec());
+    r.set_data(commitment.0.as_ref().to_vec());
 
     pnk!(pulse_cache::write_height(
         TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)
@@ -208,11 +206,6 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
     pnk!(pulse_cache::write_staking(state.get_staking()));
 
     pnk!(pulse_cache::write_block_pulse(la.block_pulse_count()));
-
-    let mut la_hash = commitment.0.as_ref().to_vec();
-    let mut cs_hash = s.app.commit(req).data;
-    la_hash.append(&mut cs_hash);
-    r.set_data(fp_storage::hash::Sha256::hash(la_hash.as_slice()).to_vec());
 
     r
 }
