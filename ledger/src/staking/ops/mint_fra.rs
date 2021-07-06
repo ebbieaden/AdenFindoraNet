@@ -99,4 +99,5 @@ impl MintEntry {
 pub enum MintKind {
     Claim,
     UnStake,
+    ConvertUtxoFra,
 }
