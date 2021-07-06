@@ -1354,11 +1354,10 @@ fn staking_scene_2() -> Result<()> {
 // validator test staking process
 // *. init env
 // *. staking fra
-// *. query reward
 // *. query power
 // *. unstaking
+// *. query reward
 // *. query power again(query none)
-// *. get claim
 fn staking_scene_3() -> Result<()> {
     // *. init env
     const VALIDATORS_NUM: u8 = 11;
@@ -1415,9 +1414,6 @@ fn staking_scene_3() -> Result<()> {
     assert_eq!(old_balance, 100 * FRA - TX_FEE_MIN);
     let mut transaction_num = 0;
 
-    // *. query reward
-    let reward = ABCI_MOCKER.read().get_owned_reward(&kps[0].pub_key);
-
     // *. query power
     let p = pnk!(ABCI_MOCKER.read().get_validator_power(&kps[0].pub_key));
 
@@ -1427,24 +1423,19 @@ fn staking_scene_3() -> Result<()> {
     assert!(is_successful(&tx_hash));
     transaction_num += 1;
 
-    // if wait block > 6,query power is none
-    trigger_next_block!(1 + UNBOND_BLOCK_CNT);
-    // let p = pnk!(ABCI_MOCKER.read().get_validator_power(&kps[0].pub_key));
+    // wait
+    trigger_next_block!(UNBOND_BLOCK_CNT);
+    // *. query reward
+    // must before 6 block query reward,if not get reward 0
+    let reward = ABCI_MOCKER.read().get_owned_reward(&kps[0].pub_key);
 
-    // *. get claim
-    let tx_hash = claim(&kps[0], reward).c(d!())?;
-    wait_one_block();
-    assert!(is_successful(&tx_hash));
-    transaction_num += 1;
-
-    // waiting to be paid
     trigger_next_block!();
 
     // query balance and judgment
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&kps[0].get_pk());
     assert_eq!(
         new_balance,
-        old_balance + reward - transaction_num * TX_FEE_MIN
+        old_balance + reward - transaction_num * TX_FEE_MIN + (100 * FRA)
     );
 
     Ok(())
