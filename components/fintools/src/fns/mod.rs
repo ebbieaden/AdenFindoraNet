@@ -36,7 +36,7 @@ lazy_static! {
 
 pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<()> {
     let am = amount.parse::<u64>().c(d!("'amount' must be an integer"))?;
-    check_delegation_amount(am).c(d!())?;
+    check_delegation_amount(am, false).c(d!())?;
     let cr = commission_rate
         .parse::<f64>()
         .c(d!("commission rate must be a float number"))
@@ -59,7 +59,7 @@ pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<
 
 pub fn stake_append(amount: &str) -> Result<()> {
     let am = amount.parse::<u64>().c(d!("'amount' must be an integer"))?;
-    check_delegation_amount(am).c(d!())?;
+    check_delegation_amount(am, true).c(d!())?;
 
     let td_pubkey = get_td_pubkey().c(d!())?;
     let td_addr = td_pubkey_to_td_addr(&td_pubkey);

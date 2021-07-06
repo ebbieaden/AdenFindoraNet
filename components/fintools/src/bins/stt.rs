@@ -292,7 +292,7 @@ mod delegate {
         amount: u64,
         validator: NameRef,
     ) -> Result<Transaction> {
-        check_delegation_amount(amount).c(d!())?;
+        check_delegation_amount(amount, true).c(d!())?;
 
         let owner_kp = USER_LIST
             .get(user)
