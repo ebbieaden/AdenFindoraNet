@@ -1,4 +1,4 @@
-use super::SmartAddress;
+use crate::address::SmartAddress;
 use crate::data_model::XfrAddress;
 // use crate::utils::H160;
 use ruc::*;

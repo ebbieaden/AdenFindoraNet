@@ -1,10 +1,11 @@
 //! Smart address operation for transaction.
 
-use crate::data_model::{NoReplayToken};
+use crate::data_model::NoReplayToken;
+use crate::data_model::{Operation, Transaction, ASSET_TYPE_FRA};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSignature};
-use crate::data_model::Transaction;
+use zei::xfr::structs::{XfrAmount, XfrAssetType};
 
 /// Use this operation to transfer.
 ///
@@ -34,8 +35,8 @@ impl ConvertAccount {
             .c(d!())
     }
 
-    pub fn check_by_tx(&self, _tx: &Transaction) -> bool {
-        true
+    pub fn check_by_tx(&self, tx: &Transaction) -> Result<u64> {
+        check_convert_tx_amount(tx)
     }
 
     pub fn set_nonce(&mut self, nonce: NoReplayToken) {
@@ -67,11 +68,37 @@ impl Data {
     }
 }
 
-// fn check_convert_tx_amount(tx: &Transaction) -> Result<u64> {
-//     // let owners = Vec::new();
-//     for _op in &tx.body.operations {
-//
-//     }
-//     Ok(1)
-// }
-//
+pub fn check_convert_tx_amount(tx: &Transaction) -> Result<u64> {
+    let mut owner = None;
+
+    let mut amount = 0;
+
+    for op in &tx.body.operations {
+        if let Operation::ConvertAccount(ca) = op {
+            if owner.is_some() {
+                return Err(eg!("tx must have 1 convert account"));
+            }
+            owner = Some(ca.public)
+        }
+        if let Operation::TransferAsset(t) = op {
+            for o in &t.body.outputs {
+                if matches!(o.record.asset_type, XfrAssetType::Confidential(_))
+                    || matches!(o.record.amount, XfrAmount::Confidential(_))
+                {
+                    return Err(eg!("convert can't support "));
+                }
+                if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
+                    if ty == ASSET_TYPE_FRA {
+                        if let XfrAmount::NonConfidential(i_am) = o.record.amount {
+                            amount += i_am;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if owner.is_none() {
+        return Err(eg!("this tx isn't a convert tx"));
+    }
+    Ok(amount)
+}
