@@ -11,6 +11,7 @@ use ruc::Result;
 #[derive(Default)]
 pub struct ModuleManager {
     // Ordered module list
+    account_module: module_account::App<BaseApp>,
     ethereum_module: module_ethereum::App<BaseApp>,
     evm_module: module_evm::App<BaseApp>,
 }
@@ -31,7 +32,9 @@ impl ModuleManager {
 
         // Note: adding new modules may need to be updated.
         let module_name = path.remove(0);
-        if module_name == self.ethereum_module.name().as_str() {
+        if module_name == self.account_module.name().as_str() {
+            self.account_module.query_route(ctx, path, req)
+        } else if module_name == self.ethereum_module.name().as_str() {
             self.ethereum_module.query_route(ctx, path, req)
         } else if module_name == self.evm_module.name().as_str() {
             self.evm_module.query_route(ctx, path, req)
@@ -44,6 +47,7 @@ impl ModuleManager {
 
     pub fn begin_block(&mut self, ctx: &mut Context, req: &RequestBeginBlock) {
         // Note: adding new modules need to be updated.
+        self.account_module.begin_block(ctx, req);
         self.ethereum_module.begin_block(ctx, req);
         self.evm_module.begin_block(ctx, req);
     }
@@ -55,6 +59,10 @@ impl ModuleManager {
     ) -> ResponseEndBlock {
         let mut resp = ResponseEndBlock::new();
         // Note: adding new modules need to be updated.
+        let resp_account = self.account_module.end_block(ctx, req);
+        if resp_account.validator_updates.len() > 0 {
+            resp.set_validator_updates(resp_account.validator_updates);
+        }
         let resp_eth = self.ethereum_module.end_block(ctx, req);
         if resp_eth.validator_updates.len() > 0 {
             resp.set_validator_updates(resp_eth.validator_updates);

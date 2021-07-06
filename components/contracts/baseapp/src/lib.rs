@@ -45,14 +45,17 @@ pub struct BaseApp {
 pub enum Action {
     Ethereum(module_ethereum::Action),
     Evm(module_evm::Action),
+    Account(module_account::Action),
 }
+
+impl module_account::Config for BaseApp {}
+
+impl module_ethereum::Config for BaseApp {}
 
 parameter_types! {
     pub const ChainId: u64 = 42;
     pub BlockGasLimit: U256 = U256::from(u32::max_value());
 }
-
-impl module_ethereum::Config for BaseApp {}
 
 impl module_evm::Config for BaseApp {
     type AddressMapping = module_evm::impls::EthereumAddressMapping;
@@ -128,6 +131,9 @@ impl Executable for BaseApp {
                 module_ethereum::App::<Self>::execute(origin, action, ctx)
             }
             Action::Evm(action) => module_evm::App::<Self>::execute(origin, action, ctx),
+            Action::Account(action) => {
+                module_account::App::<Self>::execute(origin, action, ctx)
+            }
         }
     }
 }
