@@ -51,7 +51,7 @@ use super::effects::*;
 use ruc::*;
 use std::ops::Deref;
 
-use crate::address::operation::{BindAddressOp, UnbindAddressOp, ConvertAccount};
+use crate::address::operation::{BindAddressOp, ConvertAccount, UnbindAddressOp};
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
