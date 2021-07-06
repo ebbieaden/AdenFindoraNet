@@ -9,6 +9,7 @@ mod response;
 
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
+use ledger::address::store::BalanceStore;
 use ledger::address::{AddressBinder, SmartAddress};
 use ledger::staking::TendermintAddr;
 use ledger::{
@@ -465,6 +466,20 @@ where
     Err(error::ErrorNotFound("not exists"))
 }
 
+async fn query_account_model_balance(
+    data: web::Data<Arc<RwLock<BalanceStore>>>,
+    address: web::Path<String>,
+) -> actix_web::Result<impl Responder> {
+    let pk = wallet::public_key_from_base64(address.as_str())
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let balance_store = data.read();
+    let balance = balance_store
+        .get(&pk)
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    Ok(web::Json(response::Response::new_success(balance)))
+}
+
 async fn query_address_map_by_xfr(
     data: web::Data<Arc<RwLock<AddressBinder>>>,
     address: web::Path<String>,
@@ -805,6 +820,7 @@ impl RestfulApiService {
     pub fn create<LA: 'static + LedgerAccess + Sync + Send>(
         ledger_access: Arc<RwLock<LA>>,
         address_binder: Arc<RwLock<AddressBinder>>,
+        balance_store: Arc<RwLock<BalanceStore>>,
         host: &str,
         port: u16,
     ) -> Result<RestfulApiService> {
@@ -816,6 +832,7 @@ impl RestfulApiService {
                 .wrap(Cors::permissive().supports_credentials())
                 .data(ledger_access.clone())
                 .data(address_binder.clone())
+                .data(balance_store.clone())
                 .route("/ping", web::get().to(ping))
                 .route("/version", web::get().to(version))
                 .set_route::<LA>(AccessApi::Ledger)
@@ -828,6 +845,10 @@ impl RestfulApiService {
                 .route(
                     "/address/get_map_eth/{address}",
                     web::get().to(query_address_map_by_eth),
+                )
+                .route(
+                    "/account/balance/{address}",
+                    web::get().to(query_account_model_balance),
                 )
         })
         .bind(&format!("{}:{}", host, port))
