@@ -25,7 +25,7 @@
 
 #![deny(warnings)]
 
-use clap::{crate_authors, crate_version, App, ArgGroup, SubCommand};
+use clap::{crate_authors, App, ArgGroup, SubCommand};
 use fintools::fns;
 use ruc::*;
 use std::fmt;
@@ -72,7 +72,7 @@ fn run() -> Result<()> {
     let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
     let matches = App::new("fns")
-        .version(crate_version!())
+        .version(fns::version())
         .author(crate_authors!())
         .about("A command line tool for staking in findora network.")
         .subcommand(subcmd_genkey)

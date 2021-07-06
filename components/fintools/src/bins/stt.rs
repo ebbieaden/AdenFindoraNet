@@ -9,8 +9,8 @@
 
 #![deny(warnings)]
 
-use clap::{crate_authors, crate_version, App, SubCommand};
-use fintools::fns::utils as fns;
+use clap::{crate_authors, App, SubCommand};
+use fintools::fns;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{Transaction, BLACK_HOLE_PUBKEY_STAKING},
@@ -73,7 +73,7 @@ fn run() -> Result<()> {
         .arg_from_usage("-u, --user=[User] 'user name of delegator'");
 
     let matches = App::new("stt")
-        .version(crate_version!())
+        .version(fns::version())
         .author(crate_authors!())
         .about("A manual test tool for the staking function.")
         .subcommand(subcmd_init)
@@ -100,7 +100,7 @@ fn run() -> Result<()> {
             let amount = amount.unwrap().parse::<u64>().c(d!())?;
             delegate::gen_tx(user.unwrap(), amount, validator.unwrap())
                 .c(d!())
-                .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
+                .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))?;
         }
     } else if let Some(m) = matches.subcommand_matches("undelegate") {
         let user = m.value_of("user");
@@ -116,7 +116,7 @@ fn run() -> Result<()> {
             let amount = amount.and_then(|am| am.parse::<u64>().ok());
             undelegate::gen_tx(user.unwrap(), amount, validator)
                 .c(d!())
-                .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
+                .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))?;
         }
     } else if let Some(m) = matches.subcommand_matches("claim") {
         let user = m.value_of("user");
@@ -131,7 +131,7 @@ fn run() -> Result<()> {
             };
             claim::gen_tx(user.unwrap(), amount)
                 .c(d!())
-                .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
+                .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))?;
         }
     } else if let Some(m) = matches.subcommand_matches("transfer") {
         let from = m.value_of("from-user");
@@ -146,7 +146,7 @@ fn run() -> Result<()> {
                     .c(d!())
                     .map(|kp| kp.get_pk())
                     .or_else(|e| wallet::public_key_from_base64(receiver).c(d!(e)))?;
-                fns::transfer(owner_kp, &target_pk, am).c(d!())?;
+                fns::utils::transfer(owner_kp, &target_pk, am).c(d!())?;
             }
             _ => {
                 println!("{}", m.usage());
@@ -178,13 +178,13 @@ mod init {
             wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
 
         println!(">>> define and issue FRA...");
-        fns::send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
+        fns::utils::send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
 
         println!(">>> wait 4 blocks...");
         sleep_n_block!(4);
 
         println!(">>> set initial validator set...");
-        fns::set_initial_validators(&root_kp).c(d!())?;
+        fns::utils::set_initial_validators(&root_kp).c(d!())?;
 
         println!(">>> wait 4 blocks...");
         sleep_n_block!(4);
@@ -197,7 +197,7 @@ mod init {
             .collect::<Vec<_>>();
 
         println!(">>> transfer FRAs to validators...");
-        fns::transfer_batch(&root_kp, target_list).c(d!())?;
+        fns::utils::transfer_batch(&root_kp, target_list).c(d!())?;
 
         println!(">>> wait 6 blocks ...");
         sleep_n_block!(6);
@@ -206,7 +206,7 @@ mod init {
         for v in VALIDATOR_LIST.values() {
             delegate::gen_tx(&v.name, FRA, &v.name)
                 .c(d!())
-                .and_then(|tx| fns::send_tx(&tx).c(d!()))?;
+                .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))?;
         }
 
         println!(">>> DONE !");
@@ -234,14 +234,14 @@ mod issue {
     pub fn issue() -> Result<()> {
         gen_issue_tx()
             .c(d!())
-            .and_then(|tx| fns::send_tx(&tx).c(d!()))
+            .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))
     }
 
     fn gen_issue_tx() -> Result<Transaction> {
         let root_kp =
             wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
 
-        let mut builder = fns::new_tx_builder().c(d!())?;
+        let mut builder = fns::utils::new_tx_builder().c(d!())?;
 
         let template = AssetRecordTemplate::with_no_asset_tracing(
             FRA_TOTAL_AMOUNT / 2,
@@ -301,14 +301,17 @@ mod delegate {
             .c(d!())?;
         let validator = &VALIDATOR_LIST.get(validator).c(d!())?.td_addr;
 
-        let mut builder = fns::new_tx_builder().c(d!())?;
+        let mut builder = fns::utils::new_tx_builder().c(d!())?;
 
-        fns::gen_transfer_op(owner_kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, amount)])
-            .c(d!())
-            .map(|principal_op| {
-                builder.add_operation(principal_op);
-                builder.add_operation_delegation(owner_kp, validator.to_owned());
-            })?;
+        fns::utils::gen_transfer_op(
+            owner_kp,
+            vec![(&BLACK_HOLE_PUBKEY_STAKING, amount)],
+        )
+        .c(d!())
+        .map(|principal_op| {
+            builder.add_operation(principal_op);
+            builder.add_operation_delegation(owner_kp, validator.to_owned());
+        })?;
 
         Ok(builder.take_transaction())
     }
@@ -328,9 +331,9 @@ mod undelegate {
             .and_then(|v| VALIDATOR_LIST.get(v))
             .map(|x| pnk!(td_addr_to_bytes(&x.td_addr)));
 
-        let mut builder = fns::new_tx_builder().c(d!())?;
+        let mut builder = fns::utils::new_tx_builder().c(d!())?;
 
-        fns::gen_fee_op(owner_kp).c(d!()).map(|op| {
+        fns::utils::gen_fee_op(owner_kp).c(d!()).map(|op| {
             builder.add_operation(op);
             if let Some(amount) = amount {
                 // partial undelegation
@@ -357,9 +360,9 @@ mod claim {
     pub fn gen_tx(user: NameRef, amount: Option<u64>) -> Result<Transaction> {
         let owner_kp = search_kp(user).c(d!())?;
 
-        let mut builder = fns::new_tx_builder().c(d!())?;
+        let mut builder = fns::utils::new_tx_builder().c(d!())?;
 
-        fns::gen_fee_op(owner_kp).c(d!()).map(|op| {
+        fns::utils::gen_fee_op(owner_kp).c(d!()).map(|op| {
             builder.add_operation(op);
             builder.add_operation_claim(owner_kp, amount);
         })?;
@@ -406,14 +409,14 @@ fn get_delegation_info(user: NameRef) -> Result<String> {
         .or_else(|| VALIDATOR_LIST.get(user).map(|v| &v.pubkey))
         .c(d!())?;
 
-    fns::get_delegation_info(pk)
+    fns::utils::get_delegation_info(pk)
         .c(d!())
         .and_then(|di| serde_json::to_string_pretty(&di).c(d!()))
 }
 
 fn get_balance(user: NameRef) -> Result<u64> {
     let kp = search_kp(user).c(d!())?;
-    fns::get_balance(&kp).c(d!())
+    fns::utils::get_balance(&kp).c(d!())
 }
 
 #[derive(Debug, Serialize)]
