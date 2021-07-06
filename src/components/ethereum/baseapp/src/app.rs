@@ -1,6 +1,5 @@
 use crate::{types::convert_ethereum_transaction, RunTxMode};
 use abci::*;
-use fp_core::module::AppModule;
 use ruc::RucResult;
 
 impl Application for crate::BaseApp {
@@ -20,16 +19,20 @@ impl Application for crate::BaseApp {
             resp
         };
 
-        // example: "/custom/evm/code"
+        // example: "/module/evm/code"
         let mut path: Vec<_> = req.path.split('/').collect();
         if 0 == path.len() {
             return err_resp("Empty query path !".to_string());
         }
 
+        let ctx = self.create_query_context(req.height, req.prove);
+        if let Err(e) = ctx {
+            return err_resp(format!("Cannot create query context with err: {}!", e));
+        }
+
         match path.remove(0) {
-            "app" => self.handle_query(path, req),
-            "store" => self.handle_query(path, req),
-            "custom" => self.handle_query(path, req),
+            // "store" => self.store.query(path, req),
+            "module" => self.modules.query(ctx.unwrap(), path, req),
             _ => err_resp("Invalid query path!".to_string()),
         }
     }
@@ -38,7 +41,8 @@ impl Application for crate::BaseApp {
         let mut resp = ResponseCheckTx::new();
         if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
             let check_fn = |mode: RunTxMode| {
-                if ruc::info!(self.handle_tx(mode, tx, req.get_tx().to_vec())).is_err() {
+                let ctx = self.retrieve_context(mode, req.get_tx().to_vec()).clone();
+                if ruc::info!(self.modules.process_tx(ctx, mode, tx)).is_err() {
                     resp.set_code(1);
                     resp.set_log(String::from("Ethereum transaction check failed"));
                 }
@@ -62,31 +66,25 @@ impl Application for crate::BaseApp {
         init_header.time = req.time.clone();
 
         // initialize the deliver state and check state with a correct header
-        self.set_deliver_state(init_header.clone());
-        self.set_check_state(init_header);
+        self.deliver_state.header = init_header.clone();
+        self.check_state.header = init_header;
 
         ResponseInitChain::new()
     }
 
     fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
-        // for m in self.modules.iter_mut() {
-        //     m.begin_block(req);
-        // }
-        self.ethereum_module
-            .begin_block(&mut self.deliver_state, req);
-        self.evm_module.begin_block(&mut self.deliver_state, req);
-
+        self.modules.begin_block(&mut self.deliver_state, req);
         ResponseBeginBlock::new()
     }
 
     fn deliver_tx(&mut self, req: &RequestDeliverTx) -> ResponseDeliverTx {
         let mut resp = ResponseDeliverTx::new();
         if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
-            // TODO events、storage
-            if self
-                .handle_tx(RunTxMode::Deliver, tx, req.get_tx().to_vec())
-                .is_ok()
-            {
+            // TODO event
+            let ctx = self
+                .retrieve_context(RunTxMode::Deliver, req.get_tx().to_vec())
+                .clone();
+            if self.modules.process_tx(ctx, RunTxMode::Deliver, tx).is_ok() {
                 return resp;
             }
         }
@@ -96,12 +94,7 @@ impl Application for crate::BaseApp {
     }
 
     fn end_block(&mut self, req: &RequestEndBlock) -> ResponseEndBlock {
-        // for m in self.modules.iter_mut() {
-        //     m.end_block(req);
-        // }
-        self.ethereum_module.end_block(&mut self.deliver_state, req);
-        self.evm_module.end_block(&mut self.deliver_state, req);
-
+        self.modules.end_block(&mut self.deliver_state, req);
         ResponseEndBlock::new()
     }
 

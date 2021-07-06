@@ -5,6 +5,18 @@ use fp_core::{
 };
 use ruc::{eg, Result};
 
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
+pub enum RunTxMode {
+    /// Check a transaction
+    Check = 0,
+    /// Recheck a (pending) transaction after a commit
+    ReCheck = 1,
+    /// Simulate a transaction
+    Simulate = 2,
+    /// Deliver a transaction
+    Deliver = 3,
+}
+
 /// Unchecked transaction type as expected by this application.
 pub type UncheckedTransaction =
     transaction::UncheckedTransaction<Address, Action, Signature>;
