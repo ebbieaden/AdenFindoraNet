@@ -271,3 +271,8 @@ fn convert_commission_rate(cr: f64) -> Result<[u64; 2]> {
     }
     Ok([(cr * 10000.0) as u64, 10000])
 }
+
+/// Return the built version.
+pub fn version() -> &'static str {
+    concat!(env!("VERGEN_SHA_SHORT"), " ", env!("VERGEN_BUILD_DATE"))
+}

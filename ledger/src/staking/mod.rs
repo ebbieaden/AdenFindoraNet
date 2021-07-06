@@ -919,6 +919,20 @@ impl Staking {
             return Err(eg!("not exists"));
         };
 
+        let bond_am = d.amount();
+        d.rwd_detail
+            .entry(self.cur_height)
+            .or_insert(DelegationRwdDetail {
+                bond: bond_am,
+                amount: 0,
+                penalty_amount: 0,
+                return_rate: None,
+                commission_rate: None,
+                global_delegation_percent: None,
+                block_height: self.cur_height,
+            })
+            .penalty_amount = am;
+
         if DelegationState::Paid == d.state {
             return Err(eg!("delegation has been paid"));
         } else {
@@ -1675,9 +1689,10 @@ pub struct Delegation {
 pub struct DelegationRwdDetail {
     bond: Amount,
     amount: Amount,
-    return_rate: [u128; 2],
-    commission_rate: [u64; 2],
-    global_delegation_percent: [u64; 2],
+    penalty_amount: Amount,
+    return_rate: Option<[u128; 2]>,
+    commission_rate: Option<[u64; 2]>,
+    global_delegation_percent: Option<[u64; 2]>,
     block_height: BlockHeight,
 }
 
@@ -1769,9 +1784,10 @@ impl Delegation {
                         DelegationRwdDetail {
                             bond: self.amount(),
                             amount: n,
-                            return_rate,
-                            commission_rate,
-                            global_delegation_percent,
+                            penalty_amount: 0,
+                            return_rate: Some(return_rate),
+                            commission_rate: Some(commission_rate),
+                            global_delegation_percent: Some(global_delegation_percent),
                             block_height: cur_height,
                         },
                     );
