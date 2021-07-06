@@ -1,13 +1,13 @@
 mod app;
+mod modules;
 mod types;
 
-use abci::Header;
+use crate::modules::ModuleManager;
 use fp_core::{
     context::Context,
     crypto::Address,
-    module::{AppModule, AppModuleBasic},
     parameter_types,
-    transaction::{Applyable, Executable, ValidateUnsigned},
+    transaction::{Executable, ValidateUnsigned},
 };
 use parking_lot::RwLock;
 use primitive_types::U256;
@@ -38,20 +38,7 @@ pub struct BaseApp {
     check_state: Context,
     deliver_state: Context,
     /// Ordered module set
-    ethereum_module: module_ethereum::App<Self>,
-    evm_module: module_evm::App<Self>,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
-pub enum RunTxMode {
-    /// Check a transaction
-    Check = 0,
-    /// Recheck a (pending) transaction after a commit
-    ReCheck = 1,
-    /// Simulate a transaction
-    Simulate = 2,
-    /// Deliver a transaction
-    Deliver = 3,
+    modules: ModuleManager,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,8 +77,7 @@ impl BaseApp {
             chain_state: chain_state.clone(),
             check_state: Context::new(chain_state.clone()),
             deliver_state: Context::new(chain_state),
-            ethereum_module: Default::default(),
-            evm_module: module_evm::App::new(),
+            modules: Default::default(),
         })
     }
 
@@ -105,144 +91,6 @@ impl BaseApp {
 
     pub fn app_version(&self) -> u64 {
         self.app_version
-    }
-
-    pub fn handle_query(
-        &self,
-        mut path: Vec<&str>,
-        req: &abci::RequestQuery,
-    ) -> abci::ResponseQuery {
-        let mut resp = abci::ResponseQuery::new();
-        if 0 == path.len() {
-            resp.set_code(1);
-            resp.set_log("Invalid custom query path without module route!".to_string());
-            return resp;
-        }
-        let ctx = self.create_query_context(req.height, req.prove);
-        if let Err(e) = ctx {
-            resp.set_code(1);
-            resp.set_log(format!("Cannot create query context with err: {}!", e));
-            return resp;
-        }
-
-        let module_name = path.remove(0);
-        if module_name == self.ethereum_module.name().as_str() {
-            self.ethereum_module.query_route(ctx.unwrap(), path, req)
-        } else if module_name == self.evm_module.name().as_str() {
-            self.evm_module.query_route(ctx.unwrap(), path, req)
-        } else {
-            resp.set_code(1);
-            resp.set_log(format!("Invalid query module route: {}!", module_name));
-            resp
-        }
-
-        // if let Some(am) = self
-        //     .modules
-        //     .iter()
-        //     .find(|&m| m.name().as_str() == module_name)
-        // {
-        //     am.query_route(path, req)
-        // } else {
-        //     resp.set_code(1);
-        //     resp.set_log(format!("Invalid query module route: {}!", module_name));
-        //     resp
-        // }
-    }
-
-    pub fn handle_tx(
-        &mut self,
-        mode: RunTxMode,
-        tx: UncheckedTransaction,
-        tx_bytes: Vec<u8>,
-    ) -> Result<()> {
-        let checked = tx.clone().check()?;
-        let ctx = self.retrieve_context(mode, tx_bytes);
-
-        // add match field if tx is unsigned transaction
-        match tx.function {
-            Action::Ethereum(action) => Self::dispatch::<
-                module_ethereum::Action,
-                module_ethereum::App<BaseApp>,
-            >(ctx.clone(), mode, action, checked),
-            _ => Self::dispatch::<Action, BaseApp>(
-                ctx.clone(),
-                mode,
-                tx.function,
-                checked,
-            ),
-        }
-    }
-}
-
-impl BaseApp {
-    pub fn set_check_state(&mut self, header: Header) {
-        self.check_state.header = header;
-    }
-
-    pub fn set_deliver_state(&mut self, header: Header) {
-        self.deliver_state.header = header;
-    }
-
-    /// retrieve the context for the txBytes and other memoized values.
-    pub fn retrieve_context(
-        &mut self,
-        mode: RunTxMode,
-        tx_bytes: Vec<u8>,
-    ) -> &mut Context {
-        let ctx = if mode == RunTxMode::Deliver {
-            &mut self.deliver_state
-        } else {
-            &mut self.check_state
-        };
-        ctx.tx = tx_bytes;
-
-        if mode == RunTxMode::ReCheck {
-            ctx.recheck_tx = true;
-        }
-        ctx
-    }
-
-    pub fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
-        if height < 0 {
-            return Err(eg!(
-                "cannot query with height < 0; please provide a valid height"
-            ));
-        }
-        // when a client did not provide a query height, manually inject the latest
-        if height == 0 {
-            height = self.chain_state.read().height()? as i64;
-        }
-        if height <= 1 && prove {
-            return Err(eg!(
-                "cannot query with proof when height <= 1; please provide a valid height"
-            ));
-        }
-
-        Ok(Context::new(self.chain_state.clone()))
-    }
-}
-
-impl BaseApp {
-    fn dispatch<Call, Module>(
-        ctx: Context,
-        mode: RunTxMode,
-        action: Call,
-        tx: CheckedTransaction,
-    ) -> Result<()>
-    where
-        Module: ValidateUnsigned<Call = Call>,
-        Module: Executable<Origin = Address, Call = Call>,
-    {
-        // TODO gas check、get ctx.store
-
-        let origin_tx = convert_unsigned_transaction::<Call>(action, tx);
-
-        origin_tx.validate::<Module>(ctx.clone())?;
-
-        if mode == RunTxMode::Deliver {
-            origin_tx.apply::<Module>(ctx)?;
-        }
-        Ok(())
     }
 }
 
@@ -281,5 +129,41 @@ impl Executable for BaseApp {
             }
             Action::Evm(action) => module_evm::App::<Self>::execute(origin, action, ctx),
         }
+    }
+}
+
+impl BaseApp {
+    fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
+        if height < 0 {
+            return Err(eg!(
+                "cannot query with height < 0; please provide a valid height"
+            ));
+        }
+        // when a client did not provide a query height, manually inject the latest
+        if height == 0 {
+            height = self.chain_state.read().height()? as i64;
+        }
+        if height <= 1 && prove {
+            return Err(eg!(
+                "cannot query with proof when height <= 1; please provide a valid height"
+            ));
+        }
+
+        Ok(Context::new(self.chain_state.clone()))
+    }
+
+    /// retrieve the context for the txBytes and other memoized values.
+    fn retrieve_context(&mut self, mode: RunTxMode, tx_bytes: Vec<u8>) -> &mut Context {
+        let ctx = if mode == RunTxMode::Deliver {
+            &mut self.deliver_state
+        } else {
+            &mut self.check_state
+        };
+        ctx.tx = tx_bytes;
+
+        if mode == RunTxMode::ReCheck {
+            ctx.recheck_tx = true;
+        }
+        ctx
     }
 }
