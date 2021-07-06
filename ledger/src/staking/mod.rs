@@ -389,7 +389,7 @@ impl Staking {
         let validator = self.validator_td_addr_to_app_pk(validator).c(d!())?;
         let end_height = BLOCK_HEIGHT_MAX;
 
-        check_delegation_amount(am).c(d!())?;
+        check_delegation_amount(am, true).c(d!())?;
 
         if self.delegation_has_addr(&validator) || owner == validator {
             // `normal scene` or `do self-delegation`
@@ -1934,8 +1934,13 @@ pub fn td_addr_to_bytes(td_addr: TendermintAddrRef) -> Result<Vec<u8>> {
 
 #[inline(always)]
 #[allow(missing_docs)]
-pub fn check_delegation_amount(am: Amount) -> Result<()> {
-    if (MIN_DELEGATION_AMOUNT..=MAX_DELEGATION_AMOUNT).contains(&am) {
+pub fn check_delegation_amount(am: Amount, is_append: bool) -> Result<()> {
+    let lowb = alt!(
+        is_append,
+        MIN_DELEGATION_AMOUNT,
+        STAKING_VALIDATOR_MIN_POWER
+    );
+    if (lowb..=MAX_DELEGATION_AMOUNT).contains(&am) {
         Ok(())
     } else {
         let msg = format!(
