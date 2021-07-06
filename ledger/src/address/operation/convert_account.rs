@@ -1,7 +1,7 @@
 //! Smart address operation for transaction.
 
 use crate::data_model::NoReplayToken;
-use crate::data_model::{Operation, Transaction, ASSET_TYPE_FRA};
+use crate::data_model::{Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSignature};
@@ -88,7 +88,8 @@ pub fn check_convert_tx_amount(tx: &Transaction) -> Result<(u64, XfrPublicKey)> 
                     return Err(eg!("convert can't support "));
                 }
                 if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                    if ty == ASSET_TYPE_FRA {
+                    if ty == ASSET_TYPE_FRA && o.record.public_key == *BLACK_HOLE_PUBKEY
+                    {
                         if let XfrAmount::NonConfidential(i_am) = o.record.amount {
                             amount += i_am;
                         }
