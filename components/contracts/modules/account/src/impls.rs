@@ -1,7 +1,7 @@
 use crate::storage::*;
 use crate::{App, Config};
 use fp_core::{account::SmartAccount, context::Context, crypto::Address};
-use ruc::{eg, Result};
+use ruc::*;
 
 impl<C: Config> App<C> {
     // Transfer some balance from `sender` to `dest`
@@ -28,6 +28,20 @@ impl<C: Config> App<C> {
             .balance
             .checked_add(balance)
             .ok_or(eg!("balance overflow"))?;
+        Ok(())
+    }
+
+    pub fn mint_balance(ctx: &Context, target: &Address, balance: u128) -> Result<()> {
+        let target_account: SmartAccount =
+            AccountStore::get(ctx.store.clone(), target).c(d!())?;
+        target_account.balance.checked_add(balance).c(d!())?;
+        Ok(())
+    }
+
+    pub fn burn_balance(ctx: &Context, target: &Address, balance: u128) -> Result<()> {
+        let target_account: SmartAccount =
+            AccountStore::get(ctx.store.clone(), target).c(d!())?;
+        target_account.balance.checked_sub(balance).c(d!())?;
         Ok(())
     }
 }
