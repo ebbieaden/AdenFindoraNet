@@ -1,6 +1,6 @@
 use abci::*;
 use baseapp::BaseApp as AccountBaseAPP;
-use ledger::address::store::BalanceStore;
+// use ledger::address::store::BalanceStore;
 use ledger::address::AddressBinder;
 use ledger::store::LedgerState;
 use parking_lot::RwLock;
@@ -24,7 +24,7 @@ pub struct ABCISubmissionServer {
     pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
     pub account_base_app: AccountBaseAPP,
     pub address_binder: Arc<RwLock<AddressBinder>>,
-    pub balance_store: Arc<RwLock<BalanceStore>>,
+    // pub balance_store: Arc<RwLock<BalanceStore>>,
 }
 
 impl ABCISubmissionServer {
@@ -55,13 +55,6 @@ impl ABCISubmissionServer {
             }
         };
 
-        let balance_store = match base_dir {
-            None => BalanceStore::test()?,
-            Some(base_dir) => {
-                pnk!(BalanceStore::new(&base_dir.join("balance_store.db")))
-            }
-        };
-
         let prng = rand_chacha::ChaChaRng::from_entropy();
         Ok(ABCISubmissionServer {
             la: Arc::new(RwLock::new(
@@ -76,7 +69,6 @@ impl ABCISubmissionServer {
                 account_chain_state,
             )))?,
             address_binder: Arc::new(RwLock::new(address_binder)),
-            balance_store: Arc::new(RwLock::new(balance_store)),
         })
     }
 }
