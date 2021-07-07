@@ -20,6 +20,7 @@ use ledger::{
 };
 use rand_core::{CryptoRng, RngCore};
 use ruc::*;
+use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
     sync::atomic::Ordering,
@@ -235,6 +236,7 @@ fn set_rewards<RNG: RngCore + CryptoRng>(
         .c(d!())
 }
 
+#[derive(Serialize)]
 struct ByzantineInfo<'a> {
     addr: &'a str,
     // - "UNKNOWN"
@@ -245,6 +247,7 @@ struct ByzantineInfo<'a> {
 
 // Auto governance.
 fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
+    ruc::pd!(serde_json::to_string(&bz).unwrap());
     let kind = match bz.kind {
         "DUPLICATE_VOTE" => ByzantineKind::DuplicateVote,
         "LIGHT_CLIENT_ATTACK" => ByzantineKind::LightClientAttack,

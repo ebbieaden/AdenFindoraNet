@@ -569,14 +569,20 @@ impl Staking {
                 .get_mut(&target_validator)
                 .c(d!("Target validator does not exist"))?;
 
-            if pu.am > *am {
-                return Err(eg!("Requested amount exceeds limits"));
-            }
+            let actual_am = if pu.am > *am {
+                ruc::pd!(format!(
+                    "Amount exceeds limits, requested: {}, total: {}",
+                    pu.am, *am
+                ));
+                *am
+            } else {
+                pu.am
+            };
 
             if BLOCK_HEIGHT_MAX == d.end_height {
-                *am -= pu.am;
+                *am = am.saturating_sub(pu.am);
                 new_tmp_delegator = Delegation {
-                    entries: map! {B target_validator => pu.am},
+                    entries: map! {B target_validator => actual_am},
                     delegators: indexmap::IndexMap::new(),
                     id: pu.new_delegator_id,
                     receiver_pk: Some(d.id),
