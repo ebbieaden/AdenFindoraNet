@@ -13,14 +13,14 @@ use parking_lot::RwLock;
 use primitive_types::U256;
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
 
 use abci::Header;
 pub use types::*;
 
 const APP_NAME: &str = "findora";
-const APP_DB_NAME: &str = "findora_db";
+// const APP_DB_NAME: &str = "findora_db";
 
 pub struct BaseApp {
     /// application name from abci.Info
@@ -69,11 +69,7 @@ impl module_evm::Config for BaseApp {
 }
 
 impl BaseApp {
-    pub fn new(path: &Path) -> Result<Self> {
-        let fdb = FinDB::open(path)?;
-        let chain_state =
-            Arc::new(RwLock::new(ChainState::new(fdb, APP_DB_NAME.to_string())));
-
+    pub fn new(chain_state: Arc<RwLock<ChainState<FinDB>>>) -> Result<Self> {
         Ok(BaseApp {
             name: APP_NAME.to_string(),
             version: "1.0.0".to_string(),
