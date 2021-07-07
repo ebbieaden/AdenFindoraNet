@@ -9,8 +9,11 @@ use rand_core::SeedableRng;
 use ruc::*;
 use std::path::Path;
 use std::sync::Arc;
+use storage::{db::FinDB, state::ChainState};
 use submission_server::SubmissionServer;
 use tx_sender::TendermintForward;
+
+const APP_DB_NAME: &str = "findora_db";
 
 pub use tx_sender::forward_txn_with_mode;
 
@@ -29,15 +32,20 @@ impl ABCISubmissionServer {
         base_dir: Option<&Path>,
         tendermint_reply: String,
     ) -> Result<ABCISubmissionServer> {
-        let (ledger_state, app) = match base_dir {
-            None => (
-                LedgerState::test_ledger(),
-                pnk!(BaseApp::new(tempfile::tempdir().unwrap().path())),
-            ),
-            Some(base_dir) => (
-                pnk!(LedgerState::load_or_init(base_dir)),
-                pnk!(BaseApp::new(base_dir)),
-            ),
+        let ledger_state = match base_dir {
+            None => LedgerState::test_ledger(),
+            Some(base_dir) => pnk!(LedgerState::load_or_init(base_dir)),
+        };
+
+        let app = match base_dir {
+            None => {
+                let fdb = FinDB::open(tempfile::tempdir().unwrap().path())?;
+                ChainState::new(fdb, APP_DB_NAME.to_string())
+            }
+            Some(base_dir) => {
+                let fdb = FinDB::open(base_dir)?;
+                ChainState::new(fdb, APP_DB_NAME.to_string())
+            }
         };
 
         let address_binder = match base_dir {
@@ -64,7 +72,7 @@ impl ABCISubmissionServer {
                 )
                 .c(d!())?,
             )),
-            app,
+            app: BaseApp::new(Arc::new(RwLock::new(app)))?,
             address_binder: Arc::new(RwLock::new(address_binder)),
             balance_store: Arc::new(RwLock::new(balance_store)),
         })
