@@ -1,11 +1,12 @@
 //! Smart address operation for transaction.
 
 use crate::data_model::NoReplayToken;
-use crate::data_model::{Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY};
+use crate::data_model::{Operation, Transaction, BLACK_HOLE_PUBKEY};
 use ruc::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSignature};
-use zei::xfr::structs::{XfrAmount, XfrAssetType};
+use zei::xfr::structs::{AssetType, XfrAmount, XfrAssetType};
 
 /// Use this operation to transfer.
 ///
@@ -68,10 +69,12 @@ impl Data {
     }
 }
 
-pub fn check_convert_tx_amount(tx: &Transaction) -> Result<(u64, XfrPublicKey)> {
+pub fn check_convert_tx(
+    tx: &Transaction,
+) -> Result<(XfrPublicKey, HashMap<AssetType, u64>)> {
     let mut owner = None;
 
-    let mut amount = 0;
+    let mut assets = HashMap::new();
 
     for op in &tx.body.operations {
         if let Operation::ConvertAccount(ca) = op {
@@ -88,10 +91,13 @@ pub fn check_convert_tx_amount(tx: &Transaction) -> Result<(u64, XfrPublicKey)> 
                     return Err(eg!("convert can't support "));
                 }
                 if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                    if ty == ASSET_TYPE_FRA && o.record.public_key == *BLACK_HOLE_PUBKEY
-                    {
+                    if o.record.public_key == *BLACK_HOLE_PUBKEY {
                         if let XfrAmount::NonConfidential(i_am) = o.record.amount {
-                            amount += i_am;
+                            if let Some(amount) = assets.get_mut(&ty) {
+                                *amount += i_am;
+                            } else {
+                                assets.insert(ty, i_am);
+                            }
                         }
                     }
                 }
@@ -101,5 +107,5 @@ pub fn check_convert_tx_amount(tx: &Transaction) -> Result<(u64, XfrPublicKey)> 
     if owner.is_none() {
         return Err(eg!("this tx isn't a convert tx"));
     }
-    Ok((amount, owner.unwrap()))
+    Ok((owner.unwrap(), assets))
 }
