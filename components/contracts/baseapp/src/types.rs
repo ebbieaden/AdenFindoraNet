@@ -36,6 +36,13 @@ pub fn convert_unsigned_transaction<A>(
     }
 }
 
+/// Convert raw transaction to unchecked transaction.
+pub fn convert_unchecked_transaction(
+    transaction: &[u8],
+) -> Result<UncheckedTransaction> {
+    serde_json::from_slice::<UncheckedTransaction>(transaction).map_err(|e| eg!(e))
+}
+
 /// Convert raw ethereum transaction to unified format unchecked transaction.
 pub fn convert_ethereum_transaction(transaction: &[u8]) -> Result<UncheckedTransaction> {
     let tx = serde_json::from_slice::<ethereum::Transaction>(transaction)

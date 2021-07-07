@@ -14,6 +14,7 @@ pub struct ModuleManager {
     account_module: module_account::App<BaseApp>,
     ethereum_module: module_ethereum::App<BaseApp>,
     evm_module: module_evm::App<BaseApp>,
+    template_module: module_template::App<BaseApp>,
 }
 
 impl ModuleManager {
@@ -38,6 +39,8 @@ impl ModuleManager {
             self.ethereum_module.query_route(ctx, path, req)
         } else if module_name == self.evm_module.name().as_str() {
             self.evm_module.query_route(ctx, path, req)
+        } else if module_name == self.template_module.name().as_str() {
+            self.template_module.query_route(ctx, path, req)
         } else {
             resp.set_code(1);
             resp.set_log(format!("Invalid query module route: {}!", module_name));
@@ -50,6 +53,7 @@ impl ModuleManager {
         self.account_module.begin_block(ctx, req);
         self.ethereum_module.begin_block(ctx, req);
         self.evm_module.begin_block(ctx, req);
+        self.template_module.begin_block(ctx, req);
     }
 
     pub fn end_block(
@@ -70,6 +74,10 @@ impl ModuleManager {
         let resp_evm = self.evm_module.end_block(ctx, req);
         if resp_evm.validator_updates.len() > 0 {
             resp.set_validator_updates(resp_evm.validator_updates);
+        }
+        let resp_template = self.template_module.end_block(ctx, req);
+        if resp_template.validator_updates.len() > 0 {
+            resp.set_validator_updates(resp_template.validator_updates);
         }
         resp
     }
