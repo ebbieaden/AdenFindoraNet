@@ -51,6 +51,8 @@ use super::effects::*;
 use ruc::*;
 use std::ops::Deref;
 
+use crate::address::operation::{BindAddressOp, ConvertAccount, UnbindAddressOp};
+
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
 pub const MAX_DECIMALS_LENGTH: u8 = 19;
@@ -991,7 +993,10 @@ pub enum Operation {
     UpdateValidator(UpdateValidatorOps),
     Governance(GovernanceOps),
     FraDistribution(FraDistributionOps),
+    BindAddressOp(BindAddressOp),
+    UnbindAddressOp(UnbindAddressOp),
     MintFra(MintFraOps),
+    ConvertAccount(ConvertAccount),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
@@ -1015,6 +1020,8 @@ fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
             i.set_nonce(no_replay_token);
         }
         Operation::UpdateMemo(i) => i.body.no_replay_token = no_replay_token,
+        Operation::BindAddressOp(i) => i.set_nonce(no_replay_token),
+        Operation::UnbindAddressOp(i) => i.set_nonce(no_replay_token),
         _ => {}
     }
 }
@@ -1411,31 +1418,25 @@ impl FinalizedTransaction {
     }
 
     pub fn set_txo_id(&mut self) {
-        enum SS<'a> {
-            Output(&'a mut TxOutput),
-        }
-
         let ids = mem::take(&mut self.txo_ids);
+
         self.txn
             .body
             .operations
             .iter_mut()
             .map(|new| match new {
-                Operation::TransferAsset(d) => {
-                    d.body.outputs.iter_mut().map(|o| SS::Output(o)).collect()
+                Operation::TransferAsset(d) => d.body.outputs.iter_mut().collect(),
+                Operation::MintFra(d) => {
+                    d.entries.iter_mut().map(|et| &mut et.utxo).collect()
                 }
-                Operation::IssueAsset(d) => d
-                    .body
-                    .records
-                    .iter_mut()
-                    .map(|(o, _)| SS::Output(o))
-                    .collect(),
+                Operation::IssueAsset(d) => {
+                    d.body.records.iter_mut().map(|(o, _)| o).collect()
+                }
                 _ => Vec::new(),
             })
             .flatten()
             .zip(ids.iter())
-            .for_each(|(ss, id)| {
-                let SS::Output(o) = ss;
+            .for_each(|(o, id)| {
                 o.id = Some(*id);
             });
 
@@ -1648,6 +1649,9 @@ impl Transaction {
             match op {
                 Operation::TransferAsset(xfr_asset) => {
                     memos.append(&mut xfr_asset.get_owner_memos_ref());
+                }
+                Operation::MintFra(mint_asset) => {
+                    memos.append(&mut mint_asset.get_owner_memos_ref());
                 }
                 Operation::IssueAsset(issue_asset) => {
                     memos.append(&mut issue_asset.get_owner_memos_ref());

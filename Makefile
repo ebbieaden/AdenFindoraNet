@@ -158,7 +158,9 @@ tendermint:
 		git clone -b feat-findora --depth=1 https://gitee.com/kt10/tendermint.git tools/tendermint; \
 	fi
 	# cd tools/tendermint && make install
-	cd tools/tendermint && make build TENDERMINT_BUILD_OPTIONS=cleveldb && cp build/tendermint ~/go/bin/
+	cd tools/tendermint \
+		&& make build TENDERMINT_BUILD_OPTIONS=cleveldb \
+		&& cp build/tendermint ~/go/bin/
 
 wasm:
 	cd components/wasm && wasm-pack build

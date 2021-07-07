@@ -50,6 +50,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let subcmd_init = SubCommand::with_name("init");
+    let subcmd_issue = SubCommand::with_name("issue");
     let subcmd_delegate = SubCommand::with_name("delegate")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA units to delegate'")
@@ -76,6 +77,7 @@ fn run() -> Result<()> {
         .author(crate_authors!())
         .about("A manual test tool for the staking function.")
         .subcommand(subcmd_init)
+        .subcommand(subcmd_issue)
         .subcommand(subcmd_delegate)
         .subcommand(subcmd_undelegate)
         .subcommand(subcmd_claim)
@@ -83,8 +85,10 @@ fn run() -> Result<()> {
         .subcommand(subcmd_show)
         .get_matches();
 
-    if matches.subcommand_matches("init").is_some() {
+    if matches.is_present("init") {
         init::init().c(d!())?;
+    } else if matches.is_present("issue") {
+        issue::issue().c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("delegate") {
         let user = m.value_of("user");
         let amount = m.value_of("amount");
@@ -207,6 +211,76 @@ mod init {
 
         println!(">>> DONE !");
         Ok(())
+    }
+}
+
+mod issue {
+    use super::*;
+    use ledger::{
+        data_model::{
+            AssetTypeCode, IssueAsset, IssueAssetBody, IssuerKeyPair, Operation,
+            TxOutput, ASSET_TYPE_FRA,
+        },
+        staking::FRA_TOTAL_AMOUNT,
+    };
+    use rand_chacha::rand_core::SeedableRng;
+    use rand_chacha::ChaChaRng;
+    use zei::setup::PublicParams;
+    use zei::xfr::{
+        asset_record::{build_blind_asset_record, AssetRecordType},
+        structs::AssetRecordTemplate,
+    };
+
+    pub fn issue() -> Result<()> {
+        gen_issue_tx()
+            .c(d!())
+            .and_then(|tx| fns::send_tx(&tx).c(d!()))
+    }
+
+    fn gen_issue_tx() -> Result<Transaction> {
+        let root_kp =
+            wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
+
+        let mut builder = fns::new_tx_builder().c(d!())?;
+
+        let template = AssetRecordTemplate::with_no_asset_tracing(
+            FRA_TOTAL_AMOUNT / 2,
+            ASSET_TYPE_FRA,
+            AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
+            root_kp.get_pk(),
+        );
+        let params = PublicParams::default();
+        let outputs = (0..2)
+            .map(|_| {
+                let (ba, _, _) = build_blind_asset_record(
+                    &mut ChaChaRng::from_entropy(),
+                    &params.pc_gens,
+                    &template,
+                    vec![],
+                );
+                (
+                    TxOutput {
+                        id: None,
+                        record: ba,
+                        lien: None,
+                    },
+                    None,
+                )
+            })
+            .collect::<Vec<_>>();
+        let aib = IssueAssetBody::new(
+            &AssetTypeCode {
+                val: ASSET_TYPE_FRA,
+            },
+            builder.get_seq_id(),
+            &outputs,
+        )
+        .c(d!())?;
+        let asset_issuance_operation =
+            IssueAsset::new(aib, &IssuerKeyPair { keypair: &root_kp }).c(d!())?;
+
+        builder.add_operation(Operation::IssueAsset(asset_issuance_operation));
+        Ok(builder.take_transaction())
     }
 }
 
@@ -437,52 +511,27 @@ fn gen_valiator_list() -> BTreeMap<Name, Validator> {
         "5C71532CEEFC43EE3857905AB94FDA505BFC06F3",
     ];
 
-    #[cfg(feature = "debug_env")]
     const MNEMONIC_LIST: [&str; NUM] = [
-        "alien pride power ostrich will cart crumble judge ordinary picnic bring dinner nut success phone banana fold agent shallow silent dose feel short insane",
-        "erode wasp helmet advice olive ridge update kid drip toast agree hand oppose hurt creek hazard purity raise main organ bargain patrol ramp toward",
-        "eternal happy outer ankle write smile admit scrub disease know code mom juice rapid blast ensure switch settle news antique into conduct sphere empower",
-        "script month grain cook demise student foam odor boring endorse layer spell force culture height style observe husband embody tiger that athlete genius clap",
-        "sustain walk alley since scheme age glue choice fat current frog swallow cable company arrive receive parade anger illness clean maple draft art exile",
-        "state sick tip glare erupt sign salad melt library churn accident organ book trust sketch embrace addict ice always trouble original vendor merge monkey",
-        "vague random rule forum moon page opinion alcohol mixed circle ask cost life history vast garden reunion use flame west nothing middle kangaroo language",
-        "peace patrol canvas regular together cycle clown region carpet learn price plate state gate long rose topple mango auto canoe media cushion soccer argue",
-        "clump guard become smoke satisfy recall nation oil slide shell case notable escape suspect dawn poverty report smile apology learn column jelly fiber outer",
-        "element update essence melody evolve razor canvas alcohol destroy tank neutral ride coast dish april cup medal brave palm strike essay flower learn what",
-        "firm when photo pupil cream design pulse script mule among pupil cloth mechanic obvious amazing panic broom indoor silly member purpose rather upgrade hover",
-        "canvas put chalk network thunder caught pigeon voyage dune despair ability hour light between lawsuit breeze disorder naive surround marine ostrich grace report galaxy",
-        "account peasant found dignity thumb about taste yard elbow truth journey night model cushion dirt suit skirt bus flat dwarf across noble need between",
-        "federal day velvet stairs liberty burst pluck margin capable subway rail eye where spread video journey garden trap salmon sword industry shine elephant arena",
-        "empty shy abandon elegant case outside drift voice tuition grace slush vibrant wage future script split educate insect involve unusual method arena option add",
-        "theme light sun cram fluid lab entire edge iron visa salt father stomach buffalo keep helmet sword sure shy shop flight teach diary brand",
-        "comfort elephant manual blur climb blue disagree skate ridge auction loyal remember obscure nurse bar insane please refuse rather once giant fiber midnight foil",
-        "choice speed eternal movie glide culture deal elite sick aspect cluster cruel net moment myself jeans fade radio reflect desk grit toast this proof",
-        "strong fever clock wear forum palm celery smart sting mesh barrel again drive note clump cross unfold buddy tube lesson future lounge flat dune",
-        "margin mention suit twice submit horse drive myth afraid upper neither reward refuse cart caught nurse era beef exclude goose large borrow mansion universe",
-    ];
-
-    #[cfg(not(feature = "debug_env"))]
-    const MNEMONIC_LIST: [&str; NUM] = [
-        "arrest wrist tumble fall agree tunnel modify soldier arrange step stadium taste special lawn illness village abstract wheel opera fit define device burden relief",
-        "detail frog laundry clay border urge one olympic liberty buddy capital zone catalog lunar special double design consider banana round achieve desert ride cup",
-        "silk garlic area tell sudden bird dove shield question powder visa limit stool column soccer unfair tobacco online right front valid uniform ski private",
-        "humor shop duck festival pottery rescue proof roof galaxy become arrow seat safe monster labor treat adapt comfort almost cousin yellow install vote mother",
-        "town egg feature credit drum rescue evil asthma defy artist where amazing ankle syrup awake drop magnet mandate crucial phone cinnamon fabric window address",
-        "negative health science tiger palm dutch memory approve icon fresh moral stumble enable trash cushion cherry viable hazard pull reward shift mansion blur nothing",
-        "harsh list identify fortune kick feel naive spy universe jacket glow comic nice hammer fire truth vessel bind private round quiz elite broken roof",
-        "stumble tank law captain girl bitter spring tumble reveal execute tent junk artist pudding sponsor city ginger denial copy addict canvas explain favorite indicate",
-        "mixed snack ribbon question addict situate suit letter left beach guitar tobacco tank strike can zebra sniff distance mirror gospel weekend gown candy moon",
-        "iron vapor hello easily level concert second undo elbow question anxiety stove merry young rate sound tackle cash trim eternal dog curtain charge random",
-        "trigger usage enforce sunset bless sorry hard return disorder window muffin assume only sight census aisle hamster brush accident science pear addict saddle pole",
-        "income sign bargain unit ready scale inner nice flash coach oval about price assume add seminar claim open rescue body flame meat supply expire",
-        "alert orient second industry power shove finger culture evil scout view cream win poem power protect journey build tide work picture suggest velvet inner",
-        "concert corn drama emerge amateur blur boss travel burden reflect time old whisper lens roast spider kiwi derive stick mimic girl burger joy vault",
-        "practice nut satisfy embark rug desk cloud donkey gloom simple disorder have one plate spawn result chase pond canoe main essence degree often industry",
-        "dragon alien deal appear cost arm shop drama heart satoshi bring lion fruit cross cradle book now verb way arrange observe wide rubber combine",
-        "buffalo twice awake erode marriage oyster reunion foot favorite boost happy boring eight flower return core planet adjust funny asset luxury bean double trim",
-        "town birth juice near group imitate dismiss alpha ginger october antenna rookie next suspect mountain pilot prosper fashion shell submit swap atom catalog misery",
-        "ugly talent maximum relax frame subject chronic member fade seven range crop goat happy trumpet element among tube dune ten sheriff mule mouse glad",
-        "health summer sausage steel salon ridge pudding stone museum obey size panther crush pizza between start deny sheriff naive frost mechanic thing garden hollow",
+        "noodle master spare innocent interest waste cram shaft cluster save middle only satoshi huge distance caught case oil rapid muscle tuition normal leader climb",
+        "cram case solid tooth adult melody nasty minute glance start pencil travel possible roof unknown lottery race candy jungle weather version speak when gadget",
+        "mean wrestle adapt ranch shiver bread napkin spice heavy select design office label material umbrella pause slogan twelve dinner original survey just unveil attend",
+        "okay tonight tenant van credit noble baby arrest make say render layer damage elegant spray human truth dog cactus cruel energy reflect net bread",
+        "entire vapor brand idea march legal mother fun process elegant segment hamster brother excess never public matrix senior three token pink century area obey",
+        "pony celery approve woman shrimp matrix maximum trophy chicken start share naive secret ill slot obey solve kangaroo junior decide tail lamp coffee ethics",
+        "note fiction island quote shoulder weapon tide rather whale execute deputy fox enter host crane broom mechanic dial embody fiction win spike isolate horse",
+        "hat suit hockey flight bamboo always organ hungry chase garment raise inmate diet anxiety daughter diagram zone whip fiscal include globe cherry reveal such",
+        "prevent bleak flush pizza web jump afford grid always dirt clump office drift alarm naive stone empty six aspect engage fashion hobby equal denial",
+        "tube voyage assume load aware toilet broccoli genius puzzle angle wear describe clerk enroll hope cash creek million trial cup grain push romance little",
+        "violin patch moral envelope decrease account moon mammal swear noble grit water course decade guide smoke egg delay glove ring mushroom absent trash globe",
+        "cream rhythm present stumble trust impact evoke oil famous gloom release oven sphere atom pair sausage knee mom gallery deputy usage traffic guitar pulp",
+        "issue choice enemy color load push banner bone ridge drastic vendor electric rely amount vibrant write ready slice exercise similar daughter hundred diamond just",
+        "turtle thrive weird attitude cat okay super deposit tackle nest primary sock fruit ready erase motion uncle celery promote warrior sense window cheese valley",
+        "rhythm short deer inquiry noble paper way canvas foam dynamic never bulk write laptop silk enjoy stay icon carbon obtain divide life stomach random",
+        "boring flag lunch banner turtle attitude license empower witness kiwi ethics fade seek before tiger theme summer toy crush adapt stomach stove audit erosion",
+        "carbon deny rabbit purse stage bench leave say city video disagree between wrong need credit option ripple random nose brisk tell pave leg recycle",
+        "today doll gym surprise valve you effort abstract jacket account extend duck video eagle obtain rigid invite expand embody arch arrow monster clarify wrestle",
+        "essay turkey planet sleep edit joy fence aim dice midnight wait clump staff adult east excuse garlic company myth clarify journey bundle quiz hope",
+        "decade drift input differ sleep alley risk mutual direct diagram double soon garment subject track labor bubble sweet state laugh festival ridge produce float",
     ];
 
     (0..NUM)

@@ -222,7 +222,7 @@ fn get_serv_addr() -> Result<&'static str> {
     }
 }
 
-fn get_keypair() -> Result<XfrKeyPair> {
+pub fn get_keypair() -> Result<XfrKeyPair> {
     if let Some(m_path) = MNEMONIC.as_ref() {
         fs::read_to_string(m_path)
             .c(d!("can not read mnemonic from 'owner-mnemonic-path'"))

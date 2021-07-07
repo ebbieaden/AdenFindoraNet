@@ -23,6 +23,8 @@ use zei::xfr::sig::XfrPublicKey;
 use ruc::*;
 use zei::xfr::structs::{TracingPolicies, XfrAmount, XfrAssetType};
 
+// use crate::address::operation::BindAddressOp;
+
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct TxnEffect {
     // The Transaction object this represents
@@ -177,6 +179,19 @@ impl TxnEffect {
                         txos.push(Some(et.utxo.clone()));
                         txo_count += 1;
                     });
+                }
+
+                Operation::BindAddressOp(i) => {
+                    check_nonce!(i);
+                    // bind_addresses.push(i.clone());
+                }
+
+                Operation::UnbindAddressOp(i) => {
+                    check_nonce!(i)
+                }
+
+                Operation::ConvertAccount(i) => {
+                    check_nonce!(i)
                 }
 
                 // An asset creation is valid iff:
@@ -624,6 +639,7 @@ impl TxnEffect {
             update_validators,
             governances,
             fra_distributions,
+            // bind_addresses,
         };
 
         Ok(txn_effect)

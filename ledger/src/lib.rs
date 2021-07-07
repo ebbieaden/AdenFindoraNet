@@ -11,3 +11,7 @@ pub mod policy_script;
 
 pub mod staking;
 pub mod store;
+
+pub mod address;
+pub mod evm;
+pub mod utils;
