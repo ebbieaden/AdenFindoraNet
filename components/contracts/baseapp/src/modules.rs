@@ -18,6 +18,10 @@ pub struct ModuleManager {
 }
 
 impl ModuleManager {
+    pub fn accoun_module(&mut self) -> &mut module_account::App<BaseApp> {
+        &mut self.account_module
+    }
+
     pub fn query(
         &self,
         ctx: Context,
