@@ -64,7 +64,7 @@ pub fn run() -> Result<()> {
         .update();
     }
 
-   if env::var("ENABLE_ETH_API_SERVICE").is_ok() {
+    if env::var("ENABLE_ETH_API_SERVICE").is_ok() {
         //let eth_api_service_hdr =
         //submission_service_hdr.read().borrowable_ledger_state();
         eth_api_service::service::start();

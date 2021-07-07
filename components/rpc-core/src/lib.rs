@@ -15,6 +15,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+#![allow(warnings)]
 
 pub mod types;
 
@@ -23,8 +24,7 @@ mod eth_pubsub;
 mod net;
 mod web3;
 
-//pub use eth::{EthApi, EthApiServer, EthFilterApi, EthFilterApiServer};
 pub use eth::{EthApi, EthApiServer};
-//pub use eth_pubsub::{EthPubSubApi, EthPubSubApiServer};
-//pub use net::{NetApi, NetApiServer};
-//pub use web3::{Web3Api, Web3ApiServer};
+pub use eth_pubsub::{EthPubSubApi, EthPubSubApiServer};
+pub use net::{NetApi, NetApiServer};
+pub use web3::{Web3Api, Web3ApiServer};
