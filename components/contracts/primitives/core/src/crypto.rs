@@ -174,3 +174,25 @@ pub type Signature = MultiSignature;
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.
 pub type Address = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand_chacha::rand_core::SeedableRng;
+    use rand_chacha::ChaChaRng;
+    use zei::xfr::sig::XfrKeyPair;
+
+    #[test]
+    fn xfr_sign_verify_work() {
+        let mut prng = ChaChaRng::from_entropy();
+        let alice = XfrKeyPair::generate(&mut prng);
+        let sig = alice.get_sk_ref().sign(b"hello", alice.get_pk_ref());
+        let signer = MultiSigner::from(alice.get_pk());
+        let sig = MultiSignature::from(sig);
+
+        assert!(
+            sig.verify(b"hello", &signer.into_account()),
+            "signature verify failed"
+        );
+    }
+}

@@ -6,6 +6,7 @@ members = [
     "components/contracts/modules/account",
     "components/contracts/modules/ethereum",
     "components/contracts/modules/evm",
+    "components/contracts/modules/template",
     "components/contracts/primitives/core",
     "components/contracts/primitives/evm",
     "components/contracts/primitives/storage",
