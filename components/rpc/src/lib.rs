@@ -16,12 +16,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 use std::{marker::PhantomData, time, sync::{Mutex, Arc}};
+use parking_lot::{RwLock};
 use std::collections::{HashMap, BTreeMap};
 use ethereum::{
 	Block as EthereumBlock, Transaction as EthereumTransaction
 };
 use ethereum_types::{H160, H256, H64, U256, U64, H512};
-use jsonrpc_core::{BoxFuture, Result, ErrorCode, futures::future::{self, Future}};
+use jsonrpc_core::{BoxFuture, Result, Error, ErrorCode, futures::future::{self, Future}};
 // use futures::{StreamExt, future::TryFutureExt};
 // use sp_runtime::{
 // 	traits::{Block as BlockT, UniqueSaturatedInto, Zero, One, Saturating, BlakeTwo256, NumberFor},
@@ -33,9 +34,10 @@ use jsonrpc_core::{BoxFuture, Result, ErrorCode, futures::future::{self, Future}
 use sha3::{Keccak256, Digest};
 // use sp_blockchain::{Error as BlockChainError, HeaderMetadata, HeaderBackend};
 // use sc_network::{NetworkService, ExHashT};
-use fc_rpc_core::{
-	EthApi as EthApiT, NetApi as NetApiT, Web3Api as Web3ApiT, EthFilterApi as EthFilterApiT
-};
+// use fc_rpc_core::{
+// 	EthApi as EthApiT, NetApi as NetApiT, Web3Api as Web3ApiT, EthFilterApi as EthFilterApiT
+// };
+use fc_rpc_core::{EthApi as EthApiT};
 use fc_rpc_core::types::{
 	BlockNumber, Bytes, CallRequest, Filter, FilteredParams, FilterChanges, FilterPool, FilterPoolItem,
 	FilterType, Index, Log, Receipt, RichBlock, SyncStatus, SyncInfo, Transaction, Work, Rich, Block,
@@ -47,7 +49,17 @@ use fc_rpc_core::types::{
 // pub use fc_rpc_core::{EthApiServer, NetApiServer, Web3ApiServer, EthFilterApiServer};
 // use codec::{self, Encode};
 
-pub struct EthApiImpl;
+pub fn internal_err<T: ToString>(message: T) -> Error {
+	Error {
+		code: ErrorCode::InternalError,
+		message: message.to_string(),
+		data: None
+	}
+}
+
+pub struct EthApiImpl;//{
+	//committed_state: Arc<RwLock<LedgerState>>
+//}
 
 impl EthApiImpl {
 	pub fn new ()-> Self {
@@ -103,11 +115,12 @@ impl EthApiT for EthApiImpl
 	// 	Ok(self.is_authority)
 	// }
 
-	// fn chain_id(&self) -> Result<Option<U64>> {
-	// 	let hash = self.client.info().best_hash;
-	// 	Ok(Some(self.client.runtime_api().chain_id(&BlockId::Hash(hash))
-	// 			.map_err(|err| internal_err(format!("fetch runtime chain id failed: {:?}", err)))?.into()))
-	// }
+	fn chain_id(&self) -> Result<Option<U64>> {
+		// let hash = self.client.info().best_hash;
+		// Ok(Some(self.client.runtime_api().chain_id(&BlockId::Hash(hash))
+		// 		.map_err(|err| internal_err(format!("fetch runtime chain id failed: {:?}", err)))?.into()))
+		Ok(Some(0x10.into()))
+	}
 
 	// fn gas_price(&self) -> Result<U256> {
 	// 	let block = BlockId::Hash(self.client.info().best_hash);
@@ -121,30 +134,31 @@ impl EthApiT for EthApiImpl
 	// 	)
 	// }
 
-	// fn accounts(&self) -> Result<Vec<H160>> {
-	// 	let mut accounts = Vec::new();
-	// 	for signer in &self.signers {
-	// 		accounts.append(&mut signer.accounts());
-	// 	}
-	// 	Ok(accounts)
-	// }
+	fn accounts(&self) -> Result<Vec<H160>> {
+		// let mut accounts = Vec::new();
+		// for signer in &self.signers {
+		// 	accounts.append(&mut signer.accounts());
+		// }
+		// Ok(accounts)
+		Ok(Vec::new())
+	}
 
 	// fn block_number(&self) -> Result<U256> {
 	// 	Ok(U256::from(UniqueSaturatedInto::<u128>::unique_saturated_into(self.client.info().best_number.clone())))
 	// }
 
-	// fn balance(&self, address: H160, number: Option<BlockNumber>) -> Result<U256> {
-	// 	if let Ok(Some(id)) = frontier_backend_client::native_block_id::<B, C>(self.client.as_ref(), self.backend.as_ref(), number) {
-	// 		return Ok(
-	// 			self.client
-	// 				.runtime_api()
-	// 				.account_basic(&id, address)
-	// 				.map_err(|err| internal_err(format!("fetch runtime chain id failed: {:?}", err)))?
-	// 				.balance.into()
-	// 		)
-	// 	}
-	// 	Ok(U256::zero())
-	// }
+	fn balance(&self, address: H160, number: Option<BlockNumber>) -> Result<U256> {
+		// if let Ok(Some(id)) = frontier_backend_client::native_block_id::<B, C>(self.client.as_ref(), self.backend.as_ref(), number) {
+		// 	return Ok(
+		// 		self.client
+		// 			.runtime_api()
+		// 			.account_basic(&id, address)
+		// 			.map_err(|err| internal_err(format!("fetch runtime chain id failed: {:?}", err)))?
+		// 			.balance.into()
+		// 	)
+		// }
+		Ok(U256::zero())
+	}
 
 	// fn storage_at(&self, address: H160, index: U256, number: Option<BlockNumber>) -> Result<H256> {
 	// 	if let Ok(Some(id)) = frontier_backend_client::native_block_id::<B, C>(self.client.as_ref(), self.backend.as_ref(), number) {
@@ -308,99 +322,101 @@ impl EthApiT for EthApiImpl
 	// 	Ok(Bytes(vec![]))
 	// }
 
-	// fn send_transaction(&self, request: TransactionRequest) -> BoxFuture<H256> {
-	// 	let from = match request.from {
-	// 		Some(from) => from,
-	// 		None => {
-	// 			let accounts = match self.accounts() {
-	// 				Ok(accounts) => accounts,
-	// 				Err(e) => return Box::new(future::result(Err(e))),
-	// 			};
+	fn send_transaction(&self, request: TransactionRequest) -> BoxFuture<H256> {
+		// let from = match request.from {
+		// 	Some(from) => from,
+		// 	None => {
+		// 		let accounts = match self.accounts() {
+		// 			Ok(accounts) => accounts,
+		// 			Err(e) => return Box::new(future::result(Err(e))),
+		// 		};
 
-	// 			match accounts.get(0) {
-	// 				Some(account) => account.clone(),
-	// 				None => return Box::new(future::result(Err(internal_err("no signer available")))),
-	// 			}
-	// 		},
-	// 	};
+		// 		match accounts.get(0) {
+		// 			Some(account) => account.clone(),
+		// 			None => return Box::new(future::result(Err(internal_err("no signer available")))),
+		// 		}
+		// 	},
+		// };
 
-	// 	let nonce = match request.nonce {
-	// 		Some(nonce) => nonce,
-	// 		None => {
-	// 			match self.transaction_count(from, None) {
-	// 				Ok(nonce) => nonce,
-	// 				Err(e) => return Box::new(future::result(Err(e))),
-	// 			}
-	// 		},
-	// 	};
+		// let nonce = match request.nonce {
+		// 	Some(nonce) => nonce,
+		// 	None => {
+		// 		match self.transaction_count(from, None) {
+		// 			Ok(nonce) => nonce,
+		// 			Err(e) => return Box::new(future::result(Err(e))),
+		// 		}
+		// 	},
+		// };
 
-	// 	let chain_id = match self.chain_id() {
-	// 		Ok(chain_id) => chain_id,
-	// 		Err(e) => return Box::new(future::result(Err(e))),
-	// 	};
+		// let chain_id = match self.chain_id() {
+		// 	Ok(chain_id) => chain_id,
+		// 	Err(e) => return Box::new(future::result(Err(e))),
+		// };
 
-	// 	let message = ethereum::TransactionMessage {
-	// 		nonce,
-	// 		gas_price: request.gas_price.unwrap_or(U256::from(1)),
-	// 		gas_limit: request.gas.unwrap_or(U256::max_value()),
-	// 		value: request.value.unwrap_or(U256::zero()),
-	// 		input: request.data.map(|s| s.into_vec()).unwrap_or_default(),
-	// 		action: match request.to {
-	// 			Some(to) => ethereum::TransactionAction::Call(to),
-	// 			None => ethereum::TransactionAction::Create,
-	// 		},
-	// 		chain_id: chain_id.map(|s| s.as_u64()),
-	// 	};
+		// let message = ethereum::TransactionMessage {
+		// 	nonce,
+		// 	gas_price: request.gas_price.unwrap_or(U256::from(1)),
+		// 	gas_limit: request.gas.unwrap_or(U256::max_value()),
+		// 	value: request.value.unwrap_or(U256::zero()),
+		// 	input: request.data.map(|s| s.into_vec()).unwrap_or_default(),
+		// 	action: match request.to {
+		// 		Some(to) => ethereum::TransactionAction::Call(to),
+		// 		None => ethereum::TransactionAction::Create,
+		// 	},
+		// 	chain_id: chain_id.map(|s| s.as_u64()),
+		// };
 
-	// 	let mut transaction = None;
+		// let mut transaction = None;
 
-	// 	for signer in &self.signers {
-	// 		if signer.accounts().contains(&from) {
-	// 			match signer.sign(message, &from) {
-	// 				Ok(t) => transaction = Some(t),
-	// 				Err(e) => return Box::new(future::result(Err(e))),
-	// 			}
-	// 			break
-	// 		}
-	// 	}
+		// for signer in &self.signers {
+		// 	if signer.accounts().contains(&from) {
+		// 		match signer.sign(message, &from) {
+		// 			Ok(t) => transaction = Some(t),
+		// 			Err(e) => return Box::new(future::result(Err(e))),
+		// 		}
+		// 		break
+		// 	}
+		// }
 
-	// 	let transaction = match transaction {
-	// 		Some(transaction) => transaction,
-	// 		None => return Box::new(future::result(Err(internal_err("no signer available")))),
-	// 	};
-	// 	let transaction_hash = H256::from_slice(
-	// 		Keccak256::digest(&rlp::encode(&transaction)).as_slice()
-	// 	);
-	// 	let hash = self.client.info().best_hash;
-	// 	let number = self.client.info().best_number;
-	// 	let pending = self.pending_transactions.clone();
-	// 	Box::new(
-	// 		self.pool
-	// 			.submit_one(
-	// 				&BlockId::hash(hash),
-	// 				TransactionSource::Local,
-	// 				self.convert_transaction.convert_transaction(transaction.clone()),
-	// 			)
-	// 			.compat()
-	// 			.map(move |_| {
-	// 				if let Some(pending) = pending {
-	// 					if let Ok(locked) = &mut pending.lock() {
-	// 						locked.insert(
-	// 							transaction_hash,
-	// 							PendingTransaction::new(
-	// 								transaction_build(transaction, None, None),
-	// 								UniqueSaturatedInto::<u64>::unique_saturated_into(
-	// 									number
-	// 								)
-	// 							)
-	// 						);
-	// 					}
-	// 				}
-	// 				transaction_hash
-	// 			})
-	// 			.map_err(|err| internal_err(format!("submit transaction to pool failed: {:?}", err)))
-	// 	)
-	// }
+		// let transaction = match transaction {
+		// 	Some(transaction) => transaction,
+		// 	None => return Box::new(future::result(Err(internal_err("no signer available")))),
+		// };
+		// let transaction_hash = H256::from_slice(
+		// 	Keccak256::digest(&rlp::encode(&transaction)).as_slice()
+		// );
+		// let hash = self.client.info().best_hash;
+		// let number = self.client.info().best_number;
+		// let pending = self.pending_transactions.clone();
+		// Box::new(
+		// 	self.pool
+		// 		.submit_one(
+		// 			&BlockId::hash(hash),
+		// 			TransactionSource::Local,
+		// 			self.convert_transaction.convert_transaction(transaction.clone()),
+		// 		)
+		// 		.compat()
+		// 		.map(move |_| {
+		// 			if let Some(pending) = pending {
+		// 				if let Ok(locked) = &mut pending.lock() {
+		// 					locked.insert(
+		// 						transaction_hash,
+		// 						PendingTransaction::new(
+		// 							transaction_build(transaction, None, None),
+		// 							UniqueSaturatedInto::<u64>::unique_saturated_into(
+		// 								number
+		// 							)
+		// 						)
+		// 					);
+		// 				}
+		// 			}
+		// 			transaction_hash
+		// 		})
+		// 		.map_err(|err| internal_err(format!("submit transaction to pool failed: {:?}", err)))
+		// )
+
+		Box::new(future::result(Err(internal_err("unimplemented"))))
+	}
 
 	// fn send_raw_transaction(&self, bytes: Bytes) -> BoxFuture<H256> {
 	// 	let transaction = match rlp::decode::<ethereum::Transaction>(&bytes.0[..]) {
@@ -443,76 +459,77 @@ impl EthApiT for EthApiImpl
 	// 	)
 	// }
 
-	// fn call(&self, request: CallRequest, _: Option<BlockNumber>) -> Result<Bytes> {
-	// 	let hash = self.client.info().best_hash;
+	fn call(&self, request: CallRequest, _: Option<BlockNumber>) -> Result<Bytes> {
+		// let hash = self.client.info().best_hash;
 
-	// 	let CallRequest {
-	// 		from,
-	// 		to,
-	// 		gas_price,
-	// 		gas,
-	// 		value,
-	// 		data,
-	// 		nonce
-	// 	} = request;
+		// let CallRequest {
+		// 	from,
+		// 	to,
+		// 	gas_price,
+		// 	gas,
+		// 	value,
+		// 	data,
+		// 	nonce
+		// } = request;
 
-	// 	// use given gas limit or query current block's limit
-	// 	let gas_limit = match gas {
-	// 		Some(amount) => amount,
-	// 		None => {
-	// 			let block = self.client.runtime_api().current_block(&BlockId::Hash(hash))
-	// 				.map_err(|err| internal_err(format!("runtime error: {:?}", err)))?;
-	// 			if let Some(block) = block {
-	// 				block.header.gas_limit
-	// 			} else {
-	// 				return Err(internal_err(format!("block unavailable, cannot query gas limit")));
-	// 			}
-	// 		},
-	// 	};
-	// 	let data = data.map(|d| d.0).unwrap_or_default();
+		// // use given gas limit or query current block's limit
+		// let gas_limit = match gas {
+		// 	Some(amount) => amount,
+		// 	None => {
+		// 		let block = self.client.runtime_api().current_block(&BlockId::Hash(hash))
+		// 			.map_err(|err| internal_err(format!("runtime error: {:?}", err)))?;
+		// 		if let Some(block) = block {
+		// 			block.header.gas_limit
+		// 		} else {
+		// 			return Err(internal_err(format!("block unavailable, cannot query gas limit")));
+		// 		}
+		// 	},
+		// };
+		// let data = data.map(|d| d.0).unwrap_or_default();
 
-	// 	match to {
-	// 		Some(to) => {
-	// 			let info = self.client.runtime_api()
-	// 				.call(
-	// 					&BlockId::Hash(hash),
-	// 					from.unwrap_or_default(),
-	// 					to,
-	// 					data,
-	// 					value.unwrap_or_default(),
-	// 					gas_limit,
-	// 					gas_price,
-	// 					nonce,
-	// 					false,
-	// 				)
-	// 				.map_err(|err| internal_err(format!("runtime error: {:?}", err)))?
-	// 				.map_err(|err| internal_err(format!("execution fatal: {:?}", err)))?;
+		// match to {
+		// 	Some(to) => {
+		// 		let info = self.client.runtime_api()
+		// 			.call(
+		// 				&BlockId::Hash(hash),
+		// 				from.unwrap_or_default(),
+		// 				to,
+		// 				data,
+		// 				value.unwrap_or_default(),
+		// 				gas_limit,
+		// 				gas_price,
+		// 				nonce,
+		// 				false,
+		// 			)
+		// 			.map_err(|err| internal_err(format!("runtime error: {:?}", err)))?
+		// 			.map_err(|err| internal_err(format!("execution fatal: {:?}", err)))?;
 
-	// 			error_on_execution_failure(&info.exit_reason, &info.value)?;
+		// 		error_on_execution_failure(&info.exit_reason, &info.value)?;
 
-	// 			Ok(Bytes(info.value))
-	// 		},
-	// 		None => {
-	// 			let info = self.client.runtime_api()
-	// 				.create(
-	// 					&BlockId::Hash(hash),
-	// 					from.unwrap_or_default(),
-	// 					data,
-	// 					value.unwrap_or_default(),
-	// 					gas_limit,
-	// 					gas_price,
-	// 					nonce,
-	// 					false,
-	// 				)
-	// 				.map_err(|err| internal_err(format!("runtime error: {:?}", err)))?
-	// 				.map_err(|err| internal_err(format!("execution fatal: {:?}", err)))?;
+		// 		Ok(Bytes(info.value))
+		// 	},
+		// 	None => {
+		// 		let info = self.client.runtime_api()
+		// 			.create(
+		// 				&BlockId::Hash(hash),
+		// 				from.unwrap_or_default(),
+		// 				data,
+		// 				value.unwrap_or_default(),
+		// 				gas_limit,
+		// 				gas_price,
+		// 				nonce,
+		// 				false,
+		// 			)
+		// 			.map_err(|err| internal_err(format!("runtime error: {:?}", err)))?
+		// 			.map_err(|err| internal_err(format!("execution fatal: {:?}", err)))?;
 
-	// 			error_on_execution_failure(&info.exit_reason, &[])?;
+		// 		error_on_execution_failure(&info.exit_reason, &[])?;
 
-	// 			Ok(Bytes(info.value[..].to_vec()))
-	// 		},
-	// 	}
-	// }
+		// 		Ok(Bytes(info.value[..].to_vec()))
+		// 	},
+		// }
+		Err(internal_err("unimplemented".to_string()))
+	}
 
 	// fn estimate_gas(&self, request: CallRequest, _: Option<BlockNumber>) -> Result<U256> {
 	// 	let calculate_gas_used = |request| -> Result<U256> {

@@ -27,7 +27,7 @@ use crate::types::{
 	RichBlock, SyncStatus, Transaction, Work, TransactionRequest,
 };
 pub use rpc_impl_EthApi::gen_server::EthApi as EthApiServer;
-pub use rpc_impl_EthFilterApi::gen_server::EthFilterApi as EthFilterApiServer;
+//pub use rpc_impl_EthFilterApi::gen_server::EthFilterApi as EthFilterApiServer;
 
 /// Eth rpc interface.
 #[rpc(server)]
@@ -52,27 +52,27 @@ pub trait EthApi {
 	// #[rpc(name = "eth_mining")]
 	// fn is_mining(&self) -> Result<bool>;
 
-	// /// Returns the chain ID used for transaction signing at the
-	// /// current best block. None is returned if not
-	// /// available.
-	// #[rpc(name = "eth_chainId")]
-	// fn chain_id(&self) -> Result<Option<U64>>;
+	/// Returns the chain ID used for transaction signing at the
+	/// current best block. None is returned if not
+	/// available.
+	#[rpc(name = "eth_chainId")]
+	fn chain_id(&self) -> Result<Option<U64>>;
 
 	// /// Returns current gas_price.
 	// #[rpc(name = "eth_gasPrice")]
 	// fn gas_price(&self) -> Result<U256>;
 
-	// /// Returns accounts list.
-	// #[rpc(name = "eth_accounts")]
-	// fn accounts(&self) -> Result<Vec<H160>>;
+	/// Returns accounts list.
+	#[rpc(name = "eth_accounts")]
+	fn accounts(&self) -> Result<Vec<H160>>;
 
 	// /// Returns highest block number.
 	// #[rpc(name = "eth_blockNumber")]
 	// fn block_number(&self) -> Result<U256>;
 
-	// /// Returns balance of the given account.
-	// #[rpc(name = "eth_getBalance")]
-	// fn balance(&self, _: H160, _: Option<BlockNumber>) -> Result<U256>;
+	/// Returns balance of the given account.
+	#[rpc(name = "eth_getBalance")]
+	fn balance(&self, _: H160, _: Option<BlockNumber>) -> Result<U256>;
 
 	// /// Returns content of the storage at given address.
 	// #[rpc(name = "eth_getStorageAt")]
@@ -110,18 +110,18 @@ pub trait EthApi {
 	// #[rpc(name = "eth_getCode")]
 	// fn code_at(&self, _: H160, _: Option<BlockNumber>) -> Result<Bytes>;
 
-	// /// Sends transaction; will block waiting for signer to return the
-	// /// transaction hash.
-	// #[rpc(name = "eth_sendTransaction")]
-	// fn send_transaction(&self, _: TransactionRequest) -> BoxFuture<H256>;
+	/// Sends transaction; will block waiting for signer to return the
+	/// transaction hash.
+	#[rpc(name = "eth_sendTransaction")]
+	fn send_transaction(&self, _: TransactionRequest) -> BoxFuture<H256>;
 
 	// /// Sends signed transaction, returning its hash.
 	// #[rpc(name = "eth_sendRawTransaction")]
 	// fn send_raw_transaction(&self, _: Bytes) -> BoxFuture<H256>;
 
-	// /// Call contract, returning the output data.
-	// #[rpc(name = "eth_call")]
-	// fn call(&self, _: CallRequest, _: Option<BlockNumber>) -> Result<Bytes>;
+	/// Call contract, returning the output data.
+	#[rpc(name = "eth_call")]
+	fn call(&self, _: CallRequest, _: Option<BlockNumber>) -> Result<Bytes>;
 
 	// /// Estimate gas needed for execution of given contract.
 	// #[rpc(name = "eth_estimateGas")]
@@ -180,30 +180,30 @@ pub trait EthApi {
 	// fn submit_hashrate(&self, _: U256, _: H256) -> Result<bool>;
 }
 
-/// Eth filters rpc api (polling).
-#[rpc(server)]
-pub trait EthFilterApi {
-	/// Returns id of new filter.
-	#[rpc(name = "eth_newFilter")]
-	fn new_filter(&self, _: Filter) -> Result<U256>;
+// /// Eth filters rpc api (polling).
+// #[rpc(server)]
+// pub trait EthFilterApi {
+// 	/// Returns id of new filter.
+// 	#[rpc(name = "eth_newFilter")]
+// 	fn new_filter(&self, _: Filter) -> Result<U256>;
 
-	/// Returns id of new block filter.
-	#[rpc(name = "eth_newBlockFilter")]
-	fn new_block_filter(&self) -> Result<U256>;
+// 	/// Returns id of new block filter.
+// 	#[rpc(name = "eth_newBlockFilter")]
+// 	fn new_block_filter(&self) -> Result<U256>;
 
-	/// Returns id of new block filter.
-	#[rpc(name = "eth_newPendingTransactionFilter")]
-	fn new_pending_transaction_filter(&self) -> Result<U256>;
+// 	/// Returns id of new block filter.
+// 	#[rpc(name = "eth_newPendingTransactionFilter")]
+// 	fn new_pending_transaction_filter(&self) -> Result<U256>;
 
-	/// Returns filter changes since last poll.
-	#[rpc(name = "eth_getFilterChanges")]
-	fn filter_changes(&self, _: Index) -> Result<FilterChanges>;
+// 	/// Returns filter changes since last poll.
+// 	#[rpc(name = "eth_getFilterChanges")]
+// 	fn filter_changes(&self, _: Index) -> Result<FilterChanges>;
 
-	/// Returns all logs matching given filter (in a range 'from' - 'to').
-	#[rpc(name = "eth_getFilterLogs")]
-	fn filter_logs(&self, _: Index) -> Result<Vec<Log>>;
+// 	/// Returns all logs matching given filter (in a range 'from' - 'to').
+// 	#[rpc(name = "eth_getFilterLogs")]
+// 	fn filter_logs(&self, _: Index) -> Result<Vec<Log>>;
 
-	/// Uninstalls filter.
-	#[rpc(name = "eth_uninstallFilter")]
-	fn uninstall_filter(&self, _: Index) -> Result<bool>;
-}
+// 	/// Uninstalls filter.
+// 	#[rpc(name = "eth_uninstallFilter")]
+// 	fn uninstall_filter(&self, _: Index) -> Result<bool>;
+// }
