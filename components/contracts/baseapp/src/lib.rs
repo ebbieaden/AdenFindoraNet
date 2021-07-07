@@ -9,6 +9,7 @@ use fp_core::{
     ensure, parameter_types,
     transaction::{Executable, ValidateUnsigned},
 };
+use ledger::data_model::Transaction as FindoraTransaction;
 use parking_lot::RwLock;
 use primitive_types::U256;
 use ruc::{eg, Result};
@@ -208,5 +209,13 @@ impl BaseApp {
         self.check_state.check_tx = true;
         self.check_state.header = header.clone();
         self.check_state.chain_id = header.chain_id;
+    }
+
+    pub fn deliver_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
+        self.modules.process_findora_tx(&self.deliver_state, tx)
+    }
+
+    pub fn check_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
+        self.modules.process_findora_tx(&self.check_state, tx)
     }
 }

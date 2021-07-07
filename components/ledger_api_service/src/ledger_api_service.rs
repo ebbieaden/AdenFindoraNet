@@ -846,10 +846,10 @@ impl RestfulApiService {
                     "/address/get_map_eth/{address}",
                     web::get().to(query_address_map_by_eth),
                 )
-//                 .route(
-                    // "/account/balance/{address}",
-                    // web::get().to(query_account_model_balance),
-                // )
+            //                 .route(
+            // "/account/balance/{address}",
+            // web::get().to(query_account_model_balance),
+            // )
         })
         .bind(&format!("{}:{}", host, port))
         .c(d!())?
