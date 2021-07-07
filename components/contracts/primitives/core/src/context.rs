@@ -33,36 +33,6 @@ impl Context {
             recheck_tx: false,
         }
     }
-
-    pub fn with_block_header(mut self, header: Header) -> Self {
-        self.header = header;
-        self
-    }
-
-    pub fn with_header_hash(mut self, hash: Vec<u8>) -> Self {
-        self.header_hash = hash;
-        self
-    }
-
-    pub fn with_chain_id(mut self, id: String) -> Self {
-        self.chain_id = id;
-        self
-    }
-
-    pub fn with_tx(mut self, tx: Vec<u8>) -> Self {
-        self.tx = tx;
-        self
-    }
-
-    pub fn with_check_tx(mut self, check_tx: bool) -> Self {
-        self.check_tx = check_tx;
-        self
-    }
-
-    pub fn with_recheck_tx(mut self, recheck_tx: bool) -> Self {
-        self.recheck_tx = recheck_tx;
-        self
-    }
 }
 
 impl Context {

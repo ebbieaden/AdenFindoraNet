@@ -107,7 +107,7 @@ impl<C: Config> Executable for App<C> {
     fn execute(
         _origin: Option<Self::Origin>,
         _call: Self::Call,
-        _ctx: Context,
+        _ctx: &Context,
     ) -> Result<()> {
         todo!()
     }

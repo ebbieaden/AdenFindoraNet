@@ -25,7 +25,7 @@ pub trait Executable {
     fn execute(
         origin: Option<Self::Origin>,
         call: Self::Call,
-        ctx: Context,
+        ctx: &Context,
     ) -> Result<()>;
 }
 
@@ -101,7 +101,7 @@ pub trait Applyable {
     /// Checks to see if this is a valid *transaction*.
     fn validate<V: ValidateUnsigned<Call = Self::Call>>(
         &self,
-        ctx: Context,
+        ctx: &Context,
     ) -> Result<()>;
 
     /// Executes all necessary logic needed prior to execute and deconstructs into function call,
@@ -111,7 +111,7 @@ pub trait Applyable {
             + Executable<Origin = Self::Origin, Call = Self::Call>,
     >(
         self,
-        ctx: Context,
+        ctx: &Context,
     ) -> Result<()>;
 }
 
@@ -128,14 +128,14 @@ pub trait ValidateUnsigned {
     /// Validate the call right before execute.
     ///
     /// Changes made to storage WILL be persisted if the call returns `Ok`.
-    fn pre_execute(call: &Self::Call, ctx: Context) -> Result<()> {
+    fn pre_execute(call: &Self::Call, ctx: &Context) -> Result<()> {
         Self::validate_unsigned(call, ctx)
     }
 
     /// Return the validity of the call
     ///
     /// Changes made to storage should be discarded by caller.
-    fn validate_unsigned(call: &Self::Call, ctx: Context) -> Result<()>;
+    fn validate_unsigned(call: &Self::Call, ctx: &Context) -> Result<()>;
 }
 
 impl<Address, Call> Applyable for CheckedTransaction<Address, Call> {
@@ -144,7 +144,7 @@ impl<Address, Call> Applyable for CheckedTransaction<Address, Call> {
 
     fn validate<U: ValidateUnsigned<Call = Self::Call>>(
         &self,
-        ctx: Context,
+        ctx: &Context,
     ) -> Result<()> {
         if self.signed.is_some() {
             Ok(())
@@ -153,7 +153,7 @@ impl<Address, Call> Applyable for CheckedTransaction<Address, Call> {
         }
     }
 
-    fn apply<U>(self, ctx: Context) -> Result<()>
+    fn apply<U>(self, ctx: &Context) -> Result<()>
     where
         U: ValidateUnsigned<Call = Self::Call>,
         U: Executable<Origin = Self::Origin, Call = Self::Call>,
@@ -161,11 +161,10 @@ impl<Address, Call> Applyable for CheckedTransaction<Address, Call> {
         let maybe_who = if let Some(id) = self.signed {
             Some(id)
         } else {
-            U::pre_execute(&self.function, ctx.clone())?;
+            U::pre_execute(&self.function, ctx)?;
             None
         };
-        // TODO
+
         U::execute(maybe_who, self.function, ctx)
-        // self.function.execute(maybe_who, ctx)
     }
 }

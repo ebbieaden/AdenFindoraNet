@@ -77,7 +77,7 @@ impl<C: Config> App<C> {
         Ok(())
     }
 
-    pub fn do_transact(ctx: Context, transaction: ethereum::Transaction) -> Result<()> {
+    pub fn do_transact(ctx: &Context, transaction: ethereum::Transaction) -> Result<()> {
         let source = Self::recover_signer(&transaction)
             .ok_or_else(|| eg!("ExecuteTransaction: InvalidSignature"))?;
 
@@ -152,7 +152,7 @@ impl<C: Config> App<C> {
         };
 
         pending.push((transaction, status, receipt));
-        Pending::put(ctx.store, pending);
+        Pending::put(ctx.store.clone(), pending);
 
         // TODO maybe events
         // Self::deposit_event(Event::Executed(source, contract_address.unwrap_or_default(), transaction_hash, reason));

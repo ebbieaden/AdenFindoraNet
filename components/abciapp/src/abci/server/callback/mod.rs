@@ -1,5 +1,6 @@
 use crate::abci::{server::ABCISubmissionServer, staking};
 use abci::*;
+use fp_storage::hash::StorageHasher;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::TxnEffect,
@@ -61,6 +62,13 @@ pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
 
 pub fn query(s: &mut ABCISubmissionServer, req: &RequestQuery) -> ResponseQuery {
     s.app.query(req)
+}
+
+pub fn init_chain(
+    s: &mut ABCISubmissionServer,
+    req: &RequestInitChain,
+) -> ResponseInitChain {
+    s.app.init_chain(req)
 }
 
 pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseCheckTx {
@@ -131,9 +139,7 @@ pub fn begin_block(
         pnk!(la.update_staking_simulator());
     }
 
-    s.app.begin_block(req);
-
-    ResponseBeginBlock::new()
+    s.app.begin_block(req)
 }
 
 pub fn end_block(
@@ -199,7 +205,7 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
 
     // la.end_commit();
 
-    r.set_data(commitment.0.as_ref().to_vec());
+    // r.set_data(commitment.0.as_ref().to_vec());
 
     pnk!(pulse_cache::write_height(
         TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)
@@ -209,8 +215,10 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
 
     pnk!(pulse_cache::write_block_pulse(la.block_pulse_count()));
 
-    // TODO
-    s.app.commit(req);
+    let mut la_hash = commitment.0.as_ref().to_vec();
+    let mut cs_hash = s.app.commit(req).data;
+    la_hash.append(&mut cs_hash);
+    r.set_data(fp_storage::hash::Sha256::hash(la_hash.as_slice()).to_vec());
 
     r
 }

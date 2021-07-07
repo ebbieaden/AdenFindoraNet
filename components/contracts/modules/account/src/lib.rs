@@ -71,7 +71,7 @@ impl<C: Config> Executable for App<C> {
     fn execute(
         origin: Option<Self::Origin>,
         call: Self::Call,
-        ctx: Context,
+        ctx: &Context,
     ) -> Result<()> {
         match call {
             Action::Transfer((dest, balance)) => {

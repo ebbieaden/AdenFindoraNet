@@ -6,7 +6,7 @@ use crate::modules::ModuleManager;
 use fp_core::{
     context::Context,
     crypto::Address,
-    parameter_types,
+    ensure, parameter_types,
     transaction::{Executable, ValidateUnsigned},
 };
 use parking_lot::RwLock;
@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
 use storage::{db::FinDB, state::ChainState};
 
+use abci::Header;
 pub use types::*;
 
 const APP_NAME: &str = "findora";
@@ -100,14 +101,14 @@ impl BaseApp {
 impl ValidateUnsigned for BaseApp {
     type Call = Action;
 
-    fn pre_execute(call: &Self::Call, _ctx: Context) -> Result<()> {
+    fn pre_execute(call: &Self::Call, _ctx: &Context) -> Result<()> {
         #[allow(unreachable_patterns)]
         match call {
             _ => Ok(()),
         }
     }
 
-    fn validate_unsigned(call: &Self::Call, _ctx: Context) -> Result<()> {
+    fn validate_unsigned(call: &Self::Call, _ctx: &Context) -> Result<()> {
         #[allow(unreachable_patterns)]
         match call {
             _ => Err(eg!(
@@ -124,7 +125,7 @@ impl Executable for BaseApp {
     fn execute(
         origin: Option<Self::Origin>,
         call: Self::Call,
-        ctx: Context,
+        ctx: &Context,
     ) -> Result<()> {
         match call {
             Action::Ethereum(action) => {
@@ -140,11 +141,11 @@ impl Executable for BaseApp {
 
 impl BaseApp {
     fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
-        if height < 0 {
-            return Err(eg!(
-                "cannot query with height < 0; please provide a valid height"
-            ));
-        }
+        ensure!(
+            height >= 0,
+            "cannot query with height < 0; please provide a valid height"
+        );
+
         // when a client did not provide a query height, manually inject the latest
         if height == 0 {
             height = self.chain_state.read().height()? as i64;
@@ -155,7 +156,11 @@ impl BaseApp {
             ));
         }
 
-        Ok(Context::new(self.chain_state.clone()))
+        let mut ctx = Context::new(self.chain_state.clone());
+        ctx.header = self.check_state.header.clone();
+        ctx.chain_id = self.check_state.header.chain_id.clone();
+        ctx.check_tx = true;
+        Ok(ctx)
     }
 
     /// retrieve the context for the txBytes and other memoized values.
@@ -166,10 +171,42 @@ impl BaseApp {
             &mut self.check_state
         };
         ctx.tx = tx_bytes;
-
-        if mode == RunTxMode::ReCheck {
-            ctx.recheck_tx = true;
+        match mode {
+            RunTxMode::Check => {
+                ctx.check_tx = true;
+                ctx.recheck_tx = false;
+            }
+            RunTxMode::ReCheck => {
+                ctx.check_tx = true;
+                ctx.recheck_tx = true;
+            }
+            _ => {
+                ctx.check_tx = false;
+                ctx.recheck_tx = false;
+            }
         }
         ctx
+    }
+
+    fn validate_height(&self, height: i64) -> Result<()> {
+        ensure!(height >= 1, format!("invalid height: {}", height));
+        let expected_height = self.chain_state.read().height().unwrap_or(1) as i64;
+        ensure!(
+            height == expected_height,
+            format!("invalid height: {}; expected: {}", height, expected_height)
+        );
+        Ok(())
+    }
+
+    fn set_deliver_state(&mut self, header: Header) {
+        self.deliver_state.check_tx = false;
+        self.deliver_state.header = header.clone();
+        self.deliver_state.chain_id = header.chain_id;
+    }
+
+    fn set_check_state(&mut self, header: Header) {
+        self.check_state.check_tx = true;
+        self.check_state.header = header.clone();
+        self.check_state.chain_id = header.chain_id;
     }
 }
