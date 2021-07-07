@@ -1,16 +1,26 @@
 use crate::{types::convert_ethereum_transaction, RunTxMode};
 use abci::*;
-use ruc::RucResult;
+use fp_core::context::Context;
+use ruc::{pnk, RucResult};
 
 impl Application for crate::BaseApp {
+    // ignore
+    /// info implements the ABCI interface.
     fn info(&mut self, _req: &RequestInfo) -> ResponseInfo {
         let mut info = ResponseInfo::new();
         info.set_data(self.name());
         info.set_version(self.version());
         info.set_app_version(self.app_version());
+        let _ = self
+            .chain_state
+            .read()
+            .height()
+            .map(|h| info.set_last_block_height(h as i64));
+
         info
     }
 
+    /// query implements the ABCI interface.
     fn query(&mut self, req: &RequestQuery) -> ResponseQuery {
         let err_resp = |err: String| -> ResponseQuery {
             let mut resp = ResponseQuery::new();
@@ -37,12 +47,13 @@ impl Application for crate::BaseApp {
         }
     }
 
+    // check_tx implements the ABCI interface and executes a tx in Check/ReCheck mode.
     fn check_tx(&mut self, req: &RequestCheckTx) -> ResponseCheckTx {
         let mut resp = ResponseCheckTx::new();
         if let Ok(tx) = convert_ethereum_transaction(req.get_tx()) {
             let check_fn = |mode: RunTxMode| {
                 let ctx = self.retrieve_context(mode, req.get_tx().to_vec()).clone();
-                if ruc::info!(self.modules.process_tx(ctx, mode, tx)).is_err() {
+                if ruc::info!(self.modules.process_tx(&ctx, mode, tx)).is_err() {
                     resp.set_code(1);
                     resp.set_log(String::from("Ethereum transaction check failed"));
                 }
@@ -59,21 +70,30 @@ impl Application for crate::BaseApp {
     }
 
     fn init_chain(&mut self, req: &RequestInitChain) -> ResponseInitChain {
-        // On a new chain, we consider the init chain block height as 0, even though
-        // req.InitialHeight is 1 by default.
         let mut init_header = Header::new();
         init_header.chain_id = req.chain_id.clone();
         init_header.time = req.time.clone();
 
         // initialize the deliver state and check state with a correct header
-        self.deliver_state.header = init_header.clone();
-        self.check_state.header = init_header;
+        self.set_deliver_state(init_header.clone());
+        self.set_check_state(init_header);
+
+        // TODO init genesis
 
         ResponseInitChain::new()
     }
 
     fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
+        pnk!(self.validate_height(req.header.as_ref().unwrap_or_default().height));
+
+        // Initialize the DeliverTx state. If this is the first block, it should
+        // already be initialized in InitChain. Otherwise app.deliverState will be
+        // nil, since it is reset on Commit.
+        self.set_deliver_state(req.header.as_ref().unwrap_or_default().clone());
+        self.deliver_state.header_hash = req.hash.clone();
+
         self.modules.begin_block(&mut self.deliver_state, req);
+
         ResponseBeginBlock::new()
     }
 
@@ -84,7 +104,11 @@ impl Application for crate::BaseApp {
             let ctx = self
                 .retrieve_context(RunTxMode::Deliver, req.get_tx().to_vec())
                 .clone();
-            if self.modules.process_tx(ctx, RunTxMode::Deliver, tx).is_ok() {
+            if self
+                .modules
+                .process_tx(&ctx, RunTxMode::Deliver, tx)
+                .is_ok()
+            {
                 return resp;
             }
         }
@@ -99,6 +123,24 @@ impl Application for crate::BaseApp {
     }
 
     fn commit(&mut self, _req: &RequestCommit) -> ResponseCommit {
-        ResponseCommit::new()
+        let header = self.deliver_state.block_header();
+
+        // Write the DeliverTx state into branched storage and commit the Store.
+        // The write to the DeliverTx state writes all state transitions to the root
+        // Store so when commit() is called is persists those values.
+        let _ = self
+            .deliver_state
+            .store
+            .write()
+            .commit(header.height as u64);
+
+        // Reset the Check state to the latest committed.
+        self.set_check_state(header);
+        // Reset the deliver state
+        self.deliver_state = Context::new(self.chain_state.clone());
+
+        let mut res = ResponseCommit::new();
+        res.set_data(self.chain_state.read().root_hash());
+        res
     }
 }

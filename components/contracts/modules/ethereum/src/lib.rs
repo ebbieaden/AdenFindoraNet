@@ -87,7 +87,7 @@ impl<C: Config> Executable for App<C> {
     fn execute(
         origin: Option<Self::Origin>,
         call: Self::Call,
-        ctx: Context,
+        ctx: &Context,
     ) -> Result<()> {
         ensure!(origin.is_none(), "InvalidTransaction: IllegalOrigin");
 
@@ -100,7 +100,7 @@ impl<C: Config> Executable for App<C> {
 impl<C: Config> ValidateUnsigned for App<C> {
     type Call = Action;
 
-    fn validate_unsigned(call: &Self::Call, _ctx: Context) -> Result<()> {
+    fn validate_unsigned(call: &Self::Call, _ctx: &Context) -> Result<()> {
         let Action::Transact(transaction) = call;
         if let Some(chain_id) = transaction.signature.chain_id() {
             if chain_id != C::ChainId::get() {

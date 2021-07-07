@@ -67,6 +67,11 @@ impl abci::Application for ABCISubmissionServer {
     }
 
     #[inline(always)]
+    fn init_chain(&mut self, req: &RequestInitChain) -> ResponseInitChain {
+        callback::init_chain(self, req)
+    }
+
+    #[inline(always)]
     fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
         callback::begin_block(self, req)
     }

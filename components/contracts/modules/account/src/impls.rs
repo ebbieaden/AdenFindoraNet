@@ -6,7 +6,7 @@ use ruc::{eg, Result};
 impl<C: Config> App<C> {
     // Transfer some balance from `sender` to `dest`
     pub fn do_transfer(
-        ctx: Context,
+        ctx: &Context,
         sender: &Address,
         dest: &Address,
         balance: u128,

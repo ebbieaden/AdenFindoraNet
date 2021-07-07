@@ -76,10 +76,12 @@ impl ModuleManager {
 
     pub fn process_tx(
         &mut self,
-        ctx: Context,
+        ctx: &Context,
         mode: RunTxMode,
         tx: UncheckedTransaction,
     ) -> Result<()> {
+        // TODO check gas if deliver_tx
+
         let checked = tx.clone().check()?;
         // add match field if tx is unsigned transaction
         match tx.function {
@@ -95,7 +97,7 @@ impl ModuleManager {
 // support functions
 impl ModuleManager {
     fn dispatch<Call, Module>(
-        ctx: Context,
+        ctx: &Context,
         mode: RunTxMode,
         action: Call,
         tx: CheckedTransaction,
@@ -104,14 +106,14 @@ impl ModuleManager {
         Module: ValidateUnsigned<Call = Call>,
         Module: Executable<Origin = Address, Call = Call>,
     {
-        // TODO gas check
-
         let origin_tx = convert_unsigned_transaction::<Call>(action, tx);
 
-        origin_tx.validate::<Module>(ctx.clone())?;
+        origin_tx.validate::<Module>(ctx)?;
 
         if mode == RunTxMode::Deliver {
             origin_tx.apply::<Module>(ctx)?;
+
+            ctx.store.write().commit_session();
         }
         Ok(())
     }
