@@ -92,6 +92,10 @@ impl BaseApp {
     pub fn app_version(&self) -> u64 {
         self.app_version
     }
+
+    pub fn modules(&mut self) -> &mut ModuleManager {
+        &mut self.modules
+    }
 }
 
 impl ValidateUnsigned for BaseApp {
