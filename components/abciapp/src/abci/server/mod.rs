@@ -72,7 +72,9 @@ impl ABCISubmissionServer {
                 )
                 .c(d!())?,
             )),
-            account_base_app: AccountBaseAPP::new(Arc::new(RwLock::new(account_chain_state)))?,
+            account_base_app: AccountBaseAPP::new(Arc::new(RwLock::new(
+                account_chain_state,
+            )))?,
             address_binder: Arc::new(RwLock::new(address_binder)),
             balance_store: Arc::new(RwLock::new(balance_store)),
         })
