@@ -1,5 +1,5 @@
 use abci::*;
-use baseapp::BaseApp;
+use baseapp::BaseApp as AccountBaseAPP;
 use ledger::address::store::BalanceStore;
 use ledger::address::AddressBinder;
 use ledger::store::LedgerState;
@@ -22,7 +22,7 @@ pub mod tx_sender;
 
 pub struct ABCISubmissionServer {
     pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
-    pub app: BaseApp,
+    pub account_base_app: AccountBaseAPP,
     pub address_binder: Arc<RwLock<AddressBinder>>,
     pub balance_store: Arc<RwLock<BalanceStore>>,
 }
@@ -37,7 +37,7 @@ impl ABCISubmissionServer {
             Some(base_dir) => pnk!(LedgerState::load_or_init(base_dir)),
         };
 
-        let app = match base_dir {
+        let account_chain_state = match base_dir {
             None => {
                 let fdb = FinDB::open(tempfile::tempdir().unwrap().path())?;
                 ChainState::new(fdb, APP_DB_NAME.to_string())
@@ -72,7 +72,7 @@ impl ABCISubmissionServer {
                 )
                 .c(d!())?,
             )),
-            app: BaseApp::new(Arc::new(RwLock::new(app)))?,
+            account_base_app: BaseApp::new(Arc::new(RwLock::new(account_chain_state)))?,
             address_binder: Arc::new(RwLock::new(address_binder)),
             balance_store: Arc::new(RwLock::new(balance_store)),
         })
