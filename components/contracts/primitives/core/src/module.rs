@@ -42,7 +42,9 @@ pub trait AppModule: AppModuleBasic + AppModuleGenesis {
         _ctx: Context,
         _path: Vec<&str>,
         _req: &abci::RequestQuery,
-    ) -> abci::ResponseQuery;
+    ) -> abci::ResponseQuery {
+        abci::ResponseQuery::new()
+    }
 
     /// Tendermint consensus connection: called at the start of processing a block of transactions.
     fn begin_block(&mut self, _ctx: &mut Context, _req: &abci::RequestBeginBlock) {}
@@ -52,5 +54,7 @@ pub trait AppModule: AppModuleBasic + AppModuleGenesis {
         &mut self,
         _ctx: &mut Context,
         _req: &abci::RequestEndBlock,
-    ) -> abci::ResponseEndBlock;
+    ) -> abci::ResponseEndBlock {
+        abci::ResponseEndBlock::new()
+    }
 }

@@ -4,7 +4,6 @@ mod genesis;
 pub mod impls;
 pub mod runtime;
 
-use abci::{RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery};
 use evm::Config as EvmConfig;
 use fp_core::{
     context::Context, crypto::Address, macros::Get, module::AppModule,
@@ -81,24 +80,7 @@ impl<C: Config> Default for App<C> {
     }
 }
 
-impl<C: Config> AppModule for App<C> {
-    fn query_route(
-        &self,
-        _ctx: Context,
-        _path: Vec<&str>,
-        _req: &RequestQuery,
-    ) -> ResponseQuery {
-        todo!()
-    }
-
-    fn end_block(
-        &mut self,
-        _ctx: &mut Context,
-        _req: &RequestEndBlock,
-    ) -> ResponseEndBlock {
-        todo!()
-    }
-}
+impl<C: Config> AppModule for App<C> {}
 
 impl<C: Config> Executable for App<C> {
     type Origin = Address;
