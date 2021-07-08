@@ -389,7 +389,7 @@ impl Staking {
         let validator = self.validator_td_addr_to_app_pk(validator).c(d!())?;
         let end_height = BLOCK_HEIGHT_MAX;
 
-        check_delegation_amount(am).c(d!())?;
+        check_delegation_amount(am, true).c(d!())?;
 
         if self.delegation_has_addr(&validator) || owner == validator {
             // `normal scene` or `do self-delegation`
@@ -569,14 +569,20 @@ impl Staking {
                 .get_mut(&target_validator)
                 .c(d!("Target validator does not exist"))?;
 
-            if pu.am > *am {
-                return Err(eg!("Requested amount exceeds limits"));
-            }
+            let actual_am = if pu.am > *am {
+                ruc::pd!(format!(
+                    "Amount exceeds limits, requested: {}, total: {}",
+                    pu.am, *am
+                ));
+                *am
+            } else {
+                pu.am
+            };
 
             if BLOCK_HEIGHT_MAX == d.end_height {
-                *am -= pu.am;
+                *am = am.saturating_sub(pu.am);
                 new_tmp_delegator = Delegation {
-                    entries: map! {B target_validator => pu.am},
+                    entries: map! {B target_validator => actual_am},
                     delegators: indexmap::IndexMap::new(),
                     id: pu.new_delegator_id,
                     receiver_pk: Some(d.id),
@@ -918,6 +924,20 @@ impl Staking {
         } else {
             return Err(eg!("not exists"));
         };
+
+        let bond_am = d.amount();
+        d.rwd_detail
+            .entry(self.cur_height)
+            .or_insert(DelegationRwdDetail {
+                bond: bond_am,
+                amount: 0,
+                penalty_amount: 0,
+                return_rate: None,
+                commission_rate: None,
+                global_delegation_percent: None,
+                block_height: self.cur_height,
+            })
+            .penalty_amount += am;
 
         if DelegationState::Paid == d.state {
             return Err(eg!("delegation has been paid"));
@@ -1680,9 +1700,10 @@ pub struct Delegation {
 pub struct DelegationRwdDetail {
     bond: Amount,
     amount: Amount,
-    return_rate: [u128; 2],
-    commission_rate: [u64; 2],
-    global_delegation_percent: [u64; 2],
+    penalty_amount: Amount,
+    return_rate: Option<[u128; 2]>,
+    commission_rate: Option<[u64; 2]>,
+    global_delegation_percent: Option<[u64; 2]>,
     block_height: BlockHeight,
 }
 
@@ -1774,9 +1795,10 @@ impl Delegation {
                         DelegationRwdDetail {
                             bond: self.amount(),
                             amount: n,
-                            return_rate,
-                            commission_rate,
-                            global_delegation_percent,
+                            penalty_amount: 0,
+                            return_rate: Some(return_rate),
+                            commission_rate: Some(commission_rate),
+                            global_delegation_percent: Some(global_delegation_percent),
                             block_height: cur_height,
                         },
                     );
@@ -1918,8 +1940,13 @@ pub fn td_addr_to_bytes(td_addr: TendermintAddrRef) -> Result<Vec<u8>> {
 
 #[inline(always)]
 #[allow(missing_docs)]
-pub fn check_delegation_amount(am: Amount) -> Result<()> {
-    if (MIN_DELEGATION_AMOUNT..=MAX_DELEGATION_AMOUNT).contains(&am) {
+pub fn check_delegation_amount(am: Amount, is_append: bool) -> Result<()> {
+    let lowb = alt!(
+        is_append,
+        MIN_DELEGATION_AMOUNT,
+        STAKING_VALIDATOR_MIN_POWER
+    );
+    if (lowb..=MAX_DELEGATION_AMOUNT).contains(&am) {
         Ok(())
     } else {
         let msg = format!(
