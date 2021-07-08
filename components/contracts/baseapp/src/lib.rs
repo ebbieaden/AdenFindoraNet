@@ -3,6 +3,7 @@ mod modules;
 mod types;
 
 use crate::modules::ModuleManager;
+use abci::Header;
 use fp_core::{
     context::Context,
     crypto::Address,
@@ -17,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
 
-use abci::Header;
 pub use types::*;
 
 const APP_NAME: &str = "findora";
@@ -25,30 +25,33 @@ const APP_NAME: &str = "findora";
 
 pub struct BaseApp {
     /// application name from abci.Info
-    name: String,
+    pub name: String,
     /// application's version string
-    version: String,
+    pub version: String,
     /// application's protocol version that increments on every upgrade
     /// if BaseApp is passed to the upgrade keeper's NewKeeper method.
-    app_version: u64,
+    pub app_version: u64,
     /// Chain persistent state
-    chain_state: Arc<RwLock<ChainState<FinDB>>>,
+    pub chain_state: Arc<RwLock<ChainState<FinDB>>>,
     /// volatile states
     ///
     /// check_state is set on InitChain and reset on Commit
     /// deliver_state is set on InitChain and BeginBlock and set to nil on Commit
-    check_state: Context,
-    deliver_state: Context,
+    pub check_state: Context,
+    pub deliver_state: Context,
     /// Ordered module set
-    modules: ModuleManager,
+    pub modules: ModuleManager,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    Account(module_account::Action),
     Ethereum(module_ethereum::Action),
     Evm(module_evm::Action),
-    Account(module_account::Action),
+    Template(module_template::Action),
 }
+
+impl module_template::Config for BaseApp {}
 
 impl module_account::Config for BaseApp {}
 
@@ -80,22 +83,6 @@ impl BaseApp {
             deliver_state: Context::new(chain_state),
             modules: Default::default(),
         })
-    }
-
-    pub fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    pub fn version(&self) -> String {
-        self.version.clone()
-    }
-
-    pub fn app_version(&self) -> u64 {
-        self.app_version
-    }
-
-    pub fn modules(&mut self) -> &mut ModuleManager {
-        &mut self.modules
     }
 }
 
@@ -135,6 +122,9 @@ impl Executable for BaseApp {
             Action::Evm(action) => module_evm::App::<Self>::execute(origin, action, ctx),
             Action::Account(action) => {
                 module_account::App::<Self>::execute(origin, action, ctx)
+            }
+            Action::Template(action) => {
+                module_template::App::<Self>::execute(origin, action, ctx)
             }
         }
     }
