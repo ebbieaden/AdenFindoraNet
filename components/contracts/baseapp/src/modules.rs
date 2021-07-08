@@ -6,14 +6,17 @@ use fp_core::{
     module::{AppModule, AppModuleBasic},
     transaction::{Applyable, Executable, ValidateUnsigned},
 };
+use ledger::address::operation::check_convert_tx;
+use ledger::data_model::Transaction as FindoraTransaction;
 use ruc::Result;
 
 #[derive(Default)]
 pub struct ModuleManager {
     // Ordered module list
-    account_module: module_account::App<BaseApp>,
-    ethereum_module: module_ethereum::App<BaseApp>,
-    evm_module: module_evm::App<BaseApp>,
+    pub(crate) account_module: module_account::App<BaseApp>,
+    pub(crate) ethereum_module: module_ethereum::App<BaseApp>,
+    pub(crate) evm_module: module_evm::App<BaseApp>,
+    pub(crate) template_module: module_template::App<BaseApp>,
 }
 
 impl ModuleManager {
@@ -38,6 +41,8 @@ impl ModuleManager {
             self.ethereum_module.query_route(ctx, path, req)
         } else if module_name == self.evm_module.name().as_str() {
             self.evm_module.query_route(ctx, path, req)
+        } else if module_name == self.template_module.name().as_str() {
+            self.template_module.query_route(ctx, path, req)
         } else {
             resp.set_code(1);
             resp.set_log(format!("Invalid query module route: {}!", module_name));
@@ -50,6 +55,7 @@ impl ModuleManager {
         self.account_module.begin_block(ctx, req);
         self.ethereum_module.begin_block(ctx, req);
         self.evm_module.begin_block(ctx, req);
+        self.template_module.begin_block(ctx, req);
     }
 
     pub fn end_block(
@@ -71,12 +77,16 @@ impl ModuleManager {
         if resp_evm.validator_updates.len() > 0 {
             resp.set_validator_updates(resp_evm.validator_updates);
         }
+        let resp_template = self.template_module.end_block(ctx, req);
+        if resp_template.validator_updates.len() > 0 {
+            resp.set_validator_updates(resp_template.validator_updates);
+        }
         resp
     }
 
     pub fn process_tx(
         &mut self,
-        ctx: &Context,
+        mut ctx: Context,
         mode: RunTxMode,
         tx: UncheckedTransaction,
     ) -> Result<()> {
@@ -85,12 +95,34 @@ impl ModuleManager {
         let checked = tx.clone().check()?;
         // add match field if tx is unsigned transaction
         match tx.function {
-            Action::Ethereum(action) => Self::dispatch::<
-                module_ethereum::Action,
-                module_ethereum::App<BaseApp>,
-            >(ctx, mode, action, checked),
-            _ => Self::dispatch::<Action, BaseApp>(ctx, mode, tx.function, checked),
+            Action::Ethereum(action) => {
+                let module_ethereum::Action::Transact(eth_tx) = action.clone();
+                ctx.tx = serde_json::to_vec(&eth_tx)
+                    .map_err(|e| eg!(format!("Serialize ethereum tx err: {}", e)))?;
+
+                Self::dispatch::<module_ethereum::Action, module_ethereum::App<BaseApp>>(
+                    &ctx, mode, action, checked,
+                )
+            }
+            _ => Self::dispatch::<Action, BaseApp>(&ctx, mode, tx.function, checked),
         }
+    }
+
+    pub fn process_findora_tx(
+        &mut self,
+        ctx: &Context,
+        tx: &FindoraTransaction,
+    ) -> Result<()> {
+        let (owner, assets) = check_convert_tx(tx)?;
+        for (asset, amount) in assets.iter() {
+            module_account::App::<BaseApp>::mint_balance(
+                ctx,
+                &Address::from(owner),
+                amount.clone().into(),
+                asset.clone(),
+            )?;
+        }
+        Ok(())
     }
 }
 

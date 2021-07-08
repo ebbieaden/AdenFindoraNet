@@ -15,8 +15,8 @@ impl<T: Default> Get<T> for () {
 /// # Examples
 ///
 /// ```
-/// # use primitives::support::Get;
-/// # use primitives::support::parameter_types;
+/// # use fp_core::macros::Get;
+/// # use fp_core::parameter_types;
 /// // This function cannot be used in a const context.
 /// fn non_const_expression() -> u64 { 99 }
 ///

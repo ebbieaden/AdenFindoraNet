@@ -3,7 +3,7 @@ mod client;
 mod genesis;
 mod impls;
 
-use abci::{RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery};
+use abci::{RequestBeginBlock, RequestEndBlock, ResponseEndBlock};
 use fp_core::{
     context::Context,
     crypto::Address,
@@ -17,6 +17,7 @@ use primitive_types::U256;
 use ruc::{eg, Result, RucResult};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
+use storage::*;
 
 pub trait Config: module_evm::Config {}
 
@@ -61,13 +62,8 @@ impl<C: Config> Default for App<C> {
 }
 
 impl<C: Config> AppModule for App<C> {
-    fn query_route(
-        &self,
-        _ctx: Context,
-        _path: Vec<&str>,
-        _req: &RequestQuery,
-    ) -> ResponseQuery {
-        ResponseQuery::new()
+    fn begin_block(&mut self, ctx: &mut Context, _req: &RequestBeginBlock) {
+        Pending::delete(ctx.store.clone());
     }
 
     fn end_block(
@@ -75,7 +71,9 @@ impl<C: Config> AppModule for App<C> {
         ctx: &mut Context,
         req: &RequestEndBlock,
     ) -> ResponseEndBlock {
-        let _ = ruc::info!(Self::store_block(ctx, U256::from(req.height)));
+        if Pending::exists(ctx.store.clone()) {
+            let _ = ruc::info!(Self::store_block(ctx, U256::from(req.height)));
+        }
         ResponseEndBlock::new()
     }
 }

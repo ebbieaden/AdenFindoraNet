@@ -3,7 +3,6 @@ mod client;
 mod genesis;
 mod impls;
 
-use abci::{RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery};
 use fp_core::{
     context::Context, crypto::Address, module::AppModule, transaction::Executable,
 };
@@ -45,24 +44,7 @@ impl<C: Config> Default for App<C> {
     }
 }
 
-impl<C: Config> AppModule for App<C> {
-    fn query_route(
-        &self,
-        _ctx: Context,
-        _path: Vec<&str>,
-        _req: &RequestQuery,
-    ) -> ResponseQuery {
-        ResponseQuery::new()
-    }
-
-    fn end_block(
-        &mut self,
-        _ctx: &mut Context,
-        _req: &RequestEndBlock,
-    ) -> ResponseEndBlock {
-        ResponseEndBlock::new()
-    }
-}
+impl<C: Config> AppModule for App<C> {}
 
 impl<C: Config> Executable for App<C> {
     type Origin = Address;

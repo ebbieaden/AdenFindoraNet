@@ -154,14 +154,14 @@ impl Verify for XfrSignature {
 /// Returns `Err` if the signature is bad, otherwise the 64-byte pubkey
 /// (doesn't include the 0x04 prefix).
 pub fn secp256k1_ecdsa_recover(sig: &[u8; 65], msg: &[u8; 32]) -> ruc::Result<[u8; 64]> {
-    let rs = secp256k1::Signature::parse_slice(&sig[0..64])
+    let rs = libsecp256k1::Signature::parse_standard_slice(&sig[0..64])
         .map_err(|_| eg!("Ecdsa signature verify error: bad RS"))?;
     let v =
-        secp256k1::RecoveryId::parse(
-            if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as u8
+        libsecp256k1::RecoveryId::parse(
+            if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as u8,
         )
         .map_err(|_| eg!("Ecdsa signature verify error: bad V"))?;
-    let pubkey = secp256k1::recover(&secp256k1::Message::parse(msg), &rs, &v)
+    let pubkey = libsecp256k1::recover(&libsecp256k1::Message::parse(msg), &rs, &v)
         .map_err(|_| eg!("Ecdsa signature verify error: bad signature"))?;
     let mut res = [0u8; 64];
     res.copy_from_slice(&pubkey.serialize()[1..65]);
@@ -174,3 +174,25 @@ pub type Signature = MultiSignature;
 /// Some way of identifying an account on the chain. We intentionally make it equivalent
 /// to the public key of our transaction signing scheme.
 pub type Address = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand_chacha::rand_core::SeedableRng;
+    use rand_chacha::ChaChaRng;
+    use zei::xfr::sig::XfrKeyPair;
+
+    #[test]
+    fn xfr_sign_verify_work() {
+        let mut prng = ChaChaRng::from_entropy();
+        let alice = XfrKeyPair::generate(&mut prng);
+        let sig = alice.get_sk_ref().sign(b"hello", alice.get_pk_ref());
+        let signer = MultiSigner::from(alice.get_pk());
+        let sig = MultiSignature::from(sig);
+
+        assert!(
+            sig.verify(b"hello", &signer.into_account()),
+            "signature verify failed"
+        );
+    }
+}

@@ -1,41 +1,28 @@
 [package]
-name = "module-ethereum"
+name = "module-template"
 version = "0.1.0"
 authors = ["Findora <tyler@findora.org>"]
 edition = "2018"
 homepage = "https://findora.org/technology"
 repository = "https://github.com/findoranetwork/platform/"
-description = "Findora module supporting execute ethereum transaction"
+description = "Findora template module for value store"
 readme = "README.md"
 
 [dependencies]
 abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
-ethereum = { version = "0.7.1", features = ["with-serde"] }
-ethereum-types = "0.11.0"
-evm = { version = "0.27.0", features = ["with-serde"] }
-merk = { git = "https://github.com/FindoraNetwork/merk.git", branch = "merk_fra" }
-primitive-types = { version = "0.9.0", features = ["rlp", "byteorder"] }
-rlp = "0.5"
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 serde = { version = "1.0.124", features = ["derive"] }
-serde_json = "1.0.64"
-sha3 = "0.8"
+serde_json = "1.0"
 
 # primitives
 fp-core = { path = "../../primitives/core" }
-fp-evm = { path = "../../primitives/evm" }
 fp-storage = { path = "../../primitives/storage" }
-
-# modules
-module-evm = { path = "../evm"}
 
 [dev-dependencies]
 baseapp = { path = "../../baseapp" }
 hex = "0.4.2"
 lazy_static = "1.4.0"
-libsecp256k1 = { version = "0.5", features = ["static-context", "hmac"] }
 parking_lot = "0.11.1"
 rand_chacha = "0.2.0"
-rustc-hex = "2.1.0"
 storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "master" }
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
