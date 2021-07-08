@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use zei::xfr::structs::AssetType;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmartAccount {
@@ -11,5 +12,5 @@ pub struct SmartAccount {
     /// such as: staking deposit
     pub reserved: u128,
     /// Other crypto asset balances.
-    pub assets: HashMap<Vec<u8>, u128>,
+    pub assets: HashMap<AssetType, u128>,
 }

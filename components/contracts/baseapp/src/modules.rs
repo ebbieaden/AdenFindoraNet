@@ -2,10 +2,12 @@ use super::*;
 use abci::{RequestBeginBlock, RequestEndBlock, RequestQuery, ResponseEndBlock};
 use fp_core::{
     context::Context,
-    crypto::Address,
+    crypto::{Address, Address32},
     module::{AppModule, AppModuleBasic},
     transaction::{Applyable, Executable, ValidateUnsigned},
 };
+use ledger::address::operation::check_convert_tx;
+use ledger::data_model::Transaction as FindoraTransaction;
 use ruc::Result;
 
 #[derive(Default)]
@@ -17,6 +19,10 @@ pub struct ModuleManager {
 }
 
 impl ModuleManager {
+    pub fn accoun_module(&mut self) -> &mut module_account::App<BaseApp> {
+        &mut self.account_module
+    }
+
     pub fn query(
         &self,
         ctx: Context,
@@ -91,6 +97,23 @@ impl ModuleManager {
             >(ctx, mode, action, checked),
             _ => Self::dispatch::<Action, BaseApp>(ctx, mode, tx.function, checked),
         }
+    }
+
+    pub fn process_findora_tx(
+        &mut self,
+        ctx: &Context,
+        tx: &FindoraTransaction,
+    ) -> Result<()> {
+        let (owner, assets) = check_convert_tx(tx)?;
+        for (asset, amount) in assets.iter() {
+            module_account::App::<BaseApp>::mint_balance(
+                ctx,
+                &Address32::from(owner),
+                amount.clone().into(),
+                asset.clone(),
+            )?;
+        }
+        Ok(())
     }
 }
 
