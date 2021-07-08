@@ -1,6 +1,5 @@
 use abci::*;
 use baseapp::BaseApp as AccountBaseAPP;
-// use ledger::address::store::BalanceStore;
 use ledger::address::AddressBinder;
 use ledger::store::LedgerState;
 use parking_lot::RwLock;
@@ -24,7 +23,6 @@ pub struct ABCISubmissionServer {
     pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
     pub account_base_app: AccountBaseAPP,
     pub address_binder: Arc<RwLock<AddressBinder>>,
-    // pub balance_store: Arc<RwLock<BalanceStore>>,
 }
 
 impl ABCISubmissionServer {
