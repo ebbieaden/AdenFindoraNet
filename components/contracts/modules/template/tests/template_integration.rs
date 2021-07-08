@@ -63,10 +63,14 @@ fn test_abci_info() {
 
 fn test_abci_init_chain() {
     let mut req = RequestInitChain::new();
-    req.chain_id = "findora test".to_string();
-    req.time = Default::default();
+    req.set_chain_id("findora test".to_string());
     let _ = BASE_APP.lock().unwrap().init_chain(&req);
-    assert_eq!(BASE_APP.lock().unwrap().check_state.chain_id, req.chain_id);
+
+    assert_eq!(
+        BASE_APP.lock().unwrap().deliver_state.chain_id(),
+        req.chain_id
+    );
+    assert_eq!(BASE_APP.lock().unwrap().deliver_state.block_height(), 0);
 }
 
 fn test_abci_check_tx() {
@@ -82,7 +86,18 @@ fn test_abci_check_tx() {
     );
 }
 
-fn test_abci_begin_block() {}
+fn test_abci_begin_block() {
+    let mut req = RequestBeginBlock::new();
+    req.hash = b"test".to_vec();
+    let mut header = Header::new();
+    header.height = 1;
+    req.set_header(header.clone());
+    let _ = BASE_APP.lock().unwrap().begin_block(&req);
+    let _ = BASE_APP.lock().unwrap().commit(&RequestCommit::new());
+    header.height = 2;
+    req.set_header(header.clone());
+    let _ = BASE_APP.lock().unwrap().begin_block(&req);
+}
 
 fn test_abci_deliver_tx() {
     let mut req = RequestDeliverTx::new();
@@ -101,12 +116,25 @@ fn test_abci_deliver_tx() {
     );
 }
 
-fn test_abci_end_block() {}
+fn test_abci_end_block() {
+    let mut req = RequestEndBlock::new();
+    req.set_height(2);
+    let _ = BASE_APP.lock().unwrap().end_block(&req);
+}
 
 fn test_abci_commit() {
     let resp = BASE_APP.lock().unwrap().commit(&RequestCommit::new());
-
     println!("root hash: {}", hex::encode(resp.data));
+    assert_eq!(
+        BASE_APP
+            .lock()
+            .unwrap()
+            .chain_state
+            .read()
+            .height()
+            .unwrap(),
+        2
+    );
 }
 
 fn test_abci_query() {

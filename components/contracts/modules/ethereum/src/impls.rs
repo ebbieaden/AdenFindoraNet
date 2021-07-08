@@ -40,7 +40,7 @@ impl<C: Config> App<C> {
             Self::logs_bloom(receipt.logs.clone(), &mut logs_bloom);
         }
 
-        let ommers = Vec::<ethereum::Header>::new();
+        let headers = Vec::<ethereum::Header>::new();
         let partial_header = ethereum::PartialHeader {
             // parent_hash: Self::current_block_hash().unwrap_or_default(),
             parent_hash: H256::default(),
@@ -66,7 +66,7 @@ impl<C: Config> App<C> {
             nonce: H64::default(),
         };
         let mut block =
-            ethereum::Block::new(partial_header, transactions.clone(), ommers);
+            ethereum::Block::new(partial_header, transactions.clone(), headers);
         // TODO cache root hash?
         block.header.state_root =
             H256::from_slice(ctx.store.read().root_hash().as_slice());
