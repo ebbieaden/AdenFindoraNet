@@ -3,8 +3,8 @@ mod modules;
 mod types;
 
 use crate::modules::ModuleManager;
-use fp_core::account::SmartAccount;
 use abci::Header;
+use fp_core::account::SmartAccount;
 use fp_core::{
     context::Context,
     crypto::Address,
