@@ -3,12 +3,14 @@ mod modules;
 mod types;
 
 use crate::modules::ModuleManager;
+use abci::Header;
 use fp_core::{
     context::Context,
     crypto::Address,
     ensure, parameter_types,
     transaction::{Executable, ValidateUnsigned},
 };
+use ledger::data_model::Transaction as FindoraTransaction;
 use parking_lot::RwLock;
 use primitive_types::U256;
 use ruc::{eg, Result};
@@ -16,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
 
-use abci::Header;
 pub use types::*;
 
 const APP_NAME: &str = "findora";
@@ -198,5 +199,13 @@ impl BaseApp {
         self.check_state.check_tx = true;
         self.check_state.header = header.clone();
         self.check_state.chain_id = header.chain_id;
+    }
+
+    pub fn deliver_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
+        self.modules.process_findora_tx(&self.deliver_state, tx)
+    }
+
+    pub fn check_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
+        self.modules.process_findora_tx(&self.check_state, tx)
     }
 }

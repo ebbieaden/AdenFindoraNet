@@ -12,6 +12,7 @@ readme = "README.md"
 abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
 ethereum = { version = "0.7.1", features = ["with-serde"] }
 ethereum-types = "0.11.0"
+ledger = { path = "../../../ledger" }
 merk = { git = "https://github.com/FindoraNetwork/merk.git", branch = "merk_fra" }
 parking_lot = "0.11.1"
 primitive-types = { version = "0.9.0", features = ["rlp", "byteorder"] }

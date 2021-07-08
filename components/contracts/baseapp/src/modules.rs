@@ -6,15 +6,17 @@ use fp_core::{
     module::{AppModule, AppModuleBasic},
     transaction::{Applyable, Executable, ValidateUnsigned},
 };
+use ledger::address::operation::check_convert_tx;
+use ledger::data_model::Transaction as FindoraTransaction;
 use ruc::Result;
 
 #[derive(Default)]
 pub struct ModuleManager {
     // Ordered module list
-    account_module: module_account::App<BaseApp>,
-    ethereum_module: module_ethereum::App<BaseApp>,
-    evm_module: module_evm::App<BaseApp>,
-    template_module: module_template::App<BaseApp>,
+    pub(crate) account_module: module_account::App<BaseApp>,
+    pub(crate) ethereum_module: module_ethereum::App<BaseApp>,
+    pub(crate) evm_module: module_evm::App<BaseApp>,
+    pub(crate) template_module: module_template::App<BaseApp>,
 }
 
 impl ModuleManager {
@@ -99,6 +101,23 @@ impl ModuleManager {
             >(ctx, mode, action, checked),
             _ => Self::dispatch::<Action, BaseApp>(ctx, mode, tx.function, checked),
         }
+    }
+
+    pub fn process_findora_tx(
+        &mut self,
+        ctx: &Context,
+        tx: &FindoraTransaction,
+    ) -> Result<()> {
+        let (owner, assets) = check_convert_tx(tx)?;
+        for (asset, amount) in assets.iter() {
+            module_account::App::<BaseApp>::mint_balance(
+                ctx,
+                &Address::from(owner),
+                amount.clone().into(),
+                asset.clone(),
+            )?;
+        }
+        Ok(())
     }
 }
 
