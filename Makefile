@@ -35,6 +35,8 @@ release_subdirs = $(bin_dir) $(lib_dir)
 
 bin_files = \
 		./$(pick)/abci_validator_node \
+		./$(pick)/fns \
+		./$(pick)/stt \
 		$(shell go env GOPATH)/bin/tendermint
 
 bin_files_musl_debug = \
@@ -59,7 +61,7 @@ endef
 
 build: tendermint
 ifdef DBG
-	cargo build --bins -p abciapp
+	cargo build --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
 else
 	@ echo -e "\x1b[31;01m\$$(DBG) must be defined !\x1b[00m"
