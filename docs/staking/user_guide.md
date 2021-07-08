@@ -31,6 +31,13 @@
 # you should set up a cluster
 # instead of a raw node in production env
 # according to the official guidance of tendermint.
+
+# Many popular linux distribution such as Ubuntu 20.04 and MacOs ship with Python pre-installed.
+# To install `toml` tool, you need install pip first, a tool that install and manage software packages
+# for Python.  To install toml, run in your shell:
+
+- pip install toml-cli
+
 #
 # add addresses of some existing nodes
 #   - <NODE ID>@https://prod-mainnet-us-west-2-sentry-000-public.prod.findora.org:<PORT>
@@ -40,20 +47,19 @@ rm -rf /tmp/findora ~/.tendermint
 tendermint init
 
 curl https://dev-qa01.dev.findora.org:26657/genesis \
-    | jq -c \
-    | perl -pe 's/^{"jsonrpc":"2.0","id":-1,"result":{"genesis"://' \
-    | perl -pe 's/}}$//' \
+    | jq -c '.result.genesis' \
     | jq > ~/.tendermint/config/genesis.json
 
-perl -pi -e 's#(create_empty_blocks_interval = ).*#$1"15s"#' ~/.tendermint/config/config.toml
+toml set   --toml-path ~/.tendermint/config/config.toml consensus.create_empty_blocks_interval 15s
+toml set   --toml-path ~/.tendermint/config/config.toml p2p.persistent_peers \
+"b87304454c0a0a0c5ed6c483ac5adc487f3b21f6@dev-qa01-us-west-2-sentry-000-public.dev.findora.org:26656,\
+d0c6e3e1589695ae6d650b288caf2efe9a998a50@dev-qa01-us-west-2-sentry-001-public.dev.findora.org:26656"
 
-perl -pi -e 's#(persistent_peers = )".*"#$1"b87304454c0a0a0c5ed6c483ac5adc487f3b21f6\@dev-qa01-us-west-2-sentry-000-public.dev.findora.org:26656,d0c6e3e1589695ae6d650b288caf2efe9a998a50\@dev-qa01-us-west-2-sentry-001-public.dev.findora.org:26656"#' ~/.tendermint/config/config.toml
-
-TD_NODE_SELF_ADDR=$(cat ~/.tendermint/config/priv_validator_key.json | grep 'address' | grep -o '[^"]\{20,\}') \
+TD_NODE_SELF_ADDR=$(jq --raw-output '.address' ~/.tendermint/config/priv_validator_key.json) \
     LEDGER_DIR=/tmp/findora \
     abci_validator_node >/tmp/log 2>&1 &
 
-nohup tendermint node &
+nohup tendermint node > /tmp/td.log 2>&1 &
 
 # set the server address,
 # should be the address of an existing node
