@@ -4,7 +4,6 @@ pub mod service {
     use jsonrpc_http_server::{
         AccessControlAllowOrigin, DomainsValidation, RestApi, ServerBuilder,
     };
-    use std::thread;
 
     pub fn start() {
         let mut io = jsonrpc_core::IoHandler::default();
@@ -19,8 +18,6 @@ pub mod service {
             .start_http(&"0.0.0.0:7545".parse().unwrap())
             .expect("Unable to start eth api server");
 
-        thread::spawn(move || {
-            server.wait();
-        });
+        server.wait()
     }
 }

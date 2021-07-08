@@ -69,7 +69,9 @@ pub fn run() -> Result<()> {
     }
 
     if env::var("ENABLE_ETH_API_SERVICE").is_ok() {
-        eth_api_service::service::start();
+        thread::spawn(move || {
+            eth_api_service::service::start();
+        });
     }
 
     let submission_host = config.submission_host.clone();
