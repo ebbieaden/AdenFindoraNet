@@ -31,10 +31,12 @@ serde_derive = "1.0"
 serde_json = "1.0.40"
 submission_api = { path = "../submission_api" }
 submission_server = { path = "../submission_server" }
+tempfile = "3.1.0"
 query_api = { path =  "../query_api" }
 query_server = { path =  "../query_server" }
 utils = { path = "../../libs/utils" }
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
+storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "master" }
 
 lazy_static = "1.4.0"
 futures = { version = "0.3.13", features = ["thread-pool"] }
@@ -51,7 +53,8 @@ clap = "2.33.3"
 fintools = { path =  "../fintools" }
 txn_builder = { path = "../txn_builder" }
 
-baseapp = { path = "../ethereum/baseapp" }
+baseapp = { path = "../contracts/baseapp" }
+fp-storage = { path = "../contracts/primitives/storage" }
 eth_api_service = { path = "../eth_api_service" }
 
 [build-dependencies]

@@ -5,18 +5,23 @@ extern crate actix_web;
 extern crate ledger;
 extern crate serde_json;
 
+mod response;
+
 use actix_cors::Cors;
-use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer};
-use ledger::staking::TendermintAddr;
+use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
+use ledger::address::store::BalanceStore;
+use ledger::address::{AddressBinder, SmartAddress};
+use ledger::staking::{DelegationRwdDetail, TendermintAddr};
 use ledger::{
     data_model::*,
-    staking::{DelegationState, UNBOND_BLOCK_CNT},
+    staking::{DelegationState, Staking, UNBOND_BLOCK_CNT},
     store::LedgerAccess,
 };
 use log::info;
 use log::warn;
 use parking_lot::RwLock;
 use ruc::*;
+use serde_derive::Deserialize;
 use std::{collections::BTreeMap, mem, sync::Arc};
 use utils::{HashOf, NetworkRoute, SignatureOf};
 use zei::xfr::{sig::XfrPublicKey, structs::OwnerMemo};
@@ -375,6 +380,94 @@ where
     Ok(web::Json(ValidatorList::new(vec![])))
 }
 
+#[derive(Deserialize, Debug)]
+struct DelegationRwdQueryParams {
+    address: String,
+    height: u64,
+}
+
+async fn get_delegation_reward<SA>(
+    data: web::Data<Arc<RwLock<SA>>>,
+    web::Query(info): web::Query<DelegationRwdQueryParams>,
+) -> actix_web::Result<web::Json<Vec<DelegationRwdDetail>>>
+where
+    SA: LedgerAccess,
+{
+    // Convert from base64 representation
+    let key: XfrPublicKey = wallet::public_key_from_base64(&info.address)
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+
+    let read = data.read();
+    let staking = read.get_staking();
+
+    let di = staking
+        .delegation_get(&key)
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+
+    Ok(web::Json(
+        (0..=info.height)
+            .into_iter()
+            .rev()
+            .filter_map(|i| di.rwd_detail.get(&i))
+            .take(1)
+            .cloned()
+            .collect(),
+    ))
+}
+
+#[derive(Deserialize, Debug)]
+struct DelegatorQueryParams {
+    address: String,
+    page: usize,
+    per_page: usize,
+    order: OrderOption,
+}
+
+#[derive(Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum OrderOption {
+    Desc,
+    Asc,
+}
+
+async fn get_delegators_with_params<SA>(
+    data: web::Data<Arc<RwLock<SA>>>,
+    web::Query(info): web::Query<DelegatorQueryParams>,
+) -> actix_web::Result<web::Json<DelegatorList>>
+where
+    SA: LedgerAccess,
+{
+    let read = data.read();
+    let staking = read.get_staking();
+
+    if info.page == 0 || info.order == OrderOption::Asc {
+        return Ok(web::Json(DelegatorList::new(vec![])));
+    }
+
+    let start = (info.page - 1)
+        .checked_mul(info.per_page)
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+    let end = start
+        .checked_add(info.per_page)
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+
+    let list = staking
+        .validator_get_delegator_list(info.address.as_ref(), start, end)
+        .c(d!())
+        .map_err(error::ErrorNotFound)?;
+
+    let list: Vec<DelegatorInfo> = list
+        .iter()
+        .map(|(key, am)| DelegatorInfo::new(wallet::public_key_to_base64(key), **am))
+        .collect();
+
+    Ok(web::Json(DelegatorList::new(list)))
+}
+
 async fn query_delegator_list<SA>(
     data: web::Data<Arc<RwLock<SA>>>,
     addr: web::Path<TendermintAddr>,
@@ -386,16 +479,14 @@ where
     let staking = read.get_staking();
 
     let list = staking
-        .validator_get_delegator_list(addr.as_ref())
+        .validator_get_delegator_list(addr.as_ref(), 0, usize::MAX)
         .c(d!())
         .map_err(error::ErrorNotFound)?;
 
-    let mut list: Vec<DelegatorInfo> = list
-        .into_iter()
-        .map(|(key, am)| DelegatorInfo::new(key, am))
+    let list: Vec<DelegatorInfo> = list
+        .iter()
+        .map(|(key, am)| DelegatorInfo::new(wallet::public_key_to_base64(key), **am))
         .collect();
-
-    list.sort_by(|a, b| b.amount.cmp(&a.amount));
 
     Ok(web::Json(DelegatorList::new(list)))
 }
@@ -426,7 +517,7 @@ where
                 power_list.sort_unstable();
                 let voting_power_rank =
                     power_list.len() - power_list.binary_search(&v.td_power).unwrap();
-                let realtime_rate = staking.get_block_rewards_rate();
+                let realtime_rate = Staking::get_block_rewards_rate(&*read);
                 let expected_annualization = [
                     realtime_rate[0] as u128
                         * v_self_delegation.proposer_rwd_cnt as u128,
@@ -453,6 +544,7 @@ where
                     block_signed_cnt: v.signed_cnt,
                     block_proposed_cnt: v_self_delegation.proposer_rwd_cnt,
                     expected_annualization,
+                    kind: v.kind(),
                 };
                 return Ok(web::Json(resp));
             }
@@ -460,6 +552,63 @@ where
     }
 
     Err(error::ErrorNotFound("not exists"))
+}
+
+async fn query_account_model_balance(
+    data: web::Data<Arc<RwLock<BalanceStore>>>,
+    address: web::Path<String>,
+) -> actix_web::Result<impl Responder> {
+    let pk = wallet::public_key_from_base64(address.as_str())
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let balance_store = data.read();
+    let balance = balance_store
+        .get(&pk)
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    Ok(web::Json(response::Response::new_success(balance)))
+}
+
+async fn query_address_map_by_xfr(
+    data: web::Data<Arc<RwLock<AddressBinder>>>,
+    address: web::Path<String>,
+) -> actix_web::Result<impl Responder> {
+    let pk = wallet::public_key_from_base64(address.as_str())
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let address_binder = data.read();
+    let storage = address_binder.get_storage();
+    let sa = SmartAddress::Xfr(XfrAddress { key: pk });
+    let result = storage
+        .get(&sa)
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let result = if let Some(addr) = result {
+        response::Response::new_success(Some(addr.to_string()))
+    } else {
+        response::Response::new_no_address()
+    };
+    Ok(web::Json(result))
+}
+
+async fn query_address_map_by_eth(
+    data: web::Data<Arc<RwLock<AddressBinder>>>,
+    address: web::Path<String>,
+) -> actix_web::Result<impl Responder> {
+    let sa = SmartAddress::from_ethereum_address(&address)
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let address_binder = data.read();
+    let storage = address_binder.get_storage();
+    let result = storage
+        .get(&sa)
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let result = if let Some(addr) = result {
+        response::Response::new_success(Some(addr.to_string()))
+    } else {
+        response::Response::new_no_address()
+    };
+    Ok(web::Json(result))
 }
 
 async fn query_delegation_info<SA>(
@@ -476,12 +625,13 @@ where
     let read = data.read();
     let staking = read.get_staking();
 
-    let block_rewards_rate = staking.get_block_rewards_rate();
+    let block_rewards_rate = Staking::get_block_rewards_rate(&*read);
     let global_staking = staking.validator_global_power();
     let global_delegation = staking.delegation_info_global_amount();
 
     let (
         bond_amount,
+        bond_entries,
         unbond_amount,
         rwd_amount,
         start_height,
@@ -492,6 +642,16 @@ where
         .delegation_get(&pk)
         .map(|d| {
             let mut bond_amount = d.amount();
+            let bond_entries: Vec<(String, u64)> = d
+                .entries
+                .iter()
+                .filter_map(|(pk, am)| {
+                    staking
+                        .validator_app_pk_to_td_addr(pk)
+                        .ok()
+                        .map(|addr| (addr, *am))
+                })
+                .collect();
             let mut unbond_amount = 0;
             match d.state {
                 DelegationState::Paid => {
@@ -510,6 +670,7 @@ where
             }
             (
                 bond_amount,
+                bond_entries,
                 unbond_amount,
                 d.rwd_amount,
                 d.start_height(),
@@ -518,10 +679,11 @@ where
                 d.proposer_rwd_cnt,
             )
         })
-        .unwrap_or((0, 0, 0, 0, 0, 0, 0));
+        .unwrap_or((0, vec![], 0, 0, 0, 0, 0, 0));
 
     let mut resp = DelegationInfo::new(
         bond_amount,
+        bond_entries,
         unbond_amount,
         rwd_amount,
         block_rewards_rate,
@@ -748,6 +910,14 @@ where
             &StakingAccessRoutes::DelegatorList.with_arg_template("NodeAddress"),
             web::get().to(query_delegator_list::<SA>),
         )
+        .service(
+            web::resource("/delegator_list")
+                .route(web::get().to(get_delegators_with_params::<SA>)),
+        )
+        .service(
+            web::resource("/delegation_rewards")
+                .route(web::get().to(get_delegation_reward::<SA>)),
+        )
         .route(
             &StakingAccessRoutes::ValidatorDetail.with_arg_template("NodeAddress"),
             web::get().to(query_validator_detail::<SA>),
@@ -758,6 +928,8 @@ where
 impl RestfulApiService {
     pub fn create<LA: 'static + LedgerAccess + Sync + Send>(
         ledger_access: Arc<RwLock<LA>>,
+        address_binder: Arc<RwLock<AddressBinder>>,
+        balance_store: Arc<RwLock<BalanceStore>>,
         host: &str,
         port: u16,
     ) -> Result<RestfulApiService> {
@@ -768,11 +940,25 @@ impl RestfulApiService {
                 .wrap(middleware::Logger::default())
                 .wrap(Cors::permissive().supports_credentials())
                 .data(ledger_access.clone())
+                .data(address_binder.clone())
+                .data(balance_store.clone())
                 .route("/ping", web::get().to(ping))
                 .route("/version", web::get().to(version))
                 .set_route::<LA>(AccessApi::Ledger)
                 .set_route::<LA>(AccessApi::Archive)
                 .set_route::<LA>(AccessApi::Staking)
+                .route(
+                    "/address/get_map_xfr/{address}",
+                    web::get().to(query_address_map_by_xfr),
+                )
+                .route(
+                    "/address/get_map_eth/{address}",
+                    web::get().to(query_address_map_by_eth),
+                )
+                .route(
+                    "/account/balance/{address}",
+                    web::get().to(query_account_model_balance),
+                )
         })
         .bind(&format!("{}:{}", host, port))
         .c(d!())?

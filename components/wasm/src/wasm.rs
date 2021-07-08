@@ -15,11 +15,11 @@ use cryptohash::sha256;
 use ledger::{
     data_model::{
         AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
-        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
+        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
     },
     policies::{DebtMemo, Fraction},
     staking::{
-        PartialUnDelegation, TendermintAddr, COINBASE_PK, COINBASE_PRINCIPAL_PK,
+        gen_random_keypair, td_addr_to_bytes, PartialUnDelegation, TendermintAddr,
         MAX_DELEGATION_AMOUNT, MIN_DELEGATION_AMOUNT,
     },
 };
@@ -528,12 +528,16 @@ impl TransactionBuilder {
         mut self,
         keypair: &XfrKeyPair,
         am: u64,
-        rwd_receiver: XfrPublicKey,
-        target_validator: XfrPublicKey,
+        target_validator: TendermintAddr,
     ) -> Result<TransactionBuilder, JsValue> {
+        let middle_pk = gen_random_keypair().get_pk();
         self.get_builder_mut().add_operation_undelegation(
             keypair,
-            Some(PartialUnDelegation::new(am, rwd_receiver, target_validator)),
+            Some(PartialUnDelegation::new(
+                am,
+                middle_pk,
+                td_addr_to_bytes(&target_validator).map_err(error_to_jsvalue)?,
+            )),
         );
         Ok(self)
     }
@@ -923,8 +927,7 @@ pub fn get_priv_key_str(key_pair: &XfrKeyPair) -> String {
 #[wasm_bindgen]
 /// Creates a new transfer key pair.
 pub fn new_keypair() -> XfrKeyPair {
-    let mut small_rng = rand::thread_rng();
-    XfrKeyPair::generate(&mut small_rng)
+    gen_random_keypair()
 }
 
 #[wasm_bindgen]
@@ -1453,13 +1456,13 @@ pub fn get_delegation_target_address() -> String {
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_address() -> String {
-    wallet::public_key_to_base64(&COINBASE_PK)
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_principal_address() -> String {
-    wallet::public_key_to_base64(&COINBASE_PRINCIPAL_PK)
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]

@@ -20,8 +20,6 @@
 //!     - "--serv-addr=[URL/IP]"
 //!     - "--owner-mnemonic-path=[File Path]"
 //!         - the `id` of your validator will be drived from this
-//! - contribute, pay some FRAs to CoinBase
-//!     - "--amount=[Amout <Optional, default to '400m FRA'>]"
 //! ```
 //!
 
@@ -41,17 +39,20 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    let subcmd_genkey =
+        SubCommand::with_name("genkey").about("Generate a random Xfr Key");
     let subcmd_stake_arggrp = ArgGroup::with_name("staking_flags")
         .args(&["commission-rate", "validator-memo"])
         .multiple(true)
         .conflicts_with("append");
     let subcmd_stake = SubCommand::with_name("stake")
         .arg_from_usage("-n, --amount=<Amount> 'how much `FRA unit`s you want to stake'")
-        .arg_from_usage("-R, --commission-rate=[Rate] 'the commission rate for your delegators, should be a float number")
+        .arg_from_usage("-R, --commission-rate=[Rate] 'the commission rate for delegators, a float number for 0.0 to 1.0")
         .arg_from_usage("-M, --validator-memo=[Memo] 'the description of your validator node, optional'")
         .arg_from_usage("-a, --append 'stake more FRAs to your node'")
         .group(subcmd_stake_arggrp);
-    let subcmd_unstake = SubCommand::with_name("unstake");
+    let subcmd_unstake = SubCommand::with_name("unstake")
+        .arg_from_usage("-n, --amount=[Amount] 'how much FRA to unstake, needed for partial undelegation'");
     let subcmd_claim = SubCommand::with_name("claim")
         .arg_from_usage("-n, --amount=[Amount] 'how much `FRA unit`s to claim'");
     let subcmd_show = SubCommand::with_name("show");
@@ -63,31 +64,30 @@ fn run() -> Result<()> {
             "-O, --owner-mnemonic-path=[Path], 'storage path of your mnemonic words'",
         )
         .arg_from_usage(
-            "-K, --validator-pubkey=[PubKey], 'the tendermint pubkey of your validator node'",
+            "-K, --validator-key=[Path], 'path to the tendermint keys of your validator node'",
         );
     let subcmd_transfer = SubCommand::with_name("transfer")
         .arg_from_usage("-t, --target-addr=<Addr> 'wallet address of the receiver'")
-        .arg_from_usage("-n, --amount=<Amount> 'how much FRA to transfer'");
-    let subcmd_contribute = SubCommand::with_name("contribute").arg_from_usage(
-        "-n, --amount=[Amout] 'contribute some `FRA unit`s to CoinBase'",
-    );
+        .arg_from_usage("-n, --amount=<Amount> 'how much FRA units to transfer'");
     let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
     let matches = App::new("fns")
         .version(crate_version!())
         .author(crate_authors!())
         .about("A command line tool for staking in findora network.")
+        .subcommand(subcmd_genkey)
         .subcommand(subcmd_stake)
         .subcommand(subcmd_unstake)
         .subcommand(subcmd_claim)
         .subcommand(subcmd_show)
         .subcommand(subcmd_setup)
         .subcommand(subcmd_transfer)
-        .subcommand(subcmd_contribute)
         .subcommand(subcmd_set_initial_validators)
         .get_matches();
 
-    if let Some(m) = matches.subcommand_matches("stake") {
+    if matches.is_present("genkey") {
+        gen_key_and_print();
+    } else if let Some(m) = matches.subcommand_matches("stake") {
         let am = m.value_of("amount");
         if m.is_present("append") {
             if am.is_none() {
@@ -107,8 +107,9 @@ fn run() -> Result<()> {
                 fns::stake(am.unwrap(), cr.unwrap(), vm).c(d!())?;
             }
         }
-    } else if matches.subcommand_matches("unstake").is_some() {
-        fns::unstake().c(d!())?;
+    } else if let Some(m) = matches.subcommand_matches("unstake") {
+        let am = m.value_of("amount");
+        fns::unstake(am).c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("claim") {
         let am = m.value_of("amount");
         fns::claim(am).c(d!())?;
@@ -117,7 +118,7 @@ fn run() -> Result<()> {
     } else if let Some(m) = matches.subcommand_matches("setup") {
         let sa = m.value_of("serv-addr");
         let om = m.value_of("owner-mnemonic-path");
-        let tp = m.value_of("validator-pubkey");
+        let tp = m.value_of("validator-key");
         if sa.is_none() && om.is_none() && tp.is_none() {
             println!("{}", m.usage());
         } else {
@@ -130,16 +131,6 @@ fn run() -> Result<()> {
             println!("{}", m.usage());
         } else {
             fns::transfer_fra(ta.unwrap(), am.unwrap()).c(d!())?;
-        }
-    } else if let Some(m) = matches.subcommand_matches("contribute") {
-        let sure = promptly::prompt_default(
-            "\x1b[31;01m\tAre you sure?\n\tOnce executed, it can NOT be reverted.\x1b[00m",
-            false,
-        )
-        .c(d!("incorrect inputs"))?;
-        if sure {
-            let am = m.value_of("amount");
-            fns::contribute(am).c(d!())?;
         }
     } else if matches.is_present("set-initial-validators") {
         fns::set_initial_validators().c(d!())?;
@@ -161,5 +152,17 @@ fn tip_fail(e: impl fmt::Display) {
 fn tip_success() {
     println!(
         "\x1b[35;01mNote\x1b[01m:\n\tYour operations has been executed without local error,\n\tbut the final result may need an asynchronous query.\x1b[00m"
+    );
+}
+
+fn gen_key_and_print() {
+    let mnemonic = pnk!(wallet::generate_mnemonic_custom(24, "en"));
+    let key = wallet::restore_keypair_from_mnemonic_default(&mnemonic)
+        .c(d!())
+        .and_then(|kp| serde_json::to_string_pretty(&kp).c(d!()));
+    println!(
+        "\x1b[31;01mMnemonic:\x1b[00m {}\n\x1b[31;01mKey:\x1b[00m {}\n",
+        mnemonic,
+        pnk!(key)
     );
 }

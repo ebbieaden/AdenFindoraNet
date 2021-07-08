@@ -1956,9 +1956,13 @@ impl LedgerAccess for LedgerState {
                     sid,
                     (
                         au.utxo,
-                        au.authenticated_txn.finalized_txn.txn.get_owner_memos_ref()
-                            [au.utxo_location.0]
-                            .cloned(),
+                        au.authenticated_txn
+                            .finalized_txn
+                            .txn
+                            .get_owner_memos_ref()
+                            .get(au.utxo_location.0)
+                            .map(|i| i.cloned())
+                            .flatten(),
                     ),
                 )
             })
@@ -2469,7 +2473,6 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
         fra_owner_kp,
         AssetRules {
             decimals: FRA_DECIMAL,
-            max_units: Some(100 + FRA_AMOUNT),
             ..AssetRules::default()
         },
         Some(Memo("FRA".to_owned())),
