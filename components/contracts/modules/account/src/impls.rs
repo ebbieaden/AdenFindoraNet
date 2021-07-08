@@ -33,6 +33,11 @@ impl<C: Config> App<C> {
         Ok(())
     }
 
+    pub fn get_balance(ctx: &Context, addr: &Address) -> Result<SmartAccount> {
+        let sa = AccountStore::get(ctx.store.clone(), addr).c(d!())?;
+        Ok(sa)
+    }
+
     pub fn mint_balance(
         ctx: &Context,
         target: &Address,

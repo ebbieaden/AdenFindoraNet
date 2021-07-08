@@ -3,6 +3,7 @@ mod modules;
 mod types;
 
 use crate::modules::ModuleManager;
+use fp_core::account::SmartAccount;
 use fp_core::{
     context::Context,
     crypto::Address,
@@ -17,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
+use zei::xfr::sig::XfrPublicKey;
 
 use abci::Header;
 pub use types::*;
@@ -222,5 +224,9 @@ impl BaseApp {
 
     pub fn check_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
         self.modules.process_findora_tx(&self.check_state, tx)
+    }
+
+    pub fn get_balance(&self, addr: XfrPublicKey) -> Result<SmartAccount> {
+        module_account::App::<BaseApp>::get_balance(&self.deliver_state, &addr.into())
     }
 }
