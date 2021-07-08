@@ -90,7 +90,7 @@ impl ModuleManager {
 
     pub fn process_tx(
         &mut self,
-        ctx: &Context,
+        mut ctx: Context,
         mode: RunTxMode,
         tx: UncheckedTransaction,
     ) -> Result<()> {
@@ -99,11 +99,16 @@ impl ModuleManager {
         let checked = tx.clone().check()?;
         // add match field if tx is unsigned transaction
         match tx.function {
-            Action::Ethereum(action) => Self::dispatch::<
-                module_ethereum::Action,
-                module_ethereum::App<BaseApp>,
-            >(ctx, mode, action, checked),
-            _ => Self::dispatch::<Action, BaseApp>(ctx, mode, tx.function, checked),
+            Action::Ethereum(action) => {
+                let module_ethereum::Action::Transact(eth_tx) = action.clone();
+                ctx.tx = serde_json::to_vec(&eth_tx)
+                    .map_err(|e| eg!(format!("Serialize ethereum tx err: {}", e)))?;
+
+                Self::dispatch::<module_ethereum::Action, module_ethereum::App<BaseApp>>(
+                    &ctx, mode, action, checked,
+                )
+            }
+            _ => Self::dispatch::<Action, BaseApp>(&ctx, mode, tx.function, checked),
         }
     }
 

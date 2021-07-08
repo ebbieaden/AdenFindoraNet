@@ -191,7 +191,13 @@ impl BaseApp {
 
     fn validate_height(&self, height: i64) -> Result<()> {
         ensure!(height >= 1, format!("invalid height: {}", height));
-        let expected_height = self.chain_state.read().height().unwrap_or(1) as i64;
+        let mut expected_height =
+            self.chain_state.read().height().unwrap_or_default() as i64;
+        if expected_height == 0 && height > 1 {
+            expected_height = height;
+        } else {
+            expected_height += 1;
+        }
         ensure!(
             height == expected_height,
             format!("invalid height: {}; expected: {}", height, expected_height)
@@ -201,12 +207,14 @@ impl BaseApp {
 
     fn set_deliver_state(&mut self, header: Header) {
         self.deliver_state.check_tx = false;
+        self.deliver_state.recheck_tx = false;
         self.deliver_state.header = header.clone();
         self.deliver_state.chain_id = header.chain_id;
     }
 
     fn set_check_state(&mut self, header: Header) {
         self.check_state.check_tx = true;
+        self.deliver_state.recheck_tx = false;
         self.check_state.header = header.clone();
         self.check_state.chain_id = header.chain_id;
     }
