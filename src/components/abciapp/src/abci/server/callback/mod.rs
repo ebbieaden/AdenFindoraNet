@@ -61,14 +61,14 @@ pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
 }
 
 pub fn query(s: &mut ABCISubmissionServer, req: &RequestQuery) -> ResponseQuery {
-    s.account_base_app.query(req)
+    s.account_base_app.write().query(req)
 }
 
 pub fn init_chain(
     s: &mut ABCISubmissionServer,
     req: &RequestInitChain,
 ) -> ResponseInitChain {
-    s.account_base_app.init_chain(req)
+    s.account_base_app.write().init_chain(req)
 }
 
 pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseCheckTx {
@@ -77,8 +77,7 @@ pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseC
         let mut resp = ResponseCheckTx::new();
         if is_coinbase_tx(&tx)
             || !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
-            || s.account_base_app.deliver_findora_tx(&tx).is_err()
-            // || s.balance_store.read().check_tx(&tx)
+            || s.account_base_app.write().deliver_findora_tx(&tx).is_err()
             || ruc::info!(TxnEffect::compute_effect(tx)).is_err()
         {
             resp.set_code(1);
@@ -86,7 +85,7 @@ pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseC
         }
         resp
     } else {
-        s.account_base_app.check_tx(req)
+        s.account_base_app.write().check_tx(req)
     }
 }
 
@@ -106,8 +105,7 @@ pub fn deliver_tx(
             }
 
             if s.address_binder.read().deliver_tx(&tx).is_ok()
-                && s.account_base_app.deliver_findora_tx(&tx).is_ok()
-                // && s.balance_store.write().deliver_tx(&tx).is_ok()
+                && s.account_base_app.write().deliver_findora_tx(&tx).is_ok()
                 && s.la.write().cache_transaction(tx).is_ok()
             {
                 return resp;
@@ -117,7 +115,7 @@ pub fn deliver_tx(
         resp.set_log(String::from("Failed to deliver transaction!"));
         resp
     } else {
-        s.account_base_app.deliver_tx(req)
+        s.account_base_app.write().deliver_tx(req)
     }
 }
 
@@ -145,7 +143,7 @@ pub fn begin_block(
         pnk!(la.update_staking_simulator());
     }
 
-    s.account_base_app.begin_block(req)
+    s.account_base_app.write().begin_block(req)
 }
 
 pub fn end_block(
@@ -195,7 +193,7 @@ pub fn end_block(
         &begin_block_req.byzantine_validators.as_slice(),
     );
 
-    s.account_base_app.end_block(req);
+    s.account_base_app.write().end_block(req);
 
     resp
 }
@@ -222,7 +220,7 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
     pnk!(pulse_cache::write_block_pulse(la.block_pulse_count()));
 
     let mut la_hash = commitment.0.as_ref().to_vec();
-    let mut cs_hash = s.account_base_app.commit(req).data;
+    let mut cs_hash = s.account_base_app.write().commit(req).data;
     la_hash.append(&mut cs_hash);
     r.set_data(fp_storage::hash::Sha256::hash(la_hash.as_slice()).to_vec());
 
