@@ -18,10 +18,12 @@
 
 //use std::time;
 use ethereum_types::{H160, H256, U256, U64};
-use jsonrpc_core::{futures::future, BoxFuture, Error, ErrorCode, Result};
-//use sha3::{Keccak256, Digest};
+use fc_rpc_core::types::PeerCount;
 use fc_rpc_core::types::{BlockNumber, Bytes, CallRequest, TransactionRequest};
-use fc_rpc_core::EthApi as EthApiT;
+use fc_rpc_core::{EthApi as EthApiT, NetApi as NetApiT, Web3Api as Web3ApiT};
+use jsonrpc_core::{futures::future, BoxFuture, Error, ErrorCode, Result};
+use rustc_hex::FromHex;
+use sha3::{Digest, Keccak256};
 
 pub fn internal_err<T: ToString>(message: T) -> Error {
     Error {
@@ -41,10 +43,12 @@ impl EthApiImpl {
 
 impl EthApiT for EthApiImpl {
     fn protocol_version(&self) -> Result<u64> {
+        println!("invoked: fn protocol_version");
         Ok(1)
     }
 
     fn hashrate(&self) -> Result<U256> {
+        println!("invoked: fn hashrate");
         Ok(U256::zero())
     }
 
@@ -52,7 +56,8 @@ impl EthApiT for EthApiImpl {
         // let hash = self.client.info().best_hash;
         // Ok(Some(self.client.runtime_api().chain_id(&BlockId::Hash(hash))
         //         .map_err(|err| internal_err(format!("fetch runtime chain id failed: {:?}", err)))?.into()))
-        Ok(Some(0x10.into()))
+        println!("invoked: fn chain_id");
+        Ok(Some(0x538.into()))
     }
 
     fn accounts(&self) -> Result<Vec<H160>> {
@@ -61,6 +66,7 @@ impl EthApiT for EthApiImpl {
         //     accounts.append(&mut signer.accounts());
         // }
         // Ok(accounts)
+        println!("invoked: fn accounts");
         Ok(Vec::new())
     }
 
@@ -74,6 +80,7 @@ impl EthApiT for EthApiImpl {
         //             .balance.into()
         //     )
         // }
+        println!("invoked: fn balance: {}", address.to_string());
         Ok(U256::zero())
     }
 
@@ -170,6 +177,7 @@ impl EthApiT for EthApiImpl {
         //         .map_err(|err| internal_err(format!("submit transaction to pool failed: {:?}", err)))
         // )
 
+        println!("invoked: fn send_transaction");
         Box::new(future::result(Err(internal_err("unimplemented"))))
     }
 
@@ -242,6 +250,55 @@ impl EthApiT for EthApiImpl {
         //         Ok(Bytes(info.value[..].to_vec()))
         //     },
         // }
+
+        println!("invoked: fn call");
         Err(internal_err("unimplemented".to_string()))
+    }
+}
+
+pub struct NetApiImpl;
+
+impl NetApiImpl {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl NetApiT for NetApiImpl {
+    fn is_listening(&self) -> Result<bool> {
+        println!("invoked: fn is_listening");
+        Ok(true)
+    }
+
+    fn peer_count(&self) -> Result<PeerCount> {
+        println!("invoked: fn peer_count");
+        Ok(PeerCount::String(format!("0x{:x}", 1)))
+    }
+
+    fn version(&self) -> Result<String> {
+        println!("invoked: fn version");
+        Ok(String::from("1336"))
+    }
+}
+
+pub struct Web3ApiImpl;
+
+impl Web3ApiImpl {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Web3ApiT for Web3ApiImpl {
+    fn client_version(&self) -> Result<String> {
+        println!("invoked: fn client_version");
+        Ok(String::from("findora-eth-api/v0.1.0-rust"))
+    }
+
+    fn sha3(&self, input: Bytes) -> Result<H256> {
+        println!("invoked: fn sha3");
+        Ok(H256::from_slice(
+            Keccak256::digest(&input.into_vec()).as_slice(),
+        ))
     }
 }
