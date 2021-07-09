@@ -34,7 +34,8 @@ impl<C: Config> App<C> {
     }
 
     pub fn get_balance(ctx: &Context, addr: &Address) -> Result<SmartAccount> {
-        let sa = AccountStore::get(ctx.store.clone(), addr).c(d!())?;
+        let sa = AccountStore::get(ctx.store.clone(), addr)
+            .c(d!("this address don't have balance"))?;
         Ok(sa)
     }
 
@@ -44,8 +45,7 @@ impl<C: Config> App<C> {
         balance: u128,
         asset: AssetType,
     ) -> Result<()> {
-        let mut target_account: SmartAccount =
-            AccountStore::get(ctx.store.clone(), target).c(d!())?;
+        let mut target_account = AccountStore::get(ctx.store.clone(), target).unwrap_or_default();
         if asset == ASSET_TYPE_FRA {
             target_account.balance.checked_add(balance).c(d!())?;
         } else {
@@ -55,6 +55,8 @@ impl<C: Config> App<C> {
                 target_account.assets.insert(asset, balance);
             }
         }
+        println!("{:?}", target_account);
+        AccountStore::insert(ctx.store.clone(), target, &target_account);
         Ok(())
     }
 
