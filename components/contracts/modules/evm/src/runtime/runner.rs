@@ -8,10 +8,8 @@ use evm::{
     ExitReason,
 };
 use fp_core::{context::Context, ensure};
-use fp_evm::{
-    traits::{FeeCalculator, OnChargeEVMTransaction},
-    CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity,
-};
+use fp_evm::{CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity};
+use fp_traits::evm::{FeeCalculator, OnChargeEVMTransaction};
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
 use sha3::{Digest, Keccak256};
@@ -66,7 +64,7 @@ impl<C: Config> ActionRunner<C> {
             .ok_or(eg!("FeeOverflow"))?;
         let total_payment =
             value.checked_add(total_fee).ok_or(eg!("PaymentOverflow"))?;
-        let source_account = App::<C>::account_basic(&source);
+        let source_account = App::<C>::account_basic(ctx, &source);
         ensure!(source_account.balance >= total_payment, eg!("BalanceLow"));
 
         if let Some(nonce) = nonce {

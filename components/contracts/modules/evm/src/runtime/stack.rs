@@ -184,7 +184,7 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 
     fn basic(&self, address: H160) -> evm::backend::Basic {
-        let account = App::<C>::account_basic(&address);
+        let account = App::<C>::account_basic(self.ctx, &address);
 
         evm::backend::Basic {
             balance: account.balance,

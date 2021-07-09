@@ -12,7 +12,7 @@ use fp_core::{
     module::AppModule,
     transaction::{Executable, ValidateUnsigned},
 };
-use fp_evm::traits::FeeCalculator;
+use fp_traits::evm::FeeCalculator;
 use primitive_types::U256;
 use ruc::{eg, Result, RucResult};
 use serde::{Deserialize, Serialize};
@@ -98,7 +98,7 @@ impl<C: Config> Executable for App<C> {
 impl<C: Config> ValidateUnsigned for App<C> {
     type Call = Action;
 
-    fn validate_unsigned(call: &Self::Call, _ctx: &Context) -> Result<()> {
+    fn validate_unsigned(call: &Self::Call, ctx: &Context) -> Result<()> {
         let Action::Transact(transaction) = call;
         if let Some(chain_id) = transaction.signature.chain_id() {
             if chain_id != C::ChainId::get() {
@@ -113,7 +113,7 @@ impl<C: Config> ValidateUnsigned for App<C> {
             return Err(eg!("TransactionValidationError: InvalidGasLimit"));
         }
 
-        let account_data = module_evm::App::<C>::account_basic(&origin);
+        let account_data = module_evm::App::<C>::account_basic(ctx, &origin);
 
         if transaction.nonce < account_data.nonce {
             return Err(eg!("InvalidTransaction: Outdated"));

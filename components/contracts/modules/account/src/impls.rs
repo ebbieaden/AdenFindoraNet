@@ -1,6 +1,7 @@
 use crate::storage::*;
 use crate::{App, Config};
 use fp_core::{account::SmartAccount, context::Context, crypto::Address};
+use fp_traits::account::AccountInfo;
 use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
 use zei::xfr::structs::AssetType;
@@ -60,4 +61,18 @@ impl<C: Config> App<C> {
     //     target_account.balance.checked_sub(balance).c(d!())?;
     //     Ok(())
     // }
+}
+
+impl<C: Config> AccountInfo<Address> for App<C> {
+    fn balance(ctx: &Context, who: &Address) -> u128 {
+        let who_account: SmartAccount =
+            AccountStore::get(ctx.store.clone(), who).unwrap_or_default();
+        who_account.balance
+    }
+
+    fn nonce(ctx: &Context, who: &Address) -> u64 {
+        let who_account: SmartAccount =
+            AccountStore::get(ctx.store.clone(), who).unwrap_or_default();
+        who_account.nonce
+    }
 }
