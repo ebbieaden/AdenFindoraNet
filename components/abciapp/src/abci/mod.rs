@@ -70,7 +70,7 @@ pub fn run() -> Result<()> {
 
     if env::var("ENABLE_ETH_API_SERVICE").is_ok() {
         thread::spawn(move || {
-            eth_api_service::service::start();
+            fc_rpc::start_service();
         });
     }
 

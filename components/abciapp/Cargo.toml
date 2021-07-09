@@ -55,7 +55,7 @@ txn_builder = { path = "../txn_builder" }
 
 baseapp = { path = "../contracts/baseapp" }
 fp-storage = { path = "../contracts/primitives/storage" }
-eth_api_service = { path = "../eth_api_service" }
+fc-rpc = { path = "../contracts/rpc" }
 
 [build-dependencies]
 vergen = "=3.1.0"

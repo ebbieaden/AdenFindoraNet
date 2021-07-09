@@ -17,6 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 //use std::time;
+use crate::internal_err;
 use ethereum_types::{H160, H256, U256, U64};
 use fc_rpc_core::types::PeerCount;
 use fc_rpc_core::types::{BlockNumber, Bytes, CallRequest, TransactionRequest};
@@ -25,14 +26,6 @@ use jsonrpc_core::{futures::future, BoxFuture, Error, ErrorCode, Result};
 use rustc_hex::FromHex;
 use sha3::{Digest, Keccak256};
 use std::str::FromStr;
-
-pub fn internal_err<T: ToString>(message: T) -> Error {
-    Error {
-        code: ErrorCode::InternalError,
-        message: message.to_string(),
-        data: None,
-    }
-}
 
 pub struct EthApiImpl;
 
