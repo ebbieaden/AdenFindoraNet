@@ -11,6 +11,7 @@ use crate::abci::server::{
 use abci::*;
 use cryptohash::sha256::{self, Digest};
 use lazy_static::lazy_static;
+use ledger::staking::STAKING_VALIDATOR_MIN_POWER;
 use ledger::{
     data_model::{
         DelegationInfo, Operation, Transaction, TransferType, TxoRef, TxoSID, Utxo,
@@ -229,14 +230,17 @@ impl AbciMocker {
     }
 
     fn get_delegation_by_addr(&self, addr: &XfrPublicKey) -> Option<Delegation> {
-        self.0
+        let op = self
+            .0
             .la
             .read()
             .get_committed_state()
             .read()
             .get_staking()
             .delegation_get(addr)
-            .cloned()
+            .cloned();
+        println!("{:?}", op.is_some());
+        op
     }
 
     fn get_validators_by_delegation_addr(
@@ -262,6 +266,7 @@ impl AbciMocker {
                 .collect();
             let mut bond_amount = d.amount();
             let mut unbond_amount = 0;
+            println!("a.state:{:?}", d.state);
             match d.state {
                 DelegationState::Paid => {
                     bond_amount = 0;
@@ -270,6 +275,11 @@ impl AbciMocker {
                     mem::swap(&mut bond_amount, &mut unbond_amount);
                 }
                 DelegationState::Bond => {
+                    println!("staking.cur_height:{:?}", staking.cur_height());
+                    println!(
+                        "d.end_height:{:?}",
+                        d.end_height().saturating_sub(UNBOND_BLOCK_CNT)
+                    );
                     if staking.cur_height()
                         > d.end_height().saturating_sub(UNBOND_BLOCK_CNT)
                     {
@@ -1164,7 +1174,7 @@ fn staking_scene_1() -> Result<()> {
     // .... will be tested in unit-test cases ....
     // ...........................................
 
-    // 29. make sure the vote power of any vallidator can not exceed 20% of total power
+    // 29. make sure the vote power of any validator can not exceed 20% of total power
 
     let tx_hash = delegate(
         &ROOT_KEYPAIR,
@@ -1355,6 +1365,7 @@ fn staking_scene_2() -> Result<()> {
 // *. init env
 // *. staking fra
 // *. query power
+// *. unstaking partially (wait so much)
 // *. unstaking
 // *. query reward
 // *. query power again(query none)
@@ -1395,27 +1406,55 @@ fn staking_scene_3() -> Result<()> {
 
     // *. self delegate staking fra
     for (i, kp) in kps.iter().enumerate() {
-        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 60_0000 * FRA).c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
 
-        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
+        let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 60_0000 * FRA).c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
 
-        let tx_hash = delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 100 * FRA)
-            .c(d!())?;
+        let tx_hash =
+            delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 1_0000 * FRA)
+                .c(d!())?;
         wait_one_block();
         assert!(is_successful(&tx_hash));
     }
 
+    // let validator amount - XXX > STAKING_VALIDATOR_MIN_POWER(88_8888*FRA)
+    for _ in 0..34 {
+        for (i, kp) in kps.iter().enumerate() {
+            let tx_hash =
+                delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 3_0000 * FRA)
+                    .c(d!())?;
+            wait_one_block();
+            assert!(is_successful(&tx_hash));
+        }
+    }
+
     // query balance
     let old_balance = ABCI_MOCKER.read().get_owned_balance(&kps[0].get_pk());
-    assert_eq!(old_balance, 100 * FRA - TX_FEE_MIN);
+    assert_eq!(
+        old_balance,
+        (120_0000 * FRA - (1_0000 + 34 * 3_0000) * FRA - 35 * TX_FEE_MIN)
+    );
     let mut transaction_num = 0;
 
     // *. query power
     let p = pnk!(ABCI_MOCKER.read().get_validator_power(&kps[0].pub_key));
+    assert_eq!(p, INITIAL_POWER + (1_0000 + 34 * 3_0000) * FRA);
+
+    // *. unstaking partially
+    let pu = PartialUnDelegation::new(
+        100 * FRA,
+        gen_keypair().pub_key,
+        v_set[0].td_addr.clone(),
+    );
+    let tx_hash = undelegate_x(&kps[0], Some(pu)).c(d!())?;
+    wait_one_block();
+    transaction_num += 1;
+    assert!(is_successful(&tx_hash));
+    trigger_next_block!(6);
 
     // *. unstaking
     let tx_hash = undelegate(&kps[0]).c(d!())?;
@@ -1435,7 +1474,9 @@ fn staking_scene_3() -> Result<()> {
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&kps[0].get_pk());
     assert_eq!(
         new_balance,
-        old_balance + reward - transaction_num * TX_FEE_MIN + (100 * FRA)
+        old_balance + reward - transaction_num * TX_FEE_MIN
+            + (1_0000 * FRA)
+            + (3_0000 * 34) * FRA
     );
 
     Ok(())
@@ -1448,6 +1489,7 @@ fn staking_scene_3() -> Result<()> {
 // *. view rate
 // *. query DelegationInfo
 // *. undelegate validator0 and validator1
+// *. wait 6 block
 // *. delegate fra to validator0
 // *. query DelegationInfo again
 // *. query reward
@@ -1528,9 +1570,6 @@ fn staking_scene_4() -> Result<()> {
     assert!(is_successful(&tx_hash));
     transaction_num += 1;
 
-    // *. view rate
-    let rate = ABCI_MOCKER.read().get_current_rate_str();
-
     // *. query validator0 and validator1 power
     let power_map = pnk!(ABCI_MOCKER.read().get_delegation_power(&x_kp.pub_key));
 
@@ -1545,10 +1584,14 @@ fn staking_scene_4() -> Result<()> {
         (&v_set[1].id, INITIAL_POWER + (100 + 200) * FRA),
     ]);
 
+    // *. view rate
+    let rate = ABCI_MOCKER.read().get_current_rate_str();
+
     // * query DelegationInfo
     let op = ABCI_MOCKER
         .read()
         .get_validators_by_delegation_addr(&x_kp.get_pk());
+    println!("{:?}", op);
 
     // *. undelegate validator0 and validator1
     let tx_hash = undelegate(&x_kp).c(d!())?;
@@ -1556,18 +1599,17 @@ fn staking_scene_4() -> Result<()> {
     assert!(is_successful(&tx_hash));
     transaction_num += 1;
 
-    // if redelegation,must wait 6 block commit,
-    trigger_next_block!(UNBOND_BLOCK_CNT);
+    // *. wait 6 block
+    let mut before_undelegation_reward = 0;
+    {
+        // if redelegation,must wait 6 block commit,
+        trigger_next_block!(UNBOND_BLOCK_CNT);
 
-    let before_undelegation_reward = ABCI_MOCKER.read().get_owned_reward(&x_kp.pub_key);
+        before_undelegation_reward = ABCI_MOCKER.read().get_owned_reward(&x_kp.pub_key);
 
-    // last block no reward,just confirm undelegation
-    trigger_next_block!();
-
-    //* query DelegationInfo again
-    let op = ABCI_MOCKER
-        .read()
-        .get_validators_by_delegation_addr(&x_kp.get_pk());
+        // last block no reward,just confirm undelegation
+        trigger_next_block!();
+    }
 
     // *. delegate fra to validator0
     let tx_hash =
@@ -1580,13 +1622,12 @@ fn staking_scene_4() -> Result<()> {
     let op = ABCI_MOCKER
         .read()
         .get_validators_by_delegation_addr(&x_kp.get_pk());
+    println!("{:?}", op);
 
     // *. query reward
-    // query is 0,because reward and principal return together after that undelegation
     let reward = ABCI_MOCKER.read().get_owned_reward(&x_kp.pub_key);
 
     // *. get claim
-    // get 0
     let tx_hash = claim(&x_kp, reward).c(d!())?;
     wait_one_block();
     assert!(is_successful(&tx_hash));
@@ -1599,7 +1640,9 @@ fn staking_scene_4() -> Result<()> {
     let new_balance = ABCI_MOCKER.read().get_owned_balance(&x_kp.get_pk());
     assert_eq!(
         new_balance,
-        old_balance + before_undelegation_reward - (transaction_num * TX_FEE_MIN)
+        old_balance + before_undelegation_reward + reward
+            - 100 * FRA
+            - (transaction_num * TX_FEE_MIN)
     );
 
     Ok(())

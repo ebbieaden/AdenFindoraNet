@@ -833,7 +833,7 @@ impl Staking {
                 }
             });
 
-        self.delegation_process_finished_before_height(h.saturating_sub(4));
+        self.delegation_process_finished_before_height(h);
 
         self.validator_clean_invalid_items();
     }

@@ -119,20 +119,13 @@ where
         self.traced_assets.get(issuer)
     }
 
-    pub fn get_coinbase_entries_len(&self, address: &XfrAddress) -> Result<usize> {
-        self.coinbase_oper_hist
-            .get(address)
-            .c(d!())
-            .map(|i| i.len())
-    }
-
     pub fn get_coinbase_entries(
         &self,
         address: &XfrAddress,
         start: usize,
         end: usize,
         order_desc: bool,
-    ) -> Result<Vec<(u64, MintEntry)>> {
+    ) -> Result<(u64, Vec<(u64, MintEntry)>)> {
         if let Some(hist) = self.coinbase_oper_hist.get(address) {
             let len = hist.len();
             if len > start {
@@ -154,11 +147,15 @@ where
                         tmp
                     }
                 };
-                return Ok(slice);
+                return Ok((len as u64, slice));
+            } else if len == 0 {
+                return Ok((0, vec![]));
+            } else {
+                return Err(eg!("Index out of range"));
             }
         }
 
-        Err(eg!("Record not found"))
+        Ok((0, vec![]))
     }
 
     // Returns a list of claim transactions of a given ledger address
