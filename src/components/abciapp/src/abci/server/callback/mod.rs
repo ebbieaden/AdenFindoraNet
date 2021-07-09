@@ -16,6 +16,7 @@ use std::sync::{
     Arc,
 };
 use submission_server::convert_tx;
+use ledger::address::operation::is_convert_tx;
 
 mod pulse_cache;
 mod utils;
@@ -75,9 +76,16 @@ pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseC
     // Get the Tx [u8] and convert to u64
     if let Some(tx) = convert_tx(req.get_tx()) {
         let mut resp = ResponseCheckTx::new();
+        // if s.account_base_app.write().check_findora_tx(&tx).is_err() {
+            // is not 
+        // }
+        if is_convert_tx(&tx) && s.account_base_app.write().check_findora_tx(&tx).is_err() {
+            resp.set_code(1);
+            resp.set_log(String::from("Check, failed"));
+        }
         if is_coinbase_tx(&tx)
             || !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
-            || s.account_base_app.write().deliver_findora_tx(&tx).is_err()
+            // || s.account_base_app.write().check_findora_tx(&tx).is_err()
             || ruc::info!(TxnEffect::compute_effect(tx)).is_err()
         {
             resp.set_code(1);
@@ -104,9 +112,11 @@ pub fn deliver_tx(
                 resp.set_events(attr);
             }
 
-            if s.address_binder.read().deliver_tx(&tx).is_ok()
-                && s.account_base_app.write().deliver_findora_tx(&tx).is_ok()
-                && s.la.write().cache_transaction(tx).is_ok()
+            if is_convert_tx(&tx) && s.account_base_app.write().deliver_findora_tx(&tx).is_ok() {
+                return resp;
+            }
+
+            if s.la.write().cache_transaction(tx).is_ok()
             {
                 return resp;
             }
