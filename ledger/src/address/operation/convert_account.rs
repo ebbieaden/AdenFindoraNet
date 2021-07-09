@@ -69,6 +69,15 @@ impl Data {
     }
 }
 
+pub fn is_convert_tx(tx: &Transaction) -> bool {
+    for op in &tx.body.operations {
+        if let Operation::ConvertAccount(_) = op {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn check_convert_tx(
     tx: &Transaction,
 ) -> Result<(XfrPublicKey, HashMap<AssetType, u64>)> {
