@@ -50,8 +50,12 @@ fn run() -> Result<()> {
         .arg_from_usage("-R, --commission-rate=[Rate] 'the commission rate of your node, a float number from 0.0 to 1.0'")
         .arg_from_usage("-M, --validator-memo=[Memo] 'the description of your node, optional'")
         .arg_from_usage("-a, --append 'stake more FRAs to your node'")
+        .arg_from_usage("-S, --staker-priv-key 'the private key of proposer'")
+        .arg_from_usage("-A, --validator-td-addr 'stake FRAs to a custom node'")
         .group(subcmd_stake_arggrp);
     let subcmd_unstake = SubCommand::with_name("unstake")
+        .arg_from_usage("-S, --staker-priv-key 'the private key of proposer'")
+        .arg_from_usage("-A, --validator-td-addr 'stake FRAs to a custom node'")
         .arg_from_usage("-n, --amount=[Amount] 'how much FRA to unstake, needed for partial undelegation'");
     let subcmd_claim = SubCommand::with_name("claim")
         .arg_from_usage("-n, --amount=[Amount] 'how much `FRA unit`s to claim'");
@@ -90,10 +94,12 @@ fn run() -> Result<()> {
     } else if let Some(m) = matches.subcommand_matches("stake") {
         let am = m.value_of("amount");
         if m.is_present("append") {
+            let staker = m.value_of("staker-priv-key");
+            let td_addr = m.value_of("validator-td-addr");
             if am.is_none() {
                 println!("{}", m.usage());
             } else {
-                fns::stake_append(am.unwrap()).c(d!())?;
+                fns::stake_append(am.unwrap(), staker, td_addr).c(d!())?;
             }
         } else {
             let cr = m.value_of("commission-rate");
@@ -109,7 +115,9 @@ fn run() -> Result<()> {
         }
     } else if let Some(m) = matches.subcommand_matches("unstake") {
         let am = m.value_of("amount");
-        fns::unstake(am).c(d!())?;
+        let staker = m.value_of("staker-priv-key");
+        let td_addr = m.value_of("validator-td-addr");
+        fns::unstake(am, staker, td_addr).c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("claim") {
         let am = m.value_of("amount");
         fns::claim(am).c(d!())?;
