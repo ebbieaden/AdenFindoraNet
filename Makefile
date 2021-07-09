@@ -41,6 +41,8 @@ bin_files = \
 
 bin_files_musl_debug = \
 		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
+		./target/x86_64-unknown-linux-musl/$(target_dir)/fns \
+		./target/x86_64-unknown-linux-musl/$(target_dir)/stt \
 		$(shell go env GOPATH)/bin/tendermint
 
 define pack
@@ -91,7 +93,7 @@ ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --features="debug_env" --release --bins -p abciapp
+	cargo build --features="debug_env" --release --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
 endif
 

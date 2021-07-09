@@ -5,7 +5,7 @@ use crate::data_model::errors::PlatformError;
 use crate::data_model::{StakingUpdate, *};
 use crate::policies::{calculate_fee, DebtMemo};
 use crate::policy_script::policy_check_txn;
-use crate::staking::Staking;
+use crate::staking::{Staking, FRA_TOTAL_AMOUNT};
 use crate::{inp_fail, inv_fail};
 use aoko::std_ext::KtStd;
 use bitmap::{BitMap, SparseMap};
@@ -2457,9 +2457,6 @@ pub mod helpers {
 /// Define and Issue FRA.
 /// Currently this should only be used for tests.
 pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
-    const FRA_DECIMAL: u8 = 6;
-    const FRA_AMOUNT: u64 = 2_1000_0000_0000_0000;
-
     /*
      * Define FRA
      **/
@@ -2472,8 +2469,8 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
         &fra_code,
         fra_owner_kp,
         AssetRules {
-            max_units: Some(1000 + FRA_AMOUNT),
-            decimals: FRA_DECIMAL,
+            max_units: Some(1000 + FRA_TOTAL_AMOUNT),
+            decimals: FRA_DECIMALS,
             ..AssetRules::default()
         },
         Some(Memo("FRA".to_owned())),
@@ -2485,7 +2482,7 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
      **/
 
     let template = AssetRecordTemplate::with_no_asset_tracing(
-        FRA_AMOUNT / 2,
+        FRA_TOTAL_AMOUNT / 2,
         fra_code.val,
         AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
         fra_owner_kp.get_pk(),
