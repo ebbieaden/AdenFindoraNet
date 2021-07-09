@@ -2472,6 +2472,7 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
         &fra_code,
         fra_owner_kp,
         AssetRules {
+            max_units: Some(1000 + FRA_AMOUNT),
             decimals: FRA_DECIMAL,
             ..AssetRules::default()
         },
