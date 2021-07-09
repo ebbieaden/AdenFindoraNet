@@ -47,13 +47,13 @@ impl Application for crate::BaseApp {
         }
     }
 
-    // check_tx implements the ABCI interface and executes a tx in Check/ReCheck mode.
+    /// check_tx implements the ABCI interface and executes a tx in Check/ReCheck mode.
     fn check_tx(&mut self, req: &RequestCheckTx) -> ResponseCheckTx {
         let mut resp = ResponseCheckTx::new();
         if let Ok(tx) = convert_unchecked_transaction(req.get_tx()) {
             let check_fn = |mode: RunTxMode| {
                 let ctx = self.retrieve_context(mode, req.get_tx().to_vec()).clone();
-                if ruc::info!(self.modules.process_tx(&ctx, mode, tx)).is_err() {
+                if ruc::info!(self.modules.process_tx(ctx, mode, tx)).is_err() {
                     resp.set_code(1);
                     resp.set_log(String::from("Ethereum transaction check failed"));
                 }
@@ -69,6 +69,7 @@ impl Application for crate::BaseApp {
         resp
     }
 
+    /// init_chain implements the ABCI interface.
     fn init_chain(&mut self, req: &RequestInitChain) -> ResponseInitChain {
         let mut init_header = Header::new();
         init_header.chain_id = req.chain_id.clone();
@@ -78,11 +79,12 @@ impl Application for crate::BaseApp {
         self.set_deliver_state(init_header.clone());
         self.set_check_state(init_header);
 
-        // TODO init genesis
+        // TODO init genesis about consensus and validators
 
         ResponseInitChain::new()
     }
 
+    /// begin_block implements the ABCI application interface.
     fn begin_block(&mut self, req: &RequestBeginBlock) -> ResponseBeginBlock {
         pnk!(self.validate_height(req.header.as_ref().unwrap_or_default().height));
 
@@ -104,11 +106,7 @@ impl Application for crate::BaseApp {
             let ctx = self
                 .retrieve_context(RunTxMode::Deliver, req.get_tx().to_vec())
                 .clone();
-            if self
-                .modules
-                .process_tx(&ctx, RunTxMode::Deliver, tx)
-                .is_ok()
-            {
+            if self.modules.process_tx(ctx, RunTxMode::Deliver, tx).is_ok() {
                 return resp;
             }
         }
