@@ -1,5 +1,4 @@
 mod precompile;
-pub mod traits;
 
 use ethereum_types::Bloom;
 use evm::ExitReason;

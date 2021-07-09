@@ -9,9 +9,10 @@ use fp_core::{
     context::Context, crypto::Address, macros::Get, module::AppModule,
     transaction::Executable,
 };
-use fp_evm::{
-    traits::{AddressMapping, FeeCalculator, OnChargeEVMTransaction},
-    PrecompileSet,
+use fp_evm::PrecompileSet;
+use fp_traits::{
+    account::AccountInfo,
+    evm::{AddressMapping, FeeCalculator, OnChargeEVMTransaction},
 };
 use primitive_types::U256;
 use ruc::Result;
@@ -23,6 +24,7 @@ pub use runtime::*;
 static ISTANBUL_CONFIG: EvmConfig = EvmConfig::istanbul();
 
 pub trait Config {
+    type AccountInfo: AccountInfo<Address>;
     /// Mapping from address to account id.
     type AddressMapping: AddressMapping;
     /// The block gas limit. Can be a simple constant, or an adjustment algorithm in another pallet.

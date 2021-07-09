@@ -63,6 +63,7 @@ parameter_types! {
 }
 
 impl module_evm::Config for BaseApp {
+    type AccountInfo = module_account::App<Self>;
     type AddressMapping = module_evm::impls::EthereumAddressMapping;
     type BlockGasLimit = BlockGasLimit;
     type ChainId = ChainId;
