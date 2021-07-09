@@ -1,25 +1,26 @@
 #
+#  The default target for this Makefile creates the "release"
+#  subdirectory, which is a start at collecting the files that
+#  will be needed for a release.
 #
+#  The "test_status" target performs the standard and release
+#  builds, and then runs the test.  The final step is making
+#  the release target.  If all that succeeds, the source has
+#  some chance of being in reasonable shape.
 #
 
-all: build_release_goleveldb
+all: build_release
 
 export CARGO_NET_GIT_FETCH_WITH_CLI = true
 export PROTOC = $(shell which protoc)
 
-export STAKING_INITIAL_VALIDATOR_CONFIG = $(shell pwd)/src/ledger/src/staking/init/staking_config.json
-export STAKING_INITIAL_VALIDATOR_CONFIG_DEBUG_ENV = $(shell pwd)/src/ledger/src/staking/init/staking_config_debug_env.json
-export STAKING_INITIAL_VALIDATOR_CONFIG_ABCI_MOCK = $(shell pwd)/src/ledger/src/staking/init/staking_config_abci_mock.json
+export STAKING_INITIAL_VALIDATOR_CONFIG = $(shell pwd)/ledger/src/staking/init/staking_config.json
+export STAKING_INITIAL_VALIDATOR_CONFIG_DEBUG_ENV = $(shell pwd)/ledger/src/staking/init/staking_config_debug_env.json
+export STAKING_INITIAL_VALIDATOR_CONFIG_ABCI_MOCK = $(shell pwd)/ledger/src/staking/init/staking_config_abci_mock.json
 
-export DEBUG_DIR=/tmp/findora
+export LEDGER_DIR=/tmp/findora
 export ENABLE_LEDGER_SERVICE = true
 export ENABLE_QUERY_SERVICE = true
-
-ifndef CARGO_TARGET_DIR
-	export CARGO_TARGET_DIR=target
-endif
-
-$(info ====== Build root is "$(CARGO_TARGET_DIR)" ======)
 
 ifdef DBG
 target_dir = debug
@@ -29,17 +30,22 @@ endif
 
 bin_dir         = bin
 lib_dir         = lib
-pick            = ${CARGO_TARGET_DIR}/$(target_dir)
+pick            = target/$(target_dir)
 release_subdirs = $(bin_dir) $(lib_dir)
 
 bin_files = \
-		./$(pick)/findorad \
-		./$(pick)/abcid \
-		$(shell go env GOPATH)/bin/tendermint \
-		./$(pick)/xx \
-		./$(pick)/fn \
+		./$(pick)/abci_validator_node \
+		./$(pick)/fns \
 		./$(pick)/stt \
-		./$(pick)/staking_cfg_generator
+		./$(pick)/staking_cfg_generator \
+		$(shell go env GOPATH)/bin/tendermint
+
+bin_files_musl_debug = \
+		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
+		./target/x86_64-unknown-linux-musl/$(target_dir)/fns \
+		./target/x86_64-unknown-linux-musl/$(target_dir)/stt \
+		./target/x86_64-unknown-linux-musl/$(target_dir)/staking_cfg_generator \
+		$(shell go env GOPATH)/bin/tendermint
 
 WASM_PKG = wasm.tar.gz
 lib_files = ./$(WASM_PKG)
@@ -49,80 +55,73 @@ define pack
 	mkdir $(target_dir)
 	cd $(target_dir); for i in $(release_subdirs); do mkdir $$i; done
 	cp $(bin_files) $(target_dir)/$(bin_dir)
+	cp $(lib_files) $(target_dir)/$(lib_dir)
 	cp $(target_dir)/$(bin_dir)/* ~/.cargo/bin/
-	cd $(target_dir)/$(bin_dir)/ && findorad pack
-	cp -f /tmp/findorad $(target_dir)/$(bin_dir)/
-	cp -f /tmp/findorad ~/.cargo/bin/
 endef
 
-# Build for cleveldb
-build: tendermint_cleveldb
+define pack_musl_debug
+	-@ rm -rf $(target_dir)
+	mkdir $(target_dir)
+	cd $(target_dir); for i in $(release_subdirs); do mkdir $$i; done
+	cp $(bin_files_musl_debug) $(target_dir)/$(bin_dir)
+	cp $(lib_files) $(target_dir)/$(lib_dir)
+	cp $(target_dir)/$(bin_dir)/* ~/.cargo/bin/
+endef
+
+build: tendermint wasm
 ifdef DBG
-	cargo build --bins -p abciapp -p bugchecker -p finutils
+	cargo build --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
 else
 	@ echo -e "\x1b[31;01m\$$(DBG) must be defined !\x1b[00m"
 	@ exit 1
 endif
 
-# Build for cleveldb
-build_release: tendermint_cleveldb
+build_release: tendermint wasm
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --release --bins -p abciapp -p bugchecker -p finutils
+	cargo build --release --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
 endif
 
-# Build for goleveldb
-build_goleveldb: tendermint_goleveldb
-ifdef DBG
-	cargo build --bins -p abciapp -p bugchecker -p finutils
-	$(call pack,$(target_dir))
-else
-	@ echo -e "\x1b[31;01m\$$(DBG) must be defined !\x1b[00m"
-	@ exit 1
-endif
-
-# Build for goleveldb
-build_release_goleveldb: tendermint_goleveldb
+build_release_musl: tendermint wasm
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --release --bins -p abciapp -p bugchecker -p finutils
-	$(call pack,$(target_dir))
+	cargo build --release --bins -p abciapp -p fintools --target=x86_64-unknown-linux-musl
+	$(call pack_musl_debug,$(target_dir))
 endif
 
-build_release_debug: tendermint_goleveldb
+build_release_debug: tendermint wasm
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
 else
-	cargo build --features="debug_env" --release --bins -p abciapp -p bugchecker -p finutils
+	cargo build --features="debug_env" --release --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
 endif
 
-tendermint_cleveldb:
-	bash -x tools/download_tendermint.sh 'tools/tendermint'
-	mkdir -p $(shell go env GOPATH)/bin
-	cd tools/tendermint \
-		&& $(MAKE) build TENDERMINT_BUILD_OPTIONS=cleveldb \
-		&& cp build/tendermint $(shell go env GOPATH)/bin/
-
-tendermint_goleveldb:
-	bash -x tools/download_tendermint.sh 'tools/tendermint'
-	cd tools/tendermint && $(MAKE) install
+build_release_musl_debug: tendermint wasm
+ifdef DBG
+	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
+	@ exit 1
+else
+	cargo build --features="debug_env" --release --bins -p abciapp -p fintools --target=x86_64-unknown-linux-musl
+	$(call pack_musl_debug,$(target_dir))
+endif
 
 test:
-	# cargo test --release --workspace -- --test-threads=1 # --nocapture
-	cargo test --release --features="abci_mock" -- --test-threads=1 # --nocapture
+	cargo test --release --workspace -- --test-threads=1
+	cargo test --release --features="abci_mock" abci_mock -- --test-threads=1
+	cargo test --release --workspace -- --ignored
 
-coverage:
-	cargo tarpaulin --timeout=900 --branch --workspace --release --features="abci_mock" \
-		|| cargo install cargo-tarpaulin \
-		&& cargo tarpaulin --timeout=900 --branch --workspace --release --features="abci_mock"
+staking_test:
+	$(unset LEDGER_DIR)
+	cargo test --release staking -- --test-threads=1 --nocapture
+	cargo test --release staking --features="abci_mock" -- --test-threads=1 --nocapture
 
 staking_cfg:
 	cargo run --bin staking_cfg_generator
@@ -135,8 +134,11 @@ lint:
 	cargo clippy --workspace --tests
 	cargo clippy --features="abci_mock" --workspace --tests
 
-update:
-	cargo update
+test_status:
+	scripts/incur build
+	scripts/incur build --release
+	scripts/incur test
+	make build_release
 
 fmt:
 	@ cargo fmt
@@ -146,151 +148,86 @@ fmtall:
 
 clean:
 	@ cargo clean
-	@ rm -rf tools/tendermint .git/modules/tools/tendermint
 	@ rm -rf debug release Cargo.lock
 
-cleanall: clean
-	@ git clean -fdx
+tendermint:
+	if [ -d ".git" ]; then \
+		git submodule update --init --recursive; \
+	else \
+		if [ -d "tools/tendermint" ]; then rm -rf tools/tendermint; fi; \
+		git clone -b feat-findora --depth=1 https://gitee.com/kt10/tendermint.git tools/tendermint; \
+	fi
+	# cd tools/tendermint && make install
+	cd tools/tendermint \
+		&& make build TENDERMINT_BUILD_OPTIONS=cleveldb \
+		&& cp build/tendermint ~/go/bin/
 
 wasm:
-	cd src/components/wasm && wasm-pack build
-	tar -zcpf $(WASM_PKG) src/components/wasm/pkg
+	cd components/wasm && wasm-pack build
+	tar -zcpf $(WASM_PKG) components/wasm/pkg
 
 single:
-	@./tools/devnet/stopnodes.sh
-	@./tools/devnet/resetsingle.sh
-	@./tools/devnet/startsingle.sh
+	@./scripts/devnet/stopnodes.sh
+	@./scripts/devnet/resetsingle.sh
+	@./scripts/devnet/startsingle.sh
 
 devnet:
-	@./tools/devnet/stopnodes.sh
-	@./tools/devnet/resetnodes.sh 20 1
-	@./tools/devnet/startnodes.sh
+	@./scripts/devnet/stopnodes.sh
+	@./scripts/devnet/resetnodes.sh 20 1
+	@./scripts/devnet/startnodes.sh
 
 debug_env: stop_debug_env build_release_debug
-	@- rm -rf $(DEBUG_DIR)
-	@ mkdir $(DEBUG_DIR)
-	@ cp tools/debug_env.tar.gz $(DEBUG_DIR)/
-	@ cd $(DEBUG_DIR) && tar -xpf debug_env.tar.gz && mv debug_env devnet
-	@ ./tools/devnet/startnodes.sh
+	@- rm -rf $(LEDGER_DIR)
+	@ mkdir $(LEDGER_DIR)
+	@ cp tools/debug_env.tar.gz $(LEDGER_DIR)/
+	@ cd $(LEDGER_DIR) && tar -xpf debug_env.tar.gz && mv debug_env devnet
+	@ ./scripts/devnet/startnodes.sh
 
-run_staking_demo: stop_debug_env
+run_staking_demo:
 	bash tools/staking/demo.sh
 
 start_debug_env:
-	bash ./tools/devnet/startnodes.sh
+	./scripts/devnet/startnodes.sh
 
 stop_debug_env:
-	bash ./tools/devnet/stopnodes.sh
-
-join_qa01: stop_debug_env build_release_goleveldb
-	bash -x tools/node_init.sh qa01
-
-join_qa02: stop_debug_env build_release_goleveldb
-	bash -x tools/node_init.sh qa02
-
-join_testnet: stop_debug_env build_release_goleveldb
-	bash -x tools/node_init.sh testnet
-
-join_mainnet: stop_debug_env build_release_goleveldb
-	bash -x tools/node_init.sh mainnet
-
-# ci_build_image:
-# 	@if [ ! -d "release/bin/" ] && [ -d "debug/bin" ]; then \
-# 		mkdir -p release/bin/; \
-# 		cp debug/bin/findorad release/bin/; \
-# 	fi
-# 	docker build -t $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG) -f container/Dockerfile-CI-abci_validator_node .
-# ifeq ($(ENV),release)
-# 	docker tag $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG) $(ECR_URL)/$(ENV)/findorad:latest
-# endif
-
-# ci_push_image:
-# 	docker push $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG)
-# ifeq ($(ENV),release)
-# 	docker push $(ECR_URL)/$(ENV)/abci_validator_node:latest
-# endif
-
-# clean_image:
-# 	docker rmi $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG)
-# ifeq ($(ENV),release)
-# 	docker rmi $(ECR_URL)/$(ENV)/abci_validator_node:latest
-# endif
-
-
-ci_build_binary_rust_base:
-	docker build -t binary-rust-base -f container/Dockerfile-binary-rust-base .
-
-ci_build_dev_binary_image:
-	sed -i "s/^ENV VERGEN_SHA_EXTERN .*/ENV VERGEN_SHA_EXTERN ${VERGEN_SHA_EXTERN}/g" container/Dockerfile-binary-image-dev
-	docker build -t findorad-binary-image:$(IMAGE_TAG) -f container/Dockerfile-binary-image-dev .
-
-ci_build_release_binary_image:
-	sed -i "s/^ENV VERGEN_SHA_EXTERN .*/ENV VERGEN_SHA_EXTERN ${VERGEN_SHA_EXTERN}/g" container/Dockerfile-binary-image-release
-	docker build -t findorad-binary-image:$(IMAGE_TAG) -f container/Dockerfile-binary-image-release .
+	@./scripts/devnet/stopnodes.sh
 
 ci_build_image:
-	@ if [ -d "./binary" ]; then \
-		rm -rf ./binary || true; \
+	@if [ ! -d "release/bin/" ] && [ -d "debug/bin" ]; then \
+		mkdir -p release/bin/; \
+		cp debug/bin/abci_validator_node debug/bin/tendermint release/bin/; \
 	fi
-	@ docker run --rm -d --name findorad-binary findorad-binary-image:$(IMAGE_TAG)
-	@ docker cp findorad-binary:/binary ./binary
-	@ docker rm -f findorad-binary
-	@ docker build -t $(PUBLIC_ECR_URL)/$(ENV)/findorad:$(IMAGE_TAG) -f container/Dockerfile-cleveldb .
+	docker build -t $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG) -f container/Dockerfile-CI-abci_validator_node .
+	docker build -t $(ECR_URL)/$(ENV)/tendermint:$(IMAGE_TAG) -f container/Dockerfile-CI-tendermint .
 ifeq ($(ENV),release)
-	docker tag $(PUBLIC_ECR_URL)/$(ENV)/findorad:$(IMAGE_TAG) $(PUBLIC_ECR_URL)/$(ENV)/findorad:latest
+	docker tag $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG) $(ECR_URL)/$(ENV)/abci_validator_node:latest
+	docker tag $(ECR_URL)/$(ENV)/tendermint:$(IMAGE_TAG) $(ECR_URL)/$(ENV)/tendermint:latest
 endif
 
 ci_push_image:
-	docker push $(PUBLIC_ECR_URL)/$(ENV)/findorad:$(IMAGE_TAG)
+	docker push $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG)
+	docker push $(ECR_URL)/$(ENV)/tendermint:$(IMAGE_TAG)
 ifeq ($(ENV),release)
-	docker push $(PUBLIC_ECR_URL)/$(ENV)/findorad:latest
+	docker push $(ECR_URL)/$(ENV)/abci_validator_node:latest
+	docker push $(ECR_URL)/$(ENV)/tendermint:latest
 endif
 
 clean_image:
-	docker rmi $(PUBLIC_ECR_URL)/$(ENV)/findorad:$(IMAGE_TAG)
+	docker rmi $(ECR_URL)/$(ENV)/abci_validator_node:$(IMAGE_TAG)
+	docker rmi $(ECR_URL)/$(ENV)/tendermint:$(IMAGE_TAG)
 ifeq ($(ENV),release)
-	docker rmi $(PUBLIC_ECR_URL)/$(ENV)/findorad:latest
+	docker rmi $(ECR_URL)/$(ENV)/abci_validator_node:latest
+	docker rmi $(ECR_URL)/$(ENV)/tendermint:latest
 endif
 
-ci_build_image_dockerhub:
-	@ if [ -d "./binary" ]; then \
-		rm -rf ./binary || true; \
-	fi
-	@ docker run --rm -d --name findorad-binary findorad-binary-image:$(IMAGE_TAG)
-	@ docker cp findorad-binary:/binary ./binary
-	@ docker rm -f findorad-binary
-	@ docker build -t $(DOCKERHUB_URL)/findorad:$(IMAGE_TAG) -f container/Dockerfile-goleveldb .
-ifeq ($(ENV),release)
-	docker tag $(DOCKERHUB_URL)/findorad:$(IMAGE_TAG) $(DOCKERHUB_URL)/findorad:latest
-endif
-
-ci_push_image_dockerhub:
-	docker push $(DOCKERHUB_URL)/findorad:$(IMAGE_TAG)
-ifeq ($(ENV),release)
-	docker push $(DOCKERHUB_URL)/findorad:latest
-endif
-
-ci_build_wasm_js_bindings:
-	docker run --rm -d --name wasm -v /tmp/wasm-js-bindings:/build/wasm-js-bindings -v $(shell pwd)/container/docker-entrypoint-wasm-js-bindings.sh:/entrypoint.sh findorad-binary-image:$(IMAGE_TAG) /entrypoint.sh
-	docker rm -f wasm findorad-binary || true
-
-clean_image_dockerhub:
-	docker rmi $(DOCKERHUB_URL)/findorad:$(IMAGE_TAG)
-ifeq ($(ENV),release)
-	docker rmi $(DOCKERHUB_URL)/findorad:latest
-endif
-
-clean_binary_dockerhub:
-	docker rmi findorad-binary-image:$(IMAGE_TAG)
-
-####@./tools/devnet/snapshot.sh <user_nick> <password> <token_name> <max_units> <genesis_issuance> <memo> <memo_updatable>
+####@./scripts/devnet/snapshot.sh <user_nick> <password> <token_name> <max_units> <genesis_issuance> <memo> <memo_updatable>
 snapshot:
-	@./tools/devnet/snapshot.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
+	@./scripts/devnet/snapshot.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
 
 network:
-	@./tools/devnet/startnetwork.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
+	@./scripts/devnet/startnetwork.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
 
-####@./tools/devnet/resetnodes.sh <num_of_validator_nodes> <num_of_normal_nodes>
+####@./scripts/devnet/resetnodes.sh <num_of_validator_nodes> <num_of_normal_nodes>
 mainnet:
-	@./tools/devnet/stopnodes.sh
-	@./tools/devnet/resetnodes.sh 4 4
+	@./scripts/devnet/stopnodes.sh
+	@./scripts/devnet/resetnodes.sh 4 1

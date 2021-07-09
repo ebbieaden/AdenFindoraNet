@@ -24,6 +24,7 @@ use fc_rpc_core::{EthApi as EthApiT, NetApi as NetApiT, Web3Api as Web3ApiT};
 use jsonrpc_core::{futures::future, BoxFuture, Error, ErrorCode, Result};
 use rustc_hex::FromHex;
 use sha3::{Digest, Keccak256};
+use std::str::FromStr;
 
 pub fn internal_err<T: ToString>(message: T) -> Error {
     Error {
@@ -61,13 +62,17 @@ impl EthApiT for EthApiImpl {
     }
 
     fn accounts(&self) -> Result<Vec<H160>> {
+        println!("invoked: fn accounts");
+        let acc1 = H160::from_str("671Fb64365c7656C0D955aDcBcae8e3F62fF6A1B").unwrap();
+        let acc2 = H160::from_str("05C7dBdd1954D59c9afaB848dA7d8DD3F35e69Cd").unwrap();
+        Ok(vec![acc1, acc2])
         // let mut accounts = Vec::new();
         // for signer in &self.signers {
         //     accounts.append(&mut signer.accounts());
         // }
         // Ok(accounts)
-        println!("invoked: fn accounts");
-        Ok(Vec::new())
+        //println!("invoked: fn accounts");
+        //Ok(Vec::new())
     }
 
     fn balance(&self, address: H160, number: Option<BlockNumber>) -> Result<U256> {
@@ -81,7 +86,7 @@ impl EthApiT for EthApiImpl {
         //     )
         // }
         println!("invoked: fn balance: {}", address.to_string());
-        Ok(U256::zero())
+        Ok(U256::from(2340000000000000_u128))
     }
 
     fn send_transaction(&self, request: TransactionRequest) -> BoxFuture<H256> {
