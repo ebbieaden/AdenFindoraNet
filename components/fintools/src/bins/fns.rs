@@ -93,8 +93,6 @@ fn run() -> Result<()> {
         gen_key_and_print();
     } else if let Some(m) = matches.subcommand_matches("stake") {
         let am = m.value_of("amount");
-        let staker = m.value_of("staker-priv-key");
-        let td_addr = m.value_of("validator-td-addr");
         if m.is_present("append") {
             let staker = m.value_of("staker-priv-key");
             let td_addr = m.value_of("validator-td-addr");
