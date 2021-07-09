@@ -134,7 +134,11 @@ pub fn show() -> Result<()> {
         println!("\x1b[31;01mServer URL:\x1b[00m\n{}\n", i);
     });
 
-    let xfr_pubkey = ruc::info!(get_keypair()).map(|i| {
+    let xfr_account = ruc::info!(get_keypair()).map(|i| {
+        println!(
+            "\x1b[31;01mXfrAddress:\x1b[00m\n{}\n",
+            wallet::public_key_to_bech32(&i.get_pk())
+        );
         println!(
             "\x1b[31;01mXfrPublicKey:\x1b[00m\n{}\n",
             wallet::public_key_to_base64(&i.get_pk())
@@ -163,7 +167,7 @@ pub fn show() -> Result<()> {
 
     if [
         serv_addr,
-        xfr_pubkey,
+        xfr_account,
         td_pubkey,
         self_balance,
         delegation_info,
