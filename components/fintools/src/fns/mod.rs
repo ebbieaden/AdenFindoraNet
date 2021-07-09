@@ -12,7 +12,7 @@ use ledger::{
     data_model::BLACK_HOLE_PUBKEY_STAKING,
     staking::{
         check_delegation_amount, gen_random_keypair, td_pubkey_to_td_addr,
-        td_pubkey_to_td_addr_bytes, PartialUnDelegation,
+        td_pubkey_to_td_addr_bytes, PartialUnDelegation, TendermintAddrRef,
     },
 };
 use ruc::*;
@@ -57,14 +57,24 @@ pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<
     utils::send_tx(&builder.take_transaction()).c(d!())
 }
 
-pub fn stake_append(amount: &str) -> Result<()> {
+pub fn stake_append(
+    amount: &str,
+    staker: Option<&str>,
+    td_addr: Option<TendermintAddrRef>,
+) -> Result<()> {
     let am = amount.parse::<u64>().c(d!("'amount' must be an integer"))?;
     check_delegation_amount(am, true).c(d!())?;
 
-    let td_pubkey = get_td_pubkey().c(d!())?;
-    let td_addr = td_pubkey_to_td_addr(&td_pubkey);
+    let td_addr = td_addr.map(|ta| ta.to_owned()).c(d!()).or_else(|_| {
+        get_td_pubkey()
+            .c(d!())
+            .map(|td_pk| td_pubkey_to_td_addr(&td_pk))
+    })?;
 
-    let kp = get_keypair().c(d!())?;
+    let kp = staker
+        .c(d!())
+        .and_then(|sk| wallet::restore_keypair_from_mnemonic_default(sk).c(d!()))
+        .or_else(|_| get_keypair().c(d!()))?;
 
     let mut builder = utils::new_tx_builder().c(d!())?;
     builder.add_operation_delegation(&kp, td_addr);
