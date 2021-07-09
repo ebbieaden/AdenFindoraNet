@@ -244,7 +244,7 @@ fn test_scene_1() -> Result<()> {
     );
     assert_eq!(atc_vec[0], code);
 
-    let result = QS
+    let (_, result) = QS
         .read()
         .get_coinbase_entries(&XfrAddress { key: x_kp.pub_key }, 0, 5, true)
         .unwrap();

@@ -373,12 +373,7 @@ where
         .c(d!())
         .map_err(error::ErrorBadRequest)?;
 
-    let len = query_server
-        .get_coinbase_entries_len(&XfrAddress { key })
-        .c(d!())
-        .map_err(error::ErrorBadRequest)?;
-
-    let records = query_server
+    let resp = query_server
         .get_coinbase_entries(
             &XfrAddress { key },
             start,
@@ -389,8 +384,9 @@ where
         .map_err(error::ErrorBadRequest)?;
 
     Ok(web::Json(CoinbaseOperInfo {
-        total_count: len as u64,
-        txs: records
+        total_count: resp.0,
+        txs: resp
+            .1
             .into_iter()
             .map(|r| CoinbaseTxnBody {
                 height: r.0,
