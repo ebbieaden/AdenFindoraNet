@@ -937,7 +937,7 @@ impl Staking {
                 global_delegation_percent: None,
                 block_height: self.cur_height,
             })
-            .penalty_amount = am;
+            .penalty_amount += am;
 
         if DelegationState::Paid == d.state {
             return Err(eg!("delegation has been paid"));
