@@ -18,12 +18,16 @@
 
 //use std::time;
 use crate::internal_err;
-use ethereum_types::{H160, H256, U256, U64};
-use fc_rpc_core::types::PeerCount;
-use fc_rpc_core::types::{BlockNumber, Bytes, CallRequest, TransactionRequest};
-use fc_rpc_core::{EthApi as EthApiT, NetApi as NetApiT, Web3Api as Web3ApiT};
-use jsonrpc_core::{futures::future, BoxFuture, Error, ErrorCode, Result};
-use rustc_hex::FromHex;
+use ethereum_types::{H160, H256, H64, U256, U64};
+use fc_rpc_core::types::{
+    BlockNumber, Bytes, CallRequest, Filter, FilterChanges, Index, Log, PeerCount,
+    Receipt, RichBlock, SyncStatus, Transaction, TransactionRequest, Work,
+};
+use fc_rpc_core::{
+    EthApi as EthApiT, EthFilterApi as EthFilterApiT, NetApi as NetApiT,
+    Web3Api as Web3ApiT,
+};
+use jsonrpc_core::{futures::future, BoxFuture, Result};
 use sha3::{Digest, Keccak256};
 use std::str::FromStr;
 
@@ -32,6 +36,12 @@ pub struct EthApiImpl;
 impl EthApiImpl {
     pub fn new() -> Self {
         Self
+    }
+}
+
+impl Default for EthApiImpl {
+    fn default() -> Self {
+        EthApiImpl::new()
     }
 }
 
@@ -47,9 +57,6 @@ impl EthApiT for EthApiImpl {
     }
 
     fn chain_id(&self) -> Result<Option<U64>> {
-        // let hash = self.client.info().best_hash;
-        // Ok(Some(self.client.runtime_api().chain_id(&BlockId::Hash(hash))
-        //         .map_err(|err| internal_err(format!("fetch runtime chain id failed: {:?}", err)))?.into()))
         println!("invoked: fn chain_id");
         Ok(Some(0x538.into()))
     }
@@ -59,198 +66,192 @@ impl EthApiT for EthApiImpl {
         let acc1 = H160::from_str("671Fb64365c7656C0D955aDcBcae8e3F62fF6A1B").unwrap();
         let acc2 = H160::from_str("05C7dBdd1954D59c9afaB848dA7d8DD3F35e69Cd").unwrap();
         Ok(vec![acc1, acc2])
-        // let mut accounts = Vec::new();
-        // for signer in &self.signers {
-        //     accounts.append(&mut signer.accounts());
-        // }
-        // Ok(accounts)
-        //println!("invoked: fn accounts");
-        //Ok(Vec::new())
     }
 
-    fn balance(&self, address: H160, number: Option<BlockNumber>) -> Result<U256> {
-        // if let Ok(Some(id)) = frontier_backend_client::native_block_id::<B, C>(self.client.as_ref(), self.backend.as_ref(), number) {
-        //     return Ok(
-        //         self.client
-        //             .runtime_api()
-        //             .account_basic(&id, address)
-        //             .map_err(|err| internal_err(format!("fetch runtime chain id failed: {:?}", err)))?
-        //             .balance.into()
-        //     )
-        // }
+    fn balance(&self, address: H160, _number: Option<BlockNumber>) -> Result<U256> {
         println!("invoked: fn balance: {}", address.to_string());
-        Ok(U256::from(2340000000000000_u128))
+        Ok(U256::from(23_400_000_000_000_000_000_u128))
     }
 
-    fn send_transaction(&self, request: TransactionRequest) -> BoxFuture<H256> {
-        // let from = match request.from {
-        //     Some(from) => from,
-        //     None => {
-        //         let accounts = match self.accounts() {
-        //             Ok(accounts) => accounts,
-        //             Err(e) => return Box::new(future::result(Err(e))),
-        //         };
-
-        //         match accounts.get(0) {
-        //             Some(account) => account.clone(),
-        //             None => return Box::new(future::result(Err(internal_err("no signer available")))),
-        //         }
-        //     },
-        // };
-
-        // let nonce = match request.nonce {
-        //     Some(nonce) => nonce,
-        //     None => {
-        //         match self.transaction_count(from, None) {
-        //             Ok(nonce) => nonce,
-        //             Err(e) => return Box::new(future::result(Err(e))),
-        //         }
-        //     },
-        // };
-
-        // let chain_id = match self.chain_id() {
-        //     Ok(chain_id) => chain_id,
-        //     Err(e) => return Box::new(future::result(Err(e))),
-        // };
-
-        // let message = ethereum::TransactionMessage {
-        //     nonce,
-        //     gas_price: request.gas_price.unwrap_or(U256::from(1)),
-        //     gas_limit: request.gas.unwrap_or(U256::max_value()),
-        //     value: request.value.unwrap_or(U256::zero()),
-        //     input: request.data.map(|s| s.into_vec()).unwrap_or_default(),
-        //     action: match request.to {
-        //         Some(to) => ethereum::TransactionAction::Call(to),
-        //         None => ethereum::TransactionAction::Create,
-        //     },
-        //     chain_id: chain_id.map(|s| s.as_u64()),
-        // };
-
-        // let mut transaction = None;
-
-        // for signer in &self.signers {
-        //     if signer.accounts().contains(&from) {
-        //         match signer.sign(message, &from) {
-        //             Ok(t) => transaction = Some(t),
-        //             Err(e) => return Box::new(future::result(Err(e))),
-        //         }
-        //         break
-        //     }
-        // }
-
-        // let transaction = match transaction {
-        //     Some(transaction) => transaction,
-        //     None => return Box::new(future::result(Err(internal_err("no signer available")))),
-        // };
-        // let transaction_hash = H256::from_slice(
-        //     Keccak256::digest(&rlp::encode(&transaction)).as_slice()
-        // );
-        // let hash = self.client.info().best_hash;
-        // let number = self.client.info().best_number;
-        // let pending = self.pending_transactions.clone();
-        // Box::new(
-        //     self.pool
-        //         .submit_one(
-        //             &BlockId::hash(hash),
-        //             TransactionSource::Local,
-        //             self.convert_transaction.convert_transaction(transaction.clone()),
-        //         )
-        //         .compat()
-        //         .map(move |_| {
-        //             if let Some(pending) = pending {
-        //                 if let Ok(locked) = &mut pending.lock() {
-        //                     locked.insert(
-        //                         transaction_hash,
-        //                         PendingTransaction::new(
-        //                             transaction_build(transaction, None, None),
-        //                             UniqueSaturatedInto::<u64>::unique_saturated_into(
-        //                                 number
-        //                             )
-        //                         )
-        //                     );
-        //                 }
-        //             }
-        //             transaction_hash
-        //         })
-        //         .map_err(|err| internal_err(format!("submit transaction to pool failed: {:?}", err)))
-        // )
-
+    fn send_transaction(&self, _request: TransactionRequest) -> BoxFuture<H256> {
         println!("invoked: fn send_transaction");
-        Box::new(future::result(Err(internal_err("unimplemented"))))
+        Box::new(future::result(Err(internal_err("Method not available."))))
     }
 
-    fn call(&self, request: CallRequest, _: Option<BlockNumber>) -> Result<Bytes> {
-        // let hash = self.client.info().best_hash;
-
-        // let CallRequest {
-        //     from,
-        //     to,
-        //     gas_price,
-        //     gas,
-        //     value,
-        //     data,
-        //     nonce
-        // } = request;
-
-        // // use given gas limit or query current block's limit
-        // let gas_limit = match gas {
-        //     Some(amount) => amount,
-        //     None => {
-        //         let block = self.client.runtime_api().current_block(&BlockId::Hash(hash))
-        //             .map_err(|err| internal_err(format!("runtime error: {:?}", err)))?;
-        //         if let Some(block) = block {
-        //             block.header.gas_limit
-        //         } else {
-        //             return Err(internal_err(format!("block unavailable, cannot query gas limit")));
-        //         }
-        //     },
-        // };
-        // let data = data.map(|d| d.0).unwrap_or_default();
-
-        // match to {
-        //     Some(to) => {
-        //         let info = self.client.runtime_api()
-        //             .call(
-        //                 &BlockId::Hash(hash),
-        //                 from.unwrap_or_default(),
-        //                 to,
-        //                 data,
-        //                 value.unwrap_or_default(),
-        //                 gas_limit,
-        //                 gas_price,
-        //                 nonce,
-        //                 false,
-        //             )
-        //             .map_err(|err| internal_err(format!("runtime error: {:?}", err)))?
-        //             .map_err(|err| internal_err(format!("execution fatal: {:?}", err)))?;
-
-        //         error_on_execution_failure(&info.exit_reason, &info.value)?;
-
-        //         Ok(Bytes(info.value))
-        //     },
-        //     None => {
-        //         let info = self.client.runtime_api()
-        //             .create(
-        //                 &BlockId::Hash(hash),
-        //                 from.unwrap_or_default(),
-        //                 data,
-        //                 value.unwrap_or_default(),
-        //                 gas_limit,
-        //                 gas_price,
-        //                 nonce,
-        //                 false,
-        //             )
-        //             .map_err(|err| internal_err(format!("runtime error: {:?}", err)))?
-        //             .map_err(|err| internal_err(format!("execution fatal: {:?}", err)))?;
-
-        //         error_on_execution_failure(&info.exit_reason, &[])?;
-
-        //         Ok(Bytes(info.value[..].to_vec()))
-        //     },
-        // }
-
+    fn call(&self, _request: CallRequest, _: Option<BlockNumber>) -> Result<Bytes> {
         println!("invoked: fn call");
-        Err(internal_err("unimplemented".to_string()))
+        Err(internal_err("Method not available."))
+    }
+
+    fn syncing(&self) -> Result<SyncStatus> {
+        println!("invoked: fn syncing");
+        Err(internal_err("Method not available."))
+    }
+
+    fn author(&self) -> Result<H160> {
+        println!("invoked: fn author");
+        Err(internal_err("Method not available."))
+    }
+
+    fn is_mining(&self) -> Result<bool> {
+        println!("invoked: fn is_mining");
+        Err(internal_err("Method not available."))
+    }
+
+    fn gas_price(&self) -> Result<U256> {
+        println!("invoked: fn gas_price");
+        Err(internal_err("Method not available."))
+    }
+
+    fn block_number(&self) -> Result<U256> {
+        println!("invoked: fn block_number");
+        Ok(U256::from(1_u64))
+    }
+
+    fn storage_at(
+        &self,
+        _address: H160,
+        _index: U256,
+        _number: Option<BlockNumber>,
+    ) -> Result<H256> {
+        println!("invoked: fn storage_at");
+        Err(internal_err("Method not available."))
+    }
+
+    fn block_by_hash(&self, _hash: H256, _full: bool) -> Result<Option<RichBlock>> {
+        println!("invoked: fn block_by_hash");
+        Err(internal_err("Method not available."))
+    }
+
+    fn block_by_number(
+        &self,
+        _number: BlockNumber,
+        _full: bool,
+    ) -> Result<Option<RichBlock>> {
+        println!("invoked: fn block_by_number");
+        Err(internal_err("Method not available."))
+    }
+
+    fn transaction_count(
+        &self,
+        _address: H160,
+        _number: Option<BlockNumber>,
+    ) -> Result<U256> {
+        println!("invoked: fn transaction_count");
+        Err(internal_err("Method not available."))
+    }
+
+    fn block_transaction_count_by_hash(&self, _hash: H256) -> Result<Option<U256>> {
+        println!("invoked: fn block_transaction_count_by_hash");
+        Err(internal_err("Method not available."))
+    }
+
+    fn block_transaction_count_by_number(
+        &self,
+        _number: BlockNumber,
+    ) -> Result<Option<U256>> {
+        println!("invoked: fn block_transaction_count_by_number");
+        Err(internal_err("Method not available."))
+    }
+
+    fn block_uncles_count_by_hash(&self, _: H256) -> Result<U256> {
+        println!("invoked: fn block_uncles_count_by_hash");
+        Err(internal_err("Method not available."))
+    }
+
+    fn block_uncles_count_by_number(&self, _: BlockNumber) -> Result<U256> {
+        println!("invoked: fn block_uncles_count_by_number");
+        Err(internal_err("Method not available."))
+    }
+
+    fn code_at(&self, _address: H160, _number: Option<BlockNumber>) -> Result<Bytes> {
+        println!("invoked: fn code_at");
+        Err(internal_err("Method not available."))
+    }
+
+    fn send_raw_transaction(&self, _bytes: Bytes) -> BoxFuture<H256> {
+        println!("invoked: fn code_at");
+        Box::new(future::result(Err(internal_err("Method not available."))))
+    }
+
+    fn estimate_gas(
+        &self,
+        _request: CallRequest,
+        _: Option<BlockNumber>,
+    ) -> Result<U256> {
+        println!("invoked: fn estimate_gas");
+        Err(internal_err("Method not available."))
+    }
+
+    fn transaction_by_hash(&self, _hash: H256) -> Result<Option<Transaction>> {
+        println!("invoked: fn transaction_by_hash");
+        Err(internal_err("Method not available."))
+    }
+
+    fn transaction_by_block_hash_and_index(
+        &self,
+        _hash: H256,
+        _index: Index,
+    ) -> Result<Option<Transaction>> {
+        println!("invoked: fn transaction_by_block_hash_and_index");
+        Err(internal_err("Method not available."))
+    }
+
+    fn transaction_by_block_number_and_index(
+        &self,
+        _number: BlockNumber,
+        _index: Index,
+    ) -> Result<Option<Transaction>> {
+        println!("invoked: fn transaction_by_block_number_and_index");
+        Err(internal_err("Method not available."))
+    }
+
+    fn transaction_receipt(&self, _hash: H256) -> Result<Option<Receipt>> {
+        println!("invoked: fn transaction_receipt");
+        Err(internal_err("Method not available."))
+    }
+
+    fn uncle_by_block_hash_and_index(
+        &self,
+        _: H256,
+        _: Index,
+    ) -> Result<Option<RichBlock>> {
+        println!("invoked: fn uncle_by_block_hash_and_index");
+        Ok(None)
+    }
+
+    fn uncle_by_block_number_and_index(
+        &self,
+        _: BlockNumber,
+        _: Index,
+    ) -> Result<Option<RichBlock>> {
+        println!("invoked: fn uncle_by_block_number_and_index");
+        Ok(None)
+    }
+
+    fn logs(&self, _filter: Filter) -> Result<Vec<Log>> {
+        println!("invoked: fn logs");
+        Err(internal_err("Method not available."))
+    }
+
+    fn work(&self) -> Result<Work> {
+        println!("invoked: fn work");
+        Ok(Work {
+            pow_hash: H256::default(),
+            seed_hash: H256::default(),
+            target: H256::default(),
+            number: None,
+        })
+    }
+
+    fn submit_work(&self, _: H64, _: H256, _: H256) -> Result<bool> {
+        println!("invoked: fn submit_work");
+        Ok(false)
+    }
+
+    fn submit_hashrate(&self, _: U256, _: H256) -> Result<bool> {
+        println!("invoked: fn submit_hashrate");
+        Ok(false)
     }
 }
 
@@ -259,6 +260,12 @@ pub struct NetApiImpl;
 impl NetApiImpl {
     pub fn new() -> Self {
         Self
+    }
+}
+
+impl Default for NetApiImpl {
+    fn default() -> Self {
+        NetApiImpl::new()
     }
 }
 
@@ -287,6 +294,12 @@ impl Web3ApiImpl {
     }
 }
 
+impl Default for Web3ApiImpl {
+    fn default() -> Self {
+        Web3ApiImpl::new()
+    }
+}
+
 impl Web3ApiT for Web3ApiImpl {
     fn client_version(&self) -> Result<String> {
         println!("invoked: fn client_version");
@@ -298,5 +311,51 @@ impl Web3ApiT for Web3ApiImpl {
         Ok(H256::from_slice(
             Keccak256::digest(&input.into_vec()).as_slice(),
         ))
+    }
+}
+
+pub struct EthFilterApiImpl;
+
+impl EthFilterApiImpl {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for EthFilterApiImpl {
+    fn default() -> Self {
+        EthFilterApiImpl::new()
+    }
+}
+
+impl EthFilterApiT for EthFilterApiImpl {
+    fn new_filter(&self, _filter: Filter) -> Result<U256> {
+        println!("invoked: fn new_filter");
+        Ok(U256::zero())
+    }
+
+    fn new_block_filter(&self) -> Result<U256> {
+        println!("invoked: fn new_block_filter");
+        Ok(U256::zero())
+    }
+
+    fn new_pending_transaction_filter(&self) -> Result<U256> {
+        println!("invoked: fn new_pending_transaction_filter");
+        Err(internal_err("Method not available."))
+    }
+
+    fn filter_changes(&self, _index: Index) -> Result<FilterChanges> {
+        println!("invoked: fn filter_changes");
+        Err(internal_err("Method not available."))
+    }
+
+    fn filter_logs(&self, _index: Index) -> Result<Vec<Log>> {
+        println!("invoked: fn filter_logs");
+        Err(internal_err("Method not available."))
+    }
+
+    fn uninstall_filter(&self, _index: Index) -> Result<bool> {
+        println!("invoked: fn uninstall_filter");
+        Err(internal_err("Method not available."))
     }
 }
