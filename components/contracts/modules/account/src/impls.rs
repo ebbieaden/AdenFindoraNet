@@ -46,7 +46,8 @@ impl<C: Config> App<C> {
         balance: u128,
         asset: AssetType,
     ) -> Result<()> {
-        let mut target_account = AccountStore::get(ctx.store.clone(), target).unwrap_or_default();
+        let mut target_account =
+            AccountStore::get(ctx.store.clone(), target).unwrap_or_default();
         if asset == ASSET_TYPE_FRA {
             target_account.balance.checked_add(balance).c(d!())?;
         } else {
