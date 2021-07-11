@@ -1,9 +1,24 @@
-use fp_core::{context::Context, crypto::Address};
+use fp_core::{
+    context::Context,
+    crypto::{Address, Address32},
+};
 use primitive_types::{H160, U256};
 use ruc::Result;
+use std::convert::TryFrom;
 
 pub trait AddressMapping {
     fn into_account_id(address: H160) -> Address;
+}
+
+/// Ethereum address mapping.
+pub struct EthereumAddressMapping;
+
+impl AddressMapping for EthereumAddressMapping {
+    fn into_account_id(address: H160) -> Address {
+        let mut data = [0u8; 32];
+        data[0..20].copy_from_slice(&address[..]);
+        Address32::try_from(&data[..]).unwrap()
+    }
 }
 
 /// Trait that outputs the current transaction gas price.

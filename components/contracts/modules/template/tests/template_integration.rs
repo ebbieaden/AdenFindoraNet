@@ -2,17 +2,11 @@
 use abci::*;
 use baseapp::{Action, BaseApp, UncheckedTransaction};
 use fp_core::crypto::{Address32, MultiSignature};
+use fp_utils::db::create_temp_db_path;
 use lazy_static::lazy_static;
 use module_template::ValueStore;
-use parking_lot::RwLock;
 use rand_chacha::{rand_core::SeedableRng, ChaChaRng};
-use std::{
-    env::temp_dir,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-    time::SystemTime,
-};
-use storage::{db::FinDB, state::ChainState};
+use std::sync::Mutex;
 use zei::xfr::sig::XfrKeyPair;
 
 lazy_static! {
@@ -41,28 +35,6 @@ fn build_signed_transaction(function: Action) -> UncheckedTransaction {
     let signature = MultiSignature::from(sig);
 
     UncheckedTransaction::new_signed(function, signer, signature)
-}
-
-#[allow(unused)]
-fn create_temp_db() -> Arc<RwLock<ChainState<FinDB>>> {
-    let time = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let mut path = temp_dir();
-    path.push(format!("temp-findora-db–{}", time));
-    let fdb = FinDB::open(path).unwrap();
-    Arc::new(RwLock::new(ChainState::new(fdb, "temp_db".to_string())))
-}
-
-fn create_temp_db_path() -> PathBuf {
-    let time = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let mut path = temp_dir();
-    path.push(format!("temp-findora-db–{}", time));
-    path
 }
 
 fn test_abci_info() {

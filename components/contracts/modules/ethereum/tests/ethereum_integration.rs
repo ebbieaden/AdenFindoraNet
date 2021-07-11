@@ -1,24 +1,21 @@
 //! Ethereum module integration tests.
 
-mod mock;
-
 use abci::*;
-use baseapp::{Action, BaseApp, UncheckedTransaction};
+use baseapp::{Action, BaseApp, ChainId, UncheckedTransaction};
 use fp_core::crypto::Address;
 use fp_traits::account::AccountAsset;
-use fp_traits::evm::AddressMapping;
+use fp_utils::db::create_temp_db_path;
+use fp_utils::ethereum::*;
 use lazy_static::lazy_static;
 use ledger::data_model::ASSET_TYPE_FRA;
-use mock::*;
-use module_evm::impls::EthereumAddressMapping;
 use primitive_types::{H160, U256};
 use std::sync::Mutex;
 
 lazy_static! {
     static ref BASE_APP: Mutex<BaseApp> =
         Mutex::new(BaseApp::new(create_temp_db_path().as_path()).unwrap());
-    static ref ALICE: KeyPair = address_build(1);
-    static ref BOB: KeyPair = address_build(2);
+    static ref ALICE: KeyPair = generate_address(1);
+    static ref BOB: KeyPair = generate_address(2);
 }
 
 #[test]
@@ -41,7 +38,7 @@ fn build_transfer_transaction(to: H160, balance: u128) -> UncheckedTransaction {
         input: Vec::new(),
     };
 
-    let raw_tx = tx.sign(&ALICE.private_key, CHAIN_ID);
+    let raw_tx = tx.sign(&ALICE.private_key, ChainId::get());
     let function = Action::Ethereum(module_ethereum::Action::Transact(raw_tx));
     UncheckedTransaction::new_unsigned(function)
 }
@@ -54,8 +51,7 @@ fn test_abci_check_tx() {
         resp.code == 1 && resp.log.contains("InvalidTransaction: InsufficientBalance")
     );
 
-    let alice_account_id = EthereumAddressMapping::into_account_id(ALICE.address);
-    test_mint_balance(&alice_account_id, 2000000, 2);
+    test_mint_balance(&ALICE.account_id, 2000000, 2);
 
     let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert_eq!(
@@ -84,14 +80,11 @@ fn test_abci_deliver_tx() {
         resp.code, resp.log
     );
 
-    let alice_account_id = EthereumAddressMapping::into_account_id(ALICE.address);
-    let bob_account_id = EthereumAddressMapping::into_account_id(BOB.address);
-
     // initial balance = 2000000, gas fee = 21000, transfer balance = 10
     assert_eq!(
         module_account::App::<BaseApp>::balance(
             &BASE_APP.lock().unwrap().deliver_state,
-            &alice_account_id
+            &ALICE.account_id
         ),
         2000000 - 21000 - 10
     );
@@ -99,7 +92,7 @@ fn test_abci_deliver_tx() {
     assert_eq!(
         module_account::App::<BaseApp>::balance(
             &BASE_APP.lock().unwrap().deliver_state,
-            &bob_account_id
+            &BOB.account_id
         ),
         10
     );
@@ -132,15 +125,13 @@ fn test_abci_query() {
         .unwrap()
         .create_query_context(3, false)
         .unwrap();
-    let alice_account_id = EthereumAddressMapping::into_account_id(ALICE.address);
-    let bob_account_id = EthereumAddressMapping::into_account_id(BOB.address);
     assert_eq!(
-        module_account::App::<BaseApp>::balance(&ctx, &alice_account_id),
+        module_account::App::<BaseApp>::balance(&ctx, &ALICE.account_id),
         2000000 - 21000 - 10
     );
 
     assert_eq!(
-        module_account::App::<BaseApp>::balance(&ctx, &bob_account_id),
+        module_account::App::<BaseApp>::balance(&ctx, &BOB.account_id),
         10
     );
 }
