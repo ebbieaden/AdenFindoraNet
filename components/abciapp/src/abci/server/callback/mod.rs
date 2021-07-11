@@ -231,6 +231,7 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
 
     pnk!(pulse_cache::write_block_pulse(la.block_pulse_count()));
 
+    //TODO node restart tx replay, consider add a initial height for chain state?
     let mut la_hash = commitment.0.as_ref().to_vec();
     let mut cs_hash = s.account_base_app.write().commit(req).data;
     la_hash.append(&mut cs_hash);

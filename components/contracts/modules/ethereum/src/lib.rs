@@ -122,7 +122,10 @@ impl<C: Config> ValidateUnsigned for App<C> {
         let fee = transaction.gas_price.saturating_mul(transaction.gas_limit);
         let total_payment = transaction.value.saturating_add(fee);
         if account_data.balance < total_payment {
-            return Err(eg!("InvalidTransaction: InsufficientBalance"));
+            return Err(eg!(format!(
+                "InvalidTransaction: InsufficientBalance, actual:{}, expected:{}",
+                account_data.balance, total_payment
+            )));
         }
 
         let min_gas_price = C::FeeCalculator::min_gas_price();

@@ -8,6 +8,7 @@ use parking_lot::RwLock;
 use rand_chacha::{rand_core::SeedableRng, ChaChaRng};
 use std::{
     env::temp_dir,
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::SystemTime,
 };
@@ -16,7 +17,7 @@ use zei::xfr::sig::XfrKeyPair;
 
 lazy_static! {
     static ref BASE_APP: Mutex<BaseApp> =
-        Mutex::new(BaseApp::new(create_temp_db()).unwrap());
+        Mutex::new(BaseApp::new(create_temp_db_path().as_path()).unwrap());
 }
 
 #[test]
@@ -42,6 +43,7 @@ fn build_signed_transaction(function: Action) -> UncheckedTransaction {
     UncheckedTransaction::new_signed(function, signer, signature)
 }
 
+#[allow(unused)]
 fn create_temp_db() -> Arc<RwLock<ChainState<FinDB>>> {
     let time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -51,6 +53,16 @@ fn create_temp_db() -> Arc<RwLock<ChainState<FinDB>>> {
     path.push(format!("temp-findora-db–{}", time));
     let fdb = FinDB::open(path).unwrap();
     Arc::new(RwLock::new(ChainState::new(fdb, "temp_db".to_string())))
+}
+
+fn create_temp_db_path() -> PathBuf {
+    let time = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let mut path = temp_dir();
+    path.push(format!("temp-findora-db–{}", time));
+    path
 }
 
 fn test_abci_info() {

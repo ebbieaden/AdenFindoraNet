@@ -4,7 +4,7 @@ use fp_core::crypto::Address32;
 use fp_core::{context::Context, crypto::Address};
 use fp_evm::Account;
 use fp_traits::{
-    account::AccountInfo,
+    account::AccountAsset,
     evm::{AddressMapping, OnChargeEVMTransaction},
 };
 use primitive_types::{H160, U256};
@@ -38,8 +38,8 @@ impl<C: Config> App<C> {
     /// Get the account basic in EVM format.
     pub fn account_basic(ctx: &Context, address: &H160) -> Account {
         let account_id = C::AddressMapping::into_account_id(*address);
-        let nonce = U256::from(C::AccountInfo::nonce(ctx, &account_id));
-        let balance = U256::from(C::AccountInfo::balance(ctx, &account_id));
+        let nonce = U256::from(C::AccountAsset::nonce(ctx, &account_id));
+        let balance = U256::from(C::AccountAsset::balance(ctx, &account_id));
 
         Account { nonce, balance }
     }
@@ -55,7 +55,6 @@ pub struct EthereumAddressMapping;
 
 impl AddressMapping for EthereumAddressMapping {
     fn into_account_id(address: H160) -> Address {
-        // TODO temp impl
         let mut data = [0u8; 32];
         data[0..20].copy_from_slice(&address[..]);
         Address32::try_from(&data[..]).unwrap()
@@ -66,17 +65,19 @@ impl AddressMapping for EthereumAddressMapping {
 /// trait (eg. the pallet_balances) using an unbalance handler (implementing
 /// `OnUnbalanced`).
 impl<C: Config> OnChargeEVMTransaction for App<C> {
-    type LiquidityInfo = ();
-
-    fn withdraw_fee(_who: &H160, _fee: U256) -> Result<Self::LiquidityInfo> {
-        todo!()
+    fn withdraw_fee(ctx: &Context, who: &H160, fee: U256) -> Result<()> {
+        let account_id = C::AddressMapping::into_account_id(*who);
+        C::AccountAsset::withdraw(ctx, &account_id, fee.low_u128())
     }
 
     fn correct_and_deposit_fee(
-        _who: &H160,
-        _corrected_fee: U256,
-        _already_withdrawn: Self::LiquidityInfo,
+        ctx: &Context,
+        who: &H160,
+        corrected_fee: U256,
+        already_withdrawn: U256,
     ) -> Result<()> {
-        todo!()
+        let account_id = C::AddressMapping::into_account_id(*who);
+        let refund_amount = already_withdrawn.saturating_sub(corrected_fee);
+        C::AccountAsset::refund(ctx, &account_id, refund_amount.low_u128())
     }
 }

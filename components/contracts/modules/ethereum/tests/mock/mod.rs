@@ -3,17 +3,17 @@ use parking_lot::RwLock;
 use primitive_types::{H160, H256, U256};
 use rlp::*;
 use sha3::{Digest, Keccak256};
-use std::{env::temp_dir, sync::Arc, time::SystemTime};
+use std::{env::temp_dir, path::PathBuf, sync::Arc, time::SystemTime};
 use storage::{db::FinDB, state::ChainState};
 
 pub const CHAIN_ID: u64 = 523;
 
-pub struct AccountInfo {
+pub struct KeyPair {
     pub address: H160,
     pub private_key: H256,
 }
 
-pub fn address_build(seed: u8) -> AccountInfo {
+pub fn address_build(seed: u8) -> KeyPair {
     //H256::from_low_u64_be((i + 1) as u64);
     let private_key = H256::from_slice(&[(seed + 1) as u8; 32]);
     let secret_key = libsecp256k1::SecretKey::parse_slice(&private_key[..]).unwrap();
@@ -21,9 +21,9 @@ pub fn address_build(seed: u8) -> AccountInfo {
         &libsecp256k1::PublicKey::from_secret_key(&secret_key).serialize()[1..65];
     let address = H160::from(H256::from_slice(&Keccak256::digest(public_key)[..]));
 
-    AccountInfo {
-        private_key,
+    KeyPair {
         address,
+        private_key,
     }
 }
 
@@ -84,6 +84,7 @@ impl UnsignedTransaction {
     }
 }
 
+#[allow(unused)]
 pub fn create_temp_db() -> Arc<RwLock<ChainState<FinDB>>> {
     let time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -93,4 +94,14 @@ pub fn create_temp_db() -> Arc<RwLock<ChainState<FinDB>>> {
     path.push(format!("temp-findora-db–{}", time));
     let fdb = FinDB::open(path).unwrap();
     Arc::new(RwLock::new(ChainState::new(fdb, "temp_db".to_string())))
+}
+
+pub fn create_temp_db_path() -> PathBuf {
+    let time = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let mut path = temp_dir();
+    path.push(format!("temp-findora-db–{}", time));
+    path
 }

@@ -6,6 +6,7 @@ mod impls;
 use fp_core::{
     context::Context, crypto::Address, module::AppModule, transaction::Executable,
 };
+use fp_traits::account::AccountAsset;
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -21,6 +22,7 @@ mod storage {
     use fp_core::{account::SmartAccount, crypto::Address};
     use fp_storage::*;
 
+    // Store account information under all account addresses
     generate_storage!(Account, AccountStore => Map<Address, SmartAccount>);
 }
 
@@ -58,7 +60,7 @@ impl<C: Config> Executable for App<C> {
         match call {
             Action::Transfer((dest, balance)) => {
                 if let Some(sender) = origin {
-                    Self::do_transfer(ctx, &sender, &dest, balance)
+                    Self::transfer(ctx, &sender, &dest, balance)
                 } else {
                     Err(eg!("invalid transaction origin"))
                 }
