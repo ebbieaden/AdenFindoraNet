@@ -16,27 +16,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use serde::Deserialize;
-use ethereum_types::{H160, U256};
+//! Web3 rpc interface.
+use ethereum_types::H256;
+use jsonrpc_core::Result;
+use jsonrpc_derive::rpc;
+
 use crate::types::Bytes;
 
-/// Call request
-#[derive(Debug, Default, PartialEq, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "camelCase")]
-pub struct CallRequest {
-	/// From
-	pub from: Option<H160>,
-	/// To
-	pub to: Option<H160>,
-	/// Gas Price
-	pub gas_price: Option<U256>,
-	/// Gas
-	pub gas: Option<U256>,
-	/// Value
-	pub value: Option<U256>,
-	/// Data
-	pub data: Option<Bytes>,
-	/// Nonce
-	pub nonce: Option<U256>,
+pub use rpc_impl_Web3Api::gen_server::Web3Api as Web3ApiServer;
+
+/// Web3 rpc interface.
+#[rpc(server)]
+pub trait Web3Api {
+    /// Returns current client version.
+    #[rpc(name = "web3_clientVersion")]
+    fn client_version(&self) -> Result<String>;
+
+    /// Returns sha3 of the given data
+    #[rpc(name = "web3_sha3")]
+    fn sha3(&self, _: Bytes) -> Result<H256>;
 }

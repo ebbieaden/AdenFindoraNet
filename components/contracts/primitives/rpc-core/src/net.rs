@@ -16,33 +16,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use serde::Serialize;
-use ethereum_types::{H160, H256, U256};
-use crate::types::Bytes;
+//! Net rpc interface.
+use crate::types::PeerCount;
+use jsonrpc_core::Result;
+use jsonrpc_derive::rpc;
 
-/// Log
-#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Log {
-	/// H160
-	pub address: H160,
-	/// Topics
-	pub topics: Vec<H256>,
-	/// Data
-	pub data: Bytes,
-	/// Block Hash
-	pub block_hash: Option<H256>,
-	/// Block Number
-	pub block_number: Option<U256>,
-	/// Transaction Hash
-	pub transaction_hash: Option<H256>,
-	/// Transaction Index
-	pub transaction_index: Option<U256>,
-	/// Log Index in Block
-	pub log_index: Option<U256>,
-	/// Log Index in Transaction
-	pub transaction_log_index: Option<U256>,
-	/// Whether Log Type is Removed (Geth Compatibility Field)
-	#[serde(default)]
-	pub removed: bool,
+pub use rpc_impl_NetApi::gen_server::NetApi as NetApiServer;
+
+/// Net rpc interface.
+#[rpc(server)]
+pub trait NetApi {
+    /// Returns protocol version.
+    #[rpc(name = "net_version")]
+    fn version(&self) -> Result<String>;
+
+    /// Returns number of peers connected to node.
+    #[rpc(name = "net_peerCount")]
+    fn peer_count(&self) -> Result<PeerCount>;
+
+    /// Returns true if client is actively listening for network connections.
+    /// Otherwise false.
+    #[rpc(name = "net_listening")]
+    fn is_listening(&self) -> Result<bool>;
 }
