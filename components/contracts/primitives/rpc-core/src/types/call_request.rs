@@ -16,29 +16,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-//! `TransactionRequest` type
-
-use serde::{Serialize, Deserialize};
-use ethereum_types::{H160, U256};
 use crate::types::Bytes;
+use ethereum_types::{H160, U256};
+use serde::Deserialize;
 
-/// Transaction request coming from RPC
-#[derive(Debug, Clone, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+/// Call request
+#[derive(Debug, Default, PartialEq, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
-pub struct TransactionRequest {
-	/// Sender
-	pub from: Option<H160>,
-	/// Recipient
-	pub to: Option<H160>,
-	/// Gas Price
-	pub gas_price: Option<U256>,
-	/// Gas
-	pub gas: Option<U256>,
-	/// Value of transaction in wei
-	pub value: Option<U256>,
-	/// Additional data sent with transaction
-	pub data: Option<Bytes>,
-	/// Transaction's nonce
-	pub nonce: Option<U256>,
+pub struct CallRequest {
+    /// From
+    pub from: Option<H160>,
+    /// To
+    pub to: Option<H160>,
+    /// Gas Price
+    pub gas_price: Option<U256>,
+    /// Gas
+    pub gas: Option<U256>,
+    /// Value
+    pub value: Option<U256>,
+    /// Data
+    pub data: Option<Bytes>,
+    /// Nonce
+    pub nonce: Option<U256>,
 }

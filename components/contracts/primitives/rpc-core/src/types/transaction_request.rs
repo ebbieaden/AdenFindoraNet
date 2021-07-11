@@ -16,23 +16,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-//! Web3 rpc interface.
-use ethereum_types::H256;
-use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+//! `TransactionRequest` type
 
 use crate::types::Bytes;
+use ethereum_types::{H160, U256};
+use serde::{Deserialize, Serialize};
 
-pub use rpc_impl_Web3Api::gen_server::Web3Api as Web3ApiServer;
-
-/// Web3 rpc interface.
-#[rpc(server)]
-pub trait Web3Api {
-	/// Returns current client version.
-	#[rpc(name = "web3_clientVersion")]
-	fn client_version(&self) -> Result<String>;
-
-	/// Returns sha3 of the given data
-	#[rpc(name = "web3_sha3")]
-	fn sha3(&self, _: Bytes) -> Result<H256>;
+/// Transaction request coming from RPC
+#[derive(Debug, Clone, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionRequest {
+    /// Sender
+    pub from: Option<H160>,
+    /// Recipient
+    pub to: Option<H160>,
+    /// Gas Price
+    pub gas_price: Option<U256>,
+    /// Gas
+    pub gas: Option<U256>,
+    /// Value of transaction in wei
+    pub value: Option<U256>,
+    /// Additional data sent with transaction
+    pub data: Option<Bytes>,
+    /// Transaction's nonce
+    pub nonce: Option<U256>,
 }

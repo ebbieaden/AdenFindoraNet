@@ -16,29 +16,33 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use ethereum_types::{H256, U256};
+use crate::types::Bytes;
+use ethereum_types::{H160, H256, U256};
+use serde::Serialize;
 
-use serde::{Serialize, Serializer};
-
-/// The result of an `eth_getWork` call: it differs based on an option
-/// whether to send the block number.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Work {
-	/// The proof-of-work hash.
-	pub pow_hash: H256,
-	/// The seed hash.
-	pub seed_hash: H256,
-	/// The target.
-	pub target: H256,
-	/// The block number: this isn't always stored.
-	pub number: Option<u64>,
-}
-
-impl Serialize for Work {
-	fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
-		match self.number.as_ref() {
-			Some(num) => (&self.pow_hash, &self.seed_hash, &self.target, U256::from(*num)).serialize(s),
-			None => (&self.pow_hash, &self.seed_hash, &self.target).serialize(s),
-		}
-	}
+/// Log
+#[derive(Debug, Serialize, PartialEq, Eq, Hash, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Log {
+    /// H160
+    pub address: H160,
+    /// Topics
+    pub topics: Vec<H256>,
+    /// Data
+    pub data: Bytes,
+    /// Block Hash
+    pub block_hash: Option<H256>,
+    /// Block Number
+    pub block_number: Option<U256>,
+    /// Transaction Hash
+    pub transaction_hash: Option<H256>,
+    /// Transaction Index
+    pub transaction_index: Option<U256>,
+    /// Log Index in Block
+    pub log_index: Option<U256>,
+    /// Log Index in Transaction
+    pub transaction_log_index: Option<U256>,
+    /// Whether Log Type is Removed (Geth Compatibility Field)
+    #[serde(default)]
+    pub removed: bool,
 }

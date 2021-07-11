@@ -1,6 +1,7 @@
 mod eth;
+
 pub use eth::{EthApiImpl, EthFilterApiImpl, NetApiImpl, Web3ApiImpl};
-pub use fc_rpc_core::{EthApiServer, EthFilterApiServer, NetApiServer, Web3ApiServer};
+pub use fp_rpc_core::{EthApiServer, EthFilterApiServer, NetApiServer, Web3ApiServer};
 use jsonrpc_core::{Error, ErrorCode};
 use jsonrpc_http_server::{
     AccessControlAllowOrigin, DomainsValidation, RestApi, ServerBuilder,

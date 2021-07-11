@@ -24,6 +24,8 @@ members = [
     "components/contracts/primitives/evm",
     "components/contracts/primitives/storage",
     "components/contracts/primitives/traits",
+    "components/contracts/primitives/rpc-core",
+    "components/contracts/rpc",
     "components/ledger_api_service",
     "components/query_api",
     "components/query_server",
