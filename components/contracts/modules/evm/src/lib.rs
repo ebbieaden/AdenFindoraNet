@@ -11,7 +11,7 @@ use fp_core::{
 };
 use fp_evm::PrecompileSet;
 use fp_traits::{
-    account::AccountInfo,
+    account::AccountAsset,
     evm::{AddressMapping, FeeCalculator, OnChargeEVMTransaction},
 };
 use primitive_types::U256;
@@ -24,7 +24,7 @@ pub use runtime::*;
 static ISTANBUL_CONFIG: EvmConfig = EvmConfig::istanbul();
 
 pub trait Config {
-    type AccountInfo: AccountInfo<Address>;
+    type AccountAsset: AccountAsset<Address>;
     /// Mapping from address to account id.
     type AddressMapping: AddressMapping;
     /// The block gas limit. Can be a simple constant, or an adjustment algorithm in another pallet.

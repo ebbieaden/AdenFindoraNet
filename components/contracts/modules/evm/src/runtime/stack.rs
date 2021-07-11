@@ -6,6 +6,7 @@ use evm::{
 };
 use fp_core::{context::Context, macros::Get};
 use fp_evm::{Log, Vicinity};
+use fp_traits::account::AccountAsset;
 use primitive_types::{H160, H256, U256};
 use std::{collections::btree_set::BTreeSet, marker::PhantomData, mem};
 
@@ -242,9 +243,8 @@ impl<'context, 'vicinity, 'config, C: Config> StackState<'config>
     }
 
     fn inc_nonce(&mut self, address: H160) {
-        let _account_id = C::AddressMapping::into_account_id(address);
-        // frame_system::Module::<T>::inc_account_nonce(&account_id);
-        todo!()
+        let account_id = C::AddressMapping::into_account_id(address);
+        let _ = C::AccountAsset::inc_nonce(self.ctx, &account_id);
     }
 
     fn set_storage(&mut self, address: H160, index: H256, value: H256) {
@@ -291,18 +291,11 @@ impl<'context, 'vicinity, 'config, C: Config> StackState<'config>
     }
 
     fn transfer(&mut self, transfer: Transfer) -> Result<(), ExitError> {
-        // TODO target must bind fra address
-        let _source = C::AddressMapping::into_account_id(transfer.source);
-        let _target = C::AddressMapping::into_account_id(transfer.target);
-        //
-        // T::Currency::transfer(
-        //     &source,
-        //     &target,
-        //     transfer.value.low_u128().unique_saturated_into(),
-        //     ExistenceRequirement::AllowDeath,
-        // )
-        // .map_err(|_| ExitError::OutOfFund)
-        todo!()
+        let source = C::AddressMapping::into_account_id(transfer.source);
+        let target = C::AddressMapping::into_account_id(transfer.target);
+
+        C::AccountAsset::transfer(self.ctx, &source, &target, transfer.value.low_u128())
+            .map_err(|_| ExitError::OutOfFund)
     }
 
     fn reset_balance(&mut self, _address: H160) {

@@ -119,7 +119,7 @@ impl ModuleManager {
     ) -> Result<()> {
         let (owner, assets) = check_convert_tx(tx)?;
         for (asset, amount) in assets.iter() {
-            module_account::App::<BaseApp>::mint_balance(
+            module_account::App::<BaseApp>::mint(
                 ctx,
                 &Address32::from(owner),
                 amount.clone().into(),

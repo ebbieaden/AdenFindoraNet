@@ -72,7 +72,7 @@ impl<C: Config> ActionRunner<C> {
         }
 
         // Deduct fee from the `source` account.
-        let fee = C::OnChargeTransaction::withdraw_fee(&source, total_fee)?;
+        C::OnChargeTransaction::withdraw_fee(ctx, &source, total_fee)?;
 
         // Execute the EVM call.
         let (reason, retv) = f(&mut executor);
@@ -90,7 +90,9 @@ impl<C: Config> ActionRunner<C> {
         );
 
         // Refund fees to the `source` account if deducted more before,
-        C::OnChargeTransaction::correct_and_deposit_fee(&source, actual_fee, fee)?;
+        C::OnChargeTransaction::correct_and_deposit_fee(
+            ctx, &source, actual_fee, total_fee,
+        )?;
 
         let state = executor.into_state();
 

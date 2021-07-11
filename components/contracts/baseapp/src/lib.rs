@@ -10,6 +10,7 @@ use fp_core::{
     ensure, parameter_types,
     transaction::{Executable, ValidateUnsigned},
 };
+use fp_traits::account::AccountAsset;
 use ledger::data_model::Transaction as FindoraTransaction;
 use parking_lot::RwLock;
 use primitive_types::U256;
@@ -63,7 +64,7 @@ parameter_types! {
 }
 
 impl module_evm::Config for BaseApp {
-    type AccountInfo = module_account::App<Self>;
+    type AccountAsset = module_account::App<Self>;
     type AddressMapping = module_evm::impls::EthereumAddressMapping;
     type BlockGasLimit = BlockGasLimit;
     type ChainId = ChainId;
@@ -149,7 +150,7 @@ impl Executable for BaseApp {
 }
 
 impl BaseApp {
-    fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
+    pub fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
         ensure!(
             height >= 0,
             "cannot query with height < 0; please provide a valid height"
@@ -173,7 +174,11 @@ impl BaseApp {
     }
 
     /// retrieve the context for the txBytes and other memoized values.
-    fn retrieve_context(&mut self, mode: RunTxMode, tx_bytes: Vec<u8>) -> &mut Context {
+    pub fn retrieve_context(
+        &mut self,
+        mode: RunTxMode,
+        tx_bytes: Vec<u8>,
+    ) -> &mut Context {
         let ctx = if mode == RunTxMode::Deliver {
             &mut self.deliver_state
         } else {
@@ -235,7 +240,8 @@ impl BaseApp {
         self.modules.process_findora_tx(&self.check_state, tx)
     }
 
-    pub fn get_balance(&self, addr: XfrPublicKey) -> Result<SmartAccount> {
-        module_account::App::<BaseApp>::get_balance(&self.deliver_state, &addr.into())
+    pub fn account_of(&self, addr: XfrPublicKey) -> Result<SmartAccount> {
+        module_account::App::<BaseApp>::account_of(&self.deliver_state, &addr.into())
+            .ok_or(eg!("account does not exist"))
     }
 }
