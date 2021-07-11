@@ -4,24 +4,28 @@ mod types;
 
 use crate::modules::ModuleManager;
 use abci::Header;
+use fp_core::account::SmartAccount;
 use fp_core::{
     context::Context,
     crypto::Address,
     ensure, parameter_types,
     transaction::{Executable, ValidateUnsigned},
 };
+use fp_traits::account::AccountAsset;
 use ledger::data_model::Transaction as FindoraTransaction;
 use parking_lot::RwLock;
 use primitive_types::U256;
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
+use zei::xfr::sig::XfrPublicKey;
 
 pub use types::*;
 
 const APP_NAME: &str = "findora";
-// const APP_DB_NAME: &str = "findora_db";
+const APP_DB_NAME: &str = "findora_db";
 
 pub struct BaseApp {
     /// application name from abci.Info
@@ -63,6 +67,7 @@ parameter_types! {
 }
 
 impl module_evm::Config for BaseApp {
+    type AccountAsset = module_account::App<Self>;
     type AddressMapping = module_evm::impls::EthereumAddressMapping;
     type BlockGasLimit = BlockGasLimit;
     type ChainId = ChainId;
@@ -73,7 +78,11 @@ impl module_evm::Config for BaseApp {
 }
 
 impl BaseApp {
-    pub fn new(chain_state: Arc<RwLock<ChainState<FinDB>>>) -> Result<Self> {
+    pub fn new(base_dir: &Path) -> Result<Self> {
+        let fdb = FinDB::open(base_dir)?;
+        let chain_state =
+            Arc::new(RwLock::new(ChainState::new(fdb, APP_DB_NAME.to_string())));
+
         Ok(BaseApp {
             name: APP_NAME.to_string(),
             version: "1.0.0".to_string(),
@@ -131,7 +140,7 @@ impl Executable for BaseApp {
 }
 
 impl BaseApp {
-    fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
+    pub fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
         ensure!(
             height >= 0,
             "cannot query with height < 0; please provide a valid height"
@@ -155,7 +164,11 @@ impl BaseApp {
     }
 
     /// retrieve the context for the txBytes and other memoized values.
-    fn retrieve_context(&mut self, mode: RunTxMode, tx_bytes: Vec<u8>) -> &mut Context {
+    pub fn retrieve_context(
+        &mut self,
+        mode: RunTxMode,
+        tx_bytes: Vec<u8>,
+    ) -> &mut Context {
         let ctx = if mode == RunTxMode::Deliver {
             &mut self.deliver_state
         } else {
@@ -215,5 +228,10 @@ impl BaseApp {
 
     pub fn check_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
         self.modules.process_findora_tx(&self.check_state, tx)
+    }
+
+    pub fn account_of(&self, addr: XfrPublicKey) -> Result<SmartAccount> {
+        module_account::App::<BaseApp>::account_of(&self.deliver_state, &addr.into())
+            .ok_or(eg!("account does not exist"))
     }
 }

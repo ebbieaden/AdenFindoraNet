@@ -10,6 +10,7 @@ mod response;
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
 // use ledger::address::store::BalanceStore;
+use baseapp::BaseApp;
 use ledger::address::{AddressBinder, SmartAddress};
 use ledger::staking::{DelegationRwdDetail, TendermintAddr};
 use ledger::{
@@ -554,19 +555,19 @@ where
     Err(error::ErrorNotFound("not exists"))
 }
 
-// async fn query_account_model_balance(
-//     data: web::Data<Arc<RwLock<BalanceStore>>>,
-//     address: web::Path<String>,
-// ) -> actix_web::Result<impl Responder> {
-//     let pk = wallet::public_key_from_base64(address.as_str())
-//         .c(d!())
-//         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-//     let balance_store = data.read();
-//     let balance = balance_store
-//         .get(&pk)
-//         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-//     Ok(web::Json(response::Response::new_success(balance)))
-// }
+async fn query_account_model_balance(
+    data: web::Data<Arc<RwLock<BaseApp>>>,
+    address: web::Path<String>,
+) -> actix_web::Result<impl Responder> {
+    let pk = wallet::public_key_from_base64(address.as_str())
+        .c(d!())
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let account_base_app = data.read();
+    let balance = account_base_app
+        .account_of(pk)
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    Ok(web::Json(response::Response::new_success(Some(balance))))
+}
 
 async fn query_address_map_by_xfr(
     data: web::Data<Arc<RwLock<AddressBinder>>>,
@@ -929,7 +930,7 @@ impl RestfulApiService {
     pub fn create<LA: 'static + LedgerAccess + Sync + Send>(
         ledger_access: Arc<RwLock<LA>>,
         address_binder: Arc<RwLock<AddressBinder>>,
-        // balance_store: Arc<RwLock<BalanceStore>>,
+        account_base_app: Arc<RwLock<BaseApp>>,
         host: &str,
         port: u16,
     ) -> Result<RestfulApiService> {
@@ -941,7 +942,7 @@ impl RestfulApiService {
                 .wrap(Cors::permissive().supports_credentials())
                 .data(ledger_access.clone())
                 .data(address_binder.clone())
-                // .data(balance_store.clone())
+                .data(account_base_app.clone())
                 .route("/ping", web::get().to(ping))
                 .route("/version", web::get().to(version))
                 .set_route::<LA>(AccessApi::Ledger)
@@ -955,10 +956,10 @@ impl RestfulApiService {
                     "/address/get_map_eth/{address}",
                     web::get().to(query_address_map_by_eth),
                 )
-            //                 .route(
-            // "/account/balance/{address}",
-            // web::get().to(query_account_model_balance),
-            // )
+                .route(
+                    "/account/balance/{address}",
+                    web::get().to(query_account_model_balance),
+                )
         })
         .bind(&format!("{}:{}", host, port))
         .c(d!())?
