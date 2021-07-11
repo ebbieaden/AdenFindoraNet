@@ -68,6 +68,12 @@ pub fn run() -> Result<()> {
         .update();
     }
 
+    if env::var("ENABLE_ETH_API_SERVICE").is_ok() {
+        thread::spawn(move || {
+            fc_rpc::start_service();
+        });
+    }
+
     let submission_host = config.submission_host.clone();
     let submission_port = config.submission_port;
     thread::spawn(move || {

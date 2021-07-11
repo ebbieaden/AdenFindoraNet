@@ -20,9 +20,8 @@ fp-storage = { path = "../../primitives/storage" }
 
 [dev-dependencies]
 baseapp = { path = "../../baseapp" }
+fp-utils = { path = "../../primitives/utils" }
 hex = "0.4.2"
 lazy_static = "1.4.0"
-parking_lot = "0.11.1"
 rand_chacha = "0.2.0"
-storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "master" }
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }

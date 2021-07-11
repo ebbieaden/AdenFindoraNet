@@ -1,20 +1,17 @@
 use ethereum::{Transaction, TransactionAction, TransactionSignature};
-use parking_lot::RwLock;
+use fp_core::crypto::Address;
+use fp_traits::evm::{AddressMapping, EthereumAddressMapping};
 use primitive_types::{H160, H256, U256};
 use rlp::*;
 use sha3::{Digest, Keccak256};
-use std::{env::temp_dir, path::PathBuf, sync::Arc, time::SystemTime};
-use storage::{db::FinDB, state::ChainState};
-
-pub const CHAIN_ID: u64 = 523;
 
 pub struct KeyPair {
     pub address: H160,
     pub private_key: H256,
+    pub account_id: Address,
 }
 
-pub fn address_build(seed: u8) -> KeyPair {
-    //H256::from_low_u64_be((i + 1) as u64);
+pub fn generate_address(seed: u8) -> KeyPair {
     let private_key = H256::from_slice(&[(seed + 1) as u8; 32]);
     let secret_key = libsecp256k1::SecretKey::parse_slice(&private_key[..]).unwrap();
     let public_key =
@@ -24,6 +21,7 @@ pub fn address_build(seed: u8) -> KeyPair {
     KeyPair {
         address,
         private_key,
+        account_id: EthereumAddressMapping::into_account_id(address),
     }
 }
 
@@ -82,26 +80,4 @@ impl UnsignedTransaction {
             signature: sig,
         }
     }
-}
-
-#[allow(unused)]
-pub fn create_temp_db() -> Arc<RwLock<ChainState<FinDB>>> {
-    let time = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let mut path = temp_dir();
-    path.push(format!("temp-findora-db–{}", time));
-    let fdb = FinDB::open(path).unwrap();
-    Arc::new(RwLock::new(ChainState::new(fdb, "temp_db".to_string())))
-}
-
-pub fn create_temp_db_path() -> PathBuf {
-    let time = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let mut path = temp_dir();
-    path.push(format!("temp-findora-db–{}", time));
-    path
 }
