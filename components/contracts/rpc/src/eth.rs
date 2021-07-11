@@ -1,13 +1,11 @@
 use crate::internal_err;
+use baseapp::ChainId;
 use ethereum_types::{H160, H256, H64, U256, U64};
 use fp_rpc_core::types::{
     BlockNumber, Bytes, CallRequest, Filter, FilterChanges, Index, Log, PeerCount,
     Receipt, RichBlock, SyncStatus, Transaction, TransactionRequest, Work,
 };
-use fp_rpc_core::{
-    EthApi as EthApiT, EthFilterApi as EthFilterApiT, NetApi as NetApiT,
-    Web3Api as Web3ApiT,
-};
+use fp_rpc_core::{EthApi, EthFilterApi, NetApi, Web3Api};
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use sha3::{Digest, Keccak256};
 use std::str::FromStr;
@@ -26,20 +24,17 @@ impl Default for EthApiImpl {
     }
 }
 
-impl EthApiT for EthApiImpl {
+impl EthApi for EthApiImpl {
     fn protocol_version(&self) -> Result<u64> {
-        println!("invoked: fn protocol_version");
         Ok(1)
     }
 
     fn hashrate(&self) -> Result<U256> {
-        println!("invoked: fn hashrate");
         Ok(U256::zero())
     }
 
     fn chain_id(&self) -> Result<Option<U64>> {
-        println!("invoked: fn chain_id");
-        Ok(Some(0x538.into()))
+        Ok(Some(ChainId::get().into()))
     }
 
     fn accounts(&self) -> Result<Vec<H160>> {
@@ -250,7 +245,7 @@ impl Default for NetApiImpl {
     }
 }
 
-impl NetApiT for NetApiImpl {
+impl NetApi for NetApiImpl {
     fn is_listening(&self) -> Result<bool> {
         println!("invoked: fn is_listening");
         Ok(true)
@@ -281,7 +276,7 @@ impl Default for Web3ApiImpl {
     }
 }
 
-impl Web3ApiT for Web3ApiImpl {
+impl Web3Api for Web3ApiImpl {
     fn client_version(&self) -> Result<String> {
         println!("invoked: fn client_version");
         Ok(String::from("findora-eth-api/v0.1.0-rust"))
@@ -309,7 +304,7 @@ impl Default for EthFilterApiImpl {
     }
 }
 
-impl EthFilterApiT for EthFilterApiImpl {
+impl EthFilterApi for EthFilterApiImpl {
     fn new_filter(&self, _filter: Filter) -> Result<U256> {
         println!("invoked: fn new_filter");
         Ok(U256::zero())

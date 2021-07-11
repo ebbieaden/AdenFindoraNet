@@ -68,7 +68,7 @@ parameter_types! {
 
 impl module_evm::Config for BaseApp {
     type AccountAsset = module_account::App<Self>;
-    type AddressMapping = module_evm::impls::EthereumAddressMapping;
+    type AddressMapping = fp_traits::evm::EthereumAddressMapping;
     type BlockGasLimit = BlockGasLimit;
     type ChainId = ChainId;
     type FeeCalculator = ();

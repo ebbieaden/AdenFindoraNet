@@ -32,11 +32,9 @@ module-evm = { path = "../evm"}
 
 [dev-dependencies]
 baseapp = { path = "../../baseapp" }
+fp-utils = { path = "../../primitives/utils" }
 hex = "0.4.2"
 lazy_static = "1.4.0"
 ledger = { path = "../../../../ledger" }
-libsecp256k1 = { version = "0.5", features = ["static-context", "hmac"] }
 module-account = { path = "../account" }
-parking_lot = "0.11.1"
 rustc-hex = "2.1.0"
-storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "master" }

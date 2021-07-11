@@ -1,7 +1,6 @@
 use crate::storage::*;
 use crate::{App, Config};
-use fp_core::crypto::Address32;
-use fp_core::{context::Context, crypto::Address};
+use fp_core::context::Context;
 use fp_evm::Account;
 use fp_traits::{
     account::AccountAsset,
@@ -9,7 +8,6 @@ use fp_traits::{
 };
 use primitive_types::{H160, U256};
 use ruc::Result;
-use std::convert::TryFrom;
 
 impl<C: Config> App<C> {
     /// Check whether an account is empty.
@@ -47,17 +45,6 @@ impl<C: Config> App<C> {
     /// Get the block proposer.
     pub fn find_proposer(_ctx: &Context) -> H160 {
         todo!()
-    }
-}
-
-/// Ethereum address mapping.
-pub struct EthereumAddressMapping;
-
-impl AddressMapping for EthereumAddressMapping {
-    fn into_account_id(address: H160) -> Address {
-        let mut data = [0u8; 32];
-        data[0..20].copy_from_slice(&address[..]);
-        Address32::try_from(&data[..]).unwrap()
     }
 }
 
