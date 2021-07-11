@@ -4,6 +4,7 @@ mod types;
 
 use crate::modules::ModuleManager;
 use abci::Header;
+use fp_core::account::SmartAccount;
 use fp_core::{
     context::Context,
     crypto::Address,
@@ -15,13 +16,15 @@ use parking_lot::RwLock;
 use primitive_types::U256;
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
+use zei::xfr::sig::XfrPublicKey;
 
 pub use types::*;
 
 const APP_NAME: &str = "findora";
-// const APP_DB_NAME: &str = "findora_db";
+const APP_DB_NAME: &str = "findora_db";
 
 pub struct BaseApp {
     /// application name from abci.Info
@@ -74,7 +77,11 @@ impl module_evm::Config for BaseApp {
 }
 
 impl BaseApp {
-    pub fn new(chain_state: Arc<RwLock<ChainState<FinDB>>>) -> Result<Self> {
+    pub fn new(base_dir: &Path) -> Result<Self> {
+        let fdb = FinDB::open(base_dir)?;
+        let chain_state =
+            Arc::new(RwLock::new(ChainState::new(fdb, APP_DB_NAME.to_string())));
+
         Ok(BaseApp {
             name: APP_NAME.to_string(),
             version: "1.0.0".to_string(),
@@ -216,5 +223,9 @@ impl BaseApp {
 
     pub fn check_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
         self.modules.process_findora_tx(&self.check_state, tx)
+    }
+
+    pub fn get_balance(&self, addr: XfrPublicKey) -> Result<SmartAccount> {
+        module_account::App::<BaseApp>::get_balance(&self.deliver_state, &addr.into())
     }
 }

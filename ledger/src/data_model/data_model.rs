@@ -157,7 +157,7 @@ impl AssetTypeCode {
     /// Converts the asset type code to an utf8 string.
     ///
     /// Used to display the asset type code.
-    pub fn to_utf8(&self) -> Result<String> {
+    pub fn to_utf8(self) -> Result<String> {
         debug_assert!(UTF8_ASSET_TYPES_WORK);
         let mut code = self.val.0.to_vec();
         let len = code.len();
@@ -204,7 +204,7 @@ impl AssetTypeCode {
             )))),
         }
     }
-    pub fn to_base64(&self) -> String {
+    pub fn to_base64(self) -> String {
         b64enc(&self.val.0)
     }
 }
@@ -238,7 +238,7 @@ impl Code {
             Err(eg!(des_fail!()))
         }
     }
-    pub fn to_base64(&self) -> String {
+    pub fn to_base64(self) -> String {
         b64enc(&self.val)
     }
 }
@@ -1835,7 +1835,7 @@ mod tests {
         if UTF8_ASSET_TYPES_WORK {
             let customized_code = "❤️💰 My 资产 $";
             let code = AssetTypeCode::new_from_utf8_truncate(customized_code);
-            let utf8 = AssetTypeCode::to_utf8(&code).unwrap();
+            let utf8 = AssetTypeCode::to_utf8(code).unwrap();
             assert_eq!(utf8, customized_code);
         }
     }
@@ -1858,7 +1858,7 @@ mod tests {
             assert_ne!(code_short, code_32_bytes);
             assert_eq!(code_32_bytes, code_to_truncate);
 
-            let utf8 = AssetTypeCode::to_utf8(&code_32_bytes).unwrap();
+            let utf8 = AssetTypeCode::to_utf8(code_32_bytes).unwrap();
             assert_eq!(utf8, customized_code_32_bytes);
         }
     }

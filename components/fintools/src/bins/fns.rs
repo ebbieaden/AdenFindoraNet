@@ -25,7 +25,7 @@
 
 #![deny(warnings)]
 
-use clap::{crate_authors, crate_version, App, ArgGroup, SubCommand};
+use clap::{crate_authors, App, ArgGroup, SubCommand};
 use fintools::fns;
 use ruc::*;
 use std::fmt;
@@ -47,8 +47,8 @@ fn run() -> Result<()> {
         .conflicts_with("append");
     let subcmd_stake = SubCommand::with_name("stake")
         .arg_from_usage("-n, --amount=<Amount> 'how much `FRA unit`s you want to stake'")
-        .arg_from_usage("-R, --commission-rate=[Rate] 'the commission rate for delegators, a float number for 0.0 to 1.0")
-        .arg_from_usage("-M, --validator-memo=[Memo] 'the description of your validator node, optional'")
+        .arg_from_usage("-R, --commission-rate=[Rate] 'the commission rate of your node, a float number from 0.0 to 1.0'")
+        .arg_from_usage("-M, --validator-memo=[Memo] 'the description of your node, optional'")
         .arg_from_usage("-a, --append 'stake more FRAs to your node'")
         .group(subcmd_stake_arggrp);
     let subcmd_unstake = SubCommand::with_name("unstake")
@@ -72,7 +72,7 @@ fn run() -> Result<()> {
     let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
     let matches = App::new("fns")
-        .version(crate_version!())
+        .version(fns::version())
         .author(crate_authors!())
         .about("A command line tool for staking in findora network.")
         .subcommand(subcmd_genkey)
