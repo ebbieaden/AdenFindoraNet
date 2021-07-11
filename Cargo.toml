@@ -10,6 +10,7 @@ members = [
     "components/contracts/primitives/core",
     "components/contracts/primitives/evm",
     "components/contracts/primitives/storage",
+    "components/contracts/primitives/traits",
     "components/ledger_api_service",
     "components/query_api",
     "components/query_server",

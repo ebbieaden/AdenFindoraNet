@@ -53,9 +53,9 @@ impl Application for crate::BaseApp {
         if let Ok(tx) = convert_unchecked_transaction(req.get_tx()) {
             let check_fn = |mode: RunTxMode| {
                 let ctx = self.retrieve_context(mode, req.get_tx().to_vec()).clone();
-                if ruc::info!(self.modules.process_tx(ctx, mode, tx)).is_err() {
+                if let Err(e) = self.modules.process_tx(ctx, mode, tx) {
                     resp.set_code(1);
-                    resp.set_log(String::from("Ethereum transaction check failed"));
+                    resp.set_log(format!("Ethereum transaction check failed: {}", e));
                 }
             };
             match req.get_field_type() {
@@ -106,13 +106,23 @@ impl Application for crate::BaseApp {
             let ctx = self
                 .retrieve_context(RunTxMode::Deliver, req.get_tx().to_vec())
                 .clone();
-            if self.modules.process_tx(ctx, RunTxMode::Deliver, tx).is_ok() {
-                return resp;
+
+            let ret = self.modules.process_tx(ctx, RunTxMode::Deliver, tx);
+            match ret {
+                Ok(_) => resp,
+                Err(e) => {
+                    resp.set_code(1);
+                    resp.set_log(format!("Failed to deliver transaction: {}!", e));
+                    resp
+                }
             }
+        } else {
+            resp.set_code(1);
+            resp.set_log(String::from(
+                "Failed to convert transaction when deliver tx!",
+            ));
+            resp
         }
-        resp.set_code(1);
-        resp.set_log(String::from("Failed to deliver transaction!"));
-        resp
     }
 
     fn end_block(&mut self, req: &RequestEndBlock) -> ResponseEndBlock {

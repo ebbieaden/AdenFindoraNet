@@ -8,10 +8,8 @@ use evm::{
     ExitReason,
 };
 use fp_core::{context::Context, ensure};
-use fp_evm::{
-    traits::{FeeCalculator, OnChargeEVMTransaction},
-    CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity,
-};
+use fp_evm::{CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity};
+use fp_traits::evm::{FeeCalculator, OnChargeEVMTransaction};
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
 use sha3::{Digest, Keccak256};
@@ -66,7 +64,7 @@ impl<C: Config> ActionRunner<C> {
             .ok_or(eg!("FeeOverflow"))?;
         let total_payment =
             value.checked_add(total_fee).ok_or(eg!("PaymentOverflow"))?;
-        let source_account = App::<C>::account_basic(&source);
+        let source_account = App::<C>::account_basic(ctx, &source);
         ensure!(source_account.balance >= total_payment, eg!("BalanceLow"));
 
         if let Some(nonce) = nonce {
@@ -74,7 +72,7 @@ impl<C: Config> ActionRunner<C> {
         }
 
         // Deduct fee from the `source` account.
-        let fee = C::OnChargeTransaction::withdraw_fee(&source, total_fee)?;
+        C::OnChargeTransaction::withdraw_fee(ctx, &source, total_fee)?;
 
         // Execute the EVM call.
         let (reason, retv) = f(&mut executor);
@@ -92,7 +90,9 @@ impl<C: Config> ActionRunner<C> {
         );
 
         // Refund fees to the `source` account if deducted more before,
-        C::OnChargeTransaction::correct_and_deposit_fee(&source, actual_fee, fee)?;
+        C::OnChargeTransaction::correct_and_deposit_fee(
+            ctx, &source, actual_fee, total_fee,
+        )?;
 
         let state = executor.into_state();
 

@@ -65,11 +65,10 @@ impl<C: Config> App<C> {
             mix_hash: H256::default(),
             nonce: H64::default(),
         };
-        let mut block =
-            ethereum::Block::new(partial_header, transactions.clone(), headers);
+        let block = ethereum::Block::new(partial_header, transactions.clone(), headers);
         // TODO cache root hash?
-        block.header.state_root =
-            H256::from_slice(ctx.store.read().root_hash().as_slice());
+        // block.header.state_root =
+        //     H256::from_slice(ctx.store.read().root_hash().as_slice());
 
         CurrentBlock::put(ctx.store.clone(), Some(block));
         CurrentReceipts::put(ctx.store.clone(), Some(receipts));
@@ -84,8 +83,7 @@ impl<C: Config> App<C> {
         let transaction_hash =
             H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
 
-        let mut pending =
-            Pending::get(ctx.store.clone()).ok_or(eg!("failed to get Pending"))?;
+        let mut pending = Pending::get(ctx.store.clone()).unwrap_or_default();
 
         // Note: the index is not the transaction index in the real block.
         let transaction_index = pending.len() as u32;

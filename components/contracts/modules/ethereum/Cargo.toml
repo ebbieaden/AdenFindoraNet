@@ -25,6 +25,7 @@ sha3 = "0.8"
 fp-core = { path = "../../primitives/core" }
 fp-evm = { path = "../../primitives/evm" }
 fp-storage = { path = "../../primitives/storage" }
+fp-traits = { path = "../../primitives/traits" }
 
 # modules
 module-evm = { path = "../evm"}
@@ -33,9 +34,9 @@ module-evm = { path = "../evm"}
 baseapp = { path = "../../baseapp" }
 hex = "0.4.2"
 lazy_static = "1.4.0"
+ledger = { path = "../../../../ledger" }
 libsecp256k1 = { version = "0.5", features = ["static-context", "hmac"] }
+module-account = { path = "../account" }
 parking_lot = "0.11.1"
-rand_chacha = "0.2.0"
 rustc-hex = "2.1.0"
 storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "master" }
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }

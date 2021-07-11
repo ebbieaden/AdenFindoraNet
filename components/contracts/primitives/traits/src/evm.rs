@@ -1,4 +1,4 @@
-use fp_core::crypto::Address;
+use fp_core::{context::Context, crypto::Address};
 use primitive_types::{H160, U256};
 use ruc::Result;
 
@@ -19,20 +19,17 @@ impl FeeCalculator for () {
 }
 
 /// Handle withdrawing, refunding and depositing of transaction fees.
-/// Similar to `OnChargeTransaction` of `pallet_transaction_payment`
 pub trait OnChargeEVMTransaction {
-    type LiquidityInfo: Default;
-
     /// Before the transaction is executed the payment of the transaction fees
     /// need to be secured.
-    fn withdraw_fee(who: &H160, fee: U256) -> Result<Self::LiquidityInfo>;
+    fn withdraw_fee(ctx: &Context, who: &H160, fee: U256) -> Result<()>;
 
     /// After the transaction was executed the actual fee can be calculated.
-    /// This function should refund any overpaid fees and optionally deposit
-    /// the corrected amount.
+    /// This function should refund any overpaid fees.
     fn correct_and_deposit_fee(
+        ctx: &Context,
         who: &H160,
         corrected_fee: U256,
-        already_withdrawn: Self::LiquidityInfo,
+        already_withdrawn: U256,
     ) -> Result<()>;
 }
