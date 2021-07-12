@@ -1,9 +1,9 @@
+use ledger::address::SmartAddress;
 use ruc::eg;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use zei::serialization::ZeiFromToBytes;
 use zei::xfr::sig::{XfrPublicKey, XfrSignature};
-use ledger::address::SmartAddress;
 
 /// An opaque 32-byte cryptographic identifier.
 #[derive(
@@ -30,7 +30,7 @@ impl From<SmartAddress> for Address32 {
                 let mut data = [0u8; 32];
                 data[0..20].copy_from_slice(&a.0[..]);
                 Address32::try_from(&data[..]).unwrap()
-            },
+            }
             SmartAddress::Xfr(a) => Self::from(a),
             SmartAddress::Other => Self([0u8; 32]),
         }

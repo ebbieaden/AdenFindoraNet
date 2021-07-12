@@ -6,7 +6,6 @@ use ledger::data_model::BLACK_HOLE_PUBKEY_STAKING;
 use ruc::*;
 use txn_builder::BuildsTransactions;
 
-
 fn transfer_amount(amount: u64, address: String) -> Result<()> {
     let mut builder = utils::new_tx_builder()?;
 
@@ -41,7 +40,10 @@ fn run() -> Result<()> {
     if let Some(m) = matchs.subcommand_matches("transfer") {
         let amount = m.value_of("balance").c(d!())?;
         let address = m.value_of("address").c(d!())?;
-        transfer_amount(u64::from_str_radix(amount, 10).c(d!())?, String::from(address))?
+        transfer_amount(
+            u64::from_str_radix(amount, 10).c(d!())?,
+            String::from(address),
+        )?
     }
     Ok(())
 }
