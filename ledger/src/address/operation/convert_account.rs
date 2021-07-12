@@ -82,7 +82,7 @@ pub fn is_convert_tx(tx: &Transaction) -> bool {
 
 pub fn check_convert_tx(
     tx: &Transaction,
-) -> Result<(XfrPublicKey, HashMap<AssetType, u64>)> {
+) -> Result<(SmartAddress, HashMap<AssetType, u64>)> {
     let mut owner = None;
 
     let mut assets = HashMap::new();
@@ -92,7 +92,7 @@ pub fn check_convert_tx(
             if owner.is_some() {
                 return Err(eg!("tx must have 1 convert account"));
             }
-            owner = Some(ca.public)
+            owner = Some(ca.data.address.clone())
         }
         if let Operation::TransferAsset(t) = op {
             for o in &t.body.outputs {

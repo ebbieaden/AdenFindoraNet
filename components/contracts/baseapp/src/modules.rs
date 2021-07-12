@@ -2,7 +2,7 @@ use super::*;
 use abci::{RequestBeginBlock, RequestEndBlock, RequestQuery, ResponseEndBlock};
 use fp_core::{
     context::Context,
-    crypto::{Address, Address32},
+    crypto::Address,
     module::{AppModule, AppModuleBasic},
     transaction::{Applyable, Executable, ValidateUnsigned},
 };
@@ -13,17 +13,13 @@ use ruc::Result;
 #[derive(Default)]
 pub struct ModuleManager {
     // Ordered module list
-    account_module: module_account::App<BaseApp>,
-    ethereum_module: module_ethereum::App<BaseApp>,
-    evm_module: module_evm::App<BaseApp>,
-    template_module: module_template::App<BaseApp>,
+    pub(crate) account_module: module_account::App<BaseApp>,
+    pub(crate) ethereum_module: module_ethereum::App<BaseApp>,
+    pub(crate) evm_module: module_evm::App<BaseApp>,
+    pub(crate) template_module: module_template::App<BaseApp>,
 }
 
 impl ModuleManager {
-    pub fn accoun_module(&mut self) -> &mut module_account::App<BaseApp> {
-        &mut self.account_module
-    }
-
     pub fn query(
         &self,
         ctx: Context,
@@ -121,7 +117,7 @@ impl ModuleManager {
         for (asset, amount) in assets.iter() {
             module_account::App::<BaseApp>::mint(
                 ctx,
-                &Address32::from(owner),
+                &Address::from(owner.clone()),
                 amount.clone().into(),
                 asset.clone(),
             )?;
