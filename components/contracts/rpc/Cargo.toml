@@ -9,7 +9,9 @@ description = "Ethereum RPC (web3) compatibility layer for Findora."
 readme = "README.md"
 
 [dependencies]
+attohttpc = { version = "0.17.0", features = ["compress", "json", "tls-rustls"] }
 baseapp = { path = "../baseapp" }
+base64 = "0.12"
 ethereum = { version = "0.7.1", features = ["with-serde"] }
 ethereum-types = "0.11.0"
 evm = "0.27.0"
@@ -20,14 +22,22 @@ jsonrpc-derive = "14.0.3"
 jsonrpc-core-client = "14.0.3"
 jsonrpc-pubsub = "15.0.0"
 jsonrpc-http-server = "15.1.0"
-libsecp256k1 = "0.3"
+libsecp256k1 = { version = "0.5", features = ["static-context", "hmac"] }
 log = "0.4.8"
 parking_lot = "0.11.1"
 rand = "0.7"
 rlp = "0.5"
+ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 rustc-hex = { version = "2.1.0" }
 serde_json = "1.0"
 sha3 = "0.8"
+
+# modules
+module-ethereum = { path = "../modules/ethereum"}
+
+# primitives
+fp-traits = { path = "../primitives/traits" }
+fp-utils = { path = "../primitives/utils" }
 
 [features]
 rpc_binary_search_estimate = []

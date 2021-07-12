@@ -3,6 +3,7 @@ use fp_core::crypto::Address;
 use fp_traits::evm::{AddressMapping, EthereumAddressMapping};
 use primitive_types::{H160, H256, U256};
 use rlp::*;
+use ruc::{eg, Result};
 use sha3::{Digest, Keccak256};
 
 pub struct KeyPair {
@@ -23,6 +24,36 @@ pub fn generate_address(seed: u8) -> KeyPair {
         private_key,
         account_id: EthereumAddressMapping::into_account_id(address),
     }
+}
+
+pub fn sign_transaction_message(
+    message: ethereum::TransactionMessage,
+    private_key: &H256,
+) -> Result<ethereum::Transaction> {
+    let signing_message = libsecp256k1::Message::parse_slice(&message.hash()[..])
+        .map_err(|_| eg!("invalid signing message"))?;
+    let secret = &libsecp256k1::SecretKey::parse_slice(&private_key[..])
+        .map_err(|_| eg!("invalid secret"))?;
+    let (signature, recid) = libsecp256k1::sign(&signing_message, secret);
+
+    let v = match message.chain_id {
+        None => 27 + recid.serialize() as u64,
+        Some(chain_id) => 2 * chain_id + 35 + recid.serialize() as u64,
+    };
+    let rs = signature.serialize();
+    let r = H256::from_slice(&rs[0..32]);
+    let s = H256::from_slice(&rs[32..64]);
+
+    Ok(ethereum::Transaction {
+        nonce: message.nonce,
+        gas_price: message.gas_price,
+        gas_limit: message.gas_limit,
+        action: message.action,
+        value: message.value,
+        input: message.input.clone(),
+        signature: ethereum::TransactionSignature::new(v, r, s)
+            .ok_or(eg!("signer generated invalid signature"))?,
+    })
 }
 
 pub struct UnsignedTransaction {

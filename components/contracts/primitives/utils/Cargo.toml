@@ -14,6 +14,7 @@ libsecp256k1 = { version = "0.5", features = ["static-context", "hmac"] }
 parking_lot = "0.11.1"
 primitive-types = { version = "0.9.0", features = ["rlp", "byteorder"] }
 rlp = "0.5"
+ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "master" }
 sha3 = "0.8"
 
