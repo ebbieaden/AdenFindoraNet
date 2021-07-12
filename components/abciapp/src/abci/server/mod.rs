@@ -1,6 +1,5 @@
 use abci::*;
 use baseapp::BaseApp as AccountBaseAPP;
-use ledger::address::AddressBinder;
 use ledger::store::LedgerState;
 use parking_lot::RwLock;
 use rand_chacha::ChaChaRng;
@@ -19,7 +18,6 @@ pub mod tx_sender;
 pub struct ABCISubmissionServer {
     pub la: Arc<RwLock<SubmissionServer<ChaChaRng, LedgerState, TendermintForward>>>,
     pub account_base_app: Arc<RwLock<AccountBaseAPP>>,
-    pub address_binder: Arc<RwLock<AddressBinder>>,
 }
 
 impl ABCISubmissionServer {
@@ -37,13 +35,6 @@ impl ABCISubmissionServer {
             Some(base_dir) => pnk!(AccountBaseAPP::new(base_dir)),
         };
 
-        let address_binder = match base_dir {
-            None => AddressBinder::test()?,
-            Some(base_dir) => {
-                pnk!(AddressBinder::new(&base_dir.join("address_binder.db")))
-            }
-        };
-
         let prng = rand_chacha::ChaChaRng::from_entropy();
         Ok(ABCISubmissionServer {
             la: Arc::new(RwLock::new(
@@ -55,7 +46,6 @@ impl ABCISubmissionServer {
                 .c(d!())?,
             )),
             account_base_app: Arc::new(RwLock::new(account_base_app)),
-            address_binder: Arc::new(RwLock::new(address_binder)),
         })
     }
 }

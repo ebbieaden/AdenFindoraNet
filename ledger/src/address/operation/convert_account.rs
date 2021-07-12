@@ -1,5 +1,6 @@
 //! Smart address operation for transaction.
 
+use crate::address::SmartAddress;
 use crate::data_model::NoReplayToken;
 use crate::data_model::{Operation, Transaction, BLACK_HOLE_PUBKEY_STAKING};
 use ruc::*;
@@ -19,8 +20,12 @@ pub struct ConvertAccount {
 }
 
 impl ConvertAccount {
-    pub fn new(keypair: &XfrKeyPair, nonce: NoReplayToken) -> Self {
-        let data = Data::new(nonce);
+    pub fn new(
+        keypair: &XfrKeyPair,
+        nonce: NoReplayToken,
+        address: SmartAddress,
+    ) -> Self {
+        let data = Data::new(nonce, address);
         let public = keypair.get_pk();
         let signature = keypair.sign(&data.to_bytes());
         Self {
@@ -35,10 +40,6 @@ impl ConvertAccount {
             .verify(&self.data.to_bytes(), &self.signature)
             .c(d!())
     }
-
-    //     pub fn check_by_tx(&self, tx: &Transaction) -> Result<u64> {
-    // check_convert_tx_amount(tx)
-    // }
 
     pub fn set_nonce(&mut self, nonce: NoReplayToken) {
         self.data.nonce = nonce;
@@ -57,11 +58,12 @@ impl ConvertAccount {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Data {
     pub nonce: NoReplayToken,
+    pub address: SmartAddress,
 }
 
 impl Data {
-    pub fn new(nonce: NoReplayToken) -> Self {
-        Data { nonce }
+    pub fn new(nonce: NoReplayToken, address: SmartAddress) -> Self {
+        Data { nonce, address }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {

@@ -9,7 +9,6 @@ extern crate serde_derive;
 use credentials::CredUserSecretKey;
 use curve25519_dalek::scalar::Scalar;
 use ledger::address::operation::ConvertAccount;
-use ledger::address::operation::{BindAddressOp, UnbindAddressOp};
 use ledger::address::SmartAddress;
 use ledger::data_model::errors::PlatformError;
 use ledger::data_model::*;
@@ -358,15 +357,11 @@ pub trait BuildsTransactions {
         v_set: Vec<Validator>,
     ) -> Result<&mut Self>;
 
-    fn add_operation_bind_address(
+    fn add_operation_convert_account(
         &mut self,
         kp: &XfrKeyPair,
-        smart_address: SmartAddress,
+        addr: SmartAddress,
     ) -> Result<&mut Self>;
-
-    fn add_operation_unbind_address(&mut self, kp: &XfrKeyPair) -> Result<&mut Self>;
-
-    fn add_operation_convert_account(&mut self, kp: &XfrKeyPair) -> Result<&mut Self>;
 
     fn serialize(&self) -> Vec<u8>;
     fn serialize_str(&self) -> String;
@@ -969,31 +964,15 @@ impl BuildsTransactions for TransactionBuilder {
             .map(move |op| self.add_operation(Operation::UpdateValidator(op)))
     }
 
-    fn add_operation_bind_address(
+    fn add_operation_convert_account(
         &mut self,
         kp: &XfrKeyPair,
-        smart_address: SmartAddress,
+        addr: SmartAddress,
     ) -> Result<&mut Self> {
-        self.add_operation(Operation::BindAddressOp(BindAddressOp::new(
-            kp,
-            smart_address,
-            self.txn.body.no_replay_token,
-        )));
-        Ok(self)
-    }
-
-    fn add_operation_unbind_address(&mut self, kp: &XfrKeyPair) -> Result<&mut Self> {
-        self.add_operation(Operation::UnbindAddressOp(UnbindAddressOp::new(
-            kp,
-            self.txn.body.no_replay_token,
-        )));
-        Ok(self)
-    }
-
-    fn add_operation_convert_account(&mut self, kp: &XfrKeyPair) -> Result<&mut Self> {
         self.add_operation(Operation::ConvertAccount(ConvertAccount::new(
             kp,
             self.txn.body.no_replay_token,
+            addr,
         )));
         Ok(self)
     }
