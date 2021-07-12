@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
-use zei::xfr::sig::XfrPublicKey;
 
 use abci::Header;
 pub use types::*;
@@ -150,15 +149,10 @@ impl Executable for BaseApp {
 }
 
 impl BaseApp {
-    pub fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
-        ensure!(
-            height >= 0,
-            "cannot query with height < 0; please provide a valid height"
-        );
-
+    pub fn create_query_context(&self, mut height: u64, prove: bool) -> Result<Context> {
         // when a client did not provide a query height, manually inject the latest
         if height == 0 {
-            height = self.chain_state.read().height()? as i64;
+            height = self.chain_state.read().height()?;
         }
         if height <= 1 && prove {
             return Err(eg!(
@@ -240,8 +234,19 @@ impl BaseApp {
         self.modules.process_findora_tx(&self.check_state, tx)
     }
 
-    pub fn account_of(&self, addr: XfrPublicKey) -> Result<SmartAccount> {
-        module_account::App::<BaseApp>::account_of(&self.deliver_state, &addr.into())
+    pub fn account_of(
+        &self,
+        who: &Address,
+        ctx: Option<Context>,
+    ) -> Result<SmartAccount> {
+        let ctx = match ctx {
+            None => self.create_query_context(
+                self.chain_state.read().height().unwrap_or_default(),
+                false,
+            )?,
+            Some(ctx) => ctx,
+        };
+        module_account::App::<BaseApp>::account_of(&ctx, who)
             .ok_or(eg!("account does not exist"))
     }
 }
