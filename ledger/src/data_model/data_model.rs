@@ -51,7 +51,7 @@ use super::effects::*;
 use ruc::*;
 use std::ops::Deref;
 
-use crate::address::operation::{BindAddressOp, ConvertAccount, UnbindAddressOp};
+use crate::address::operation::ConvertAccount;
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -993,8 +993,6 @@ pub enum Operation {
     UpdateValidator(UpdateValidatorOps),
     Governance(GovernanceOps),
     FraDistribution(FraDistributionOps),
-    BindAddressOp(BindAddressOp),
-    UnbindAddressOp(UnbindAddressOp),
     MintFra(MintFraOps),
     ConvertAccount(ConvertAccount),
 }
@@ -1020,8 +1018,7 @@ fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
             i.set_nonce(no_replay_token);
         }
         Operation::UpdateMemo(i) => i.body.no_replay_token = no_replay_token,
-        Operation::BindAddressOp(i) => i.set_nonce(no_replay_token),
-        Operation::UnbindAddressOp(i) => i.set_nonce(no_replay_token),
+        Operation::ConvertAccount(i) => i.set_nonce(no_replay_token),
         _ => {}
     }
 }

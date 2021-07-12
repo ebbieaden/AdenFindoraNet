@@ -1,3 +1,4 @@
+use ledger::address::SmartAddress;
 use ruc::eg;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -19,6 +20,20 @@ impl AsRef<[u8]> for Address32 {
 impl From<XfrPublicKey> for Address32 {
     fn from(k: XfrPublicKey) -> Self {
         Address32::try_from(k.zei_to_bytes().as_slice()).unwrap()
+    }
+}
+
+impl From<SmartAddress> for Address32 {
+    fn from(addr: SmartAddress) -> Self {
+        match addr {
+            SmartAddress::Ethereum(a) => {
+                let mut data = [0u8; 32];
+                data[0..20].copy_from_slice(&a.0[..]);
+                Address32::try_from(&data[..]).unwrap()
+            }
+            SmartAddress::Xfr(a) => Self::from(a),
+            SmartAddress::Other => Self([0u8; 32]),
+        }
     }
 }
 
