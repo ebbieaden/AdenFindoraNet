@@ -548,18 +548,6 @@ where
             Operation::FraDistribution(i) => staking_gen!(i),
             Operation::MintFra(i) => staking_gen!(i),
 
-            Operation::BindAddressOp(i) => {
-                related_addresses.insert(XfrAddress {
-                    key: i.get_related_address(),
-                });
-            }
-
-            Operation::UnbindAddressOp(i) => {
-                related_addresses.insert(XfrAddress {
-                    key: i.get_related_address(),
-                });
-            }
-
             Operation::ConvertAccount(i) => {
                 related_addresses.insert(XfrAddress {
                     key: i.get_related_address(),

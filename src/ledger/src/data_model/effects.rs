@@ -177,15 +177,6 @@ impl TxnEffect {
                     });
                 }
 
-                Operation::BindAddressOp(i) => {
-                    check_nonce!(i);
-                    // bind_addresses.push(i.clone());
-                }
-
-                Operation::UnbindAddressOp(i) => {
-                    check_nonce!(i)
-                }
-
                 Operation::ConvertAccount(i) => {
                     check_nonce!(i)
                 }

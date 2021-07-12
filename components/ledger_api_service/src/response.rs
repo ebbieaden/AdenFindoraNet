@@ -16,13 +16,5 @@ impl<T: Serialize> Response<T> {
             data,
         }
     }
-
-    pub fn new_no_address() -> Self {
-        Self {
-            code: 90011,
-            message: String::from("no address"),
-            data: None,
-        }
-    }
 }
 

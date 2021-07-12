@@ -2,7 +2,6 @@
 //!
 //! It can compact more type of address.
 
-use crate::data_model::XfrAddress;
 use crate::utils::H160;
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
 use hex::FromHex;
@@ -14,7 +13,7 @@ use zei::xfr::sig::XfrPublicKey;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SmartAddress {
     Ethereum(H160),
-    Xfr(XfrAddress),
+    Xfr(XfrPublicKey),
     Other,
 }
 
@@ -31,21 +30,21 @@ impl SmartAddress {
 
     pub fn to_string(&self) -> String {
         match self {
-            SmartAddress::Xfr(addr) => wallet::public_key_to_base64(&addr.key),
+            SmartAddress::Xfr(addr) => wallet::public_key_to_base64(&addr),
             SmartAddress::Ethereum(addr) => addr.to_string(),
             _ => String::new()
         }
     }
 
-    /// Construct SmartAddress from ethereum address.
-    pub fn from_ethereum_address(s: &str) -> Result<Self> {
+    pub fn from_string(s: String) -> Result<Self> {
         if s.len() == 42 && &s[..2] == "0x" {
             // is Ethereum address
             let address_hex = &s[2..];
             let inner = <[u8; 20]>::from_hex(address_hex).c(d!())?;
             Ok(SmartAddress::Ethereum(H160(inner)))
         } else {
-            Err(eg!("Please use ethereum address"))
+            let address = wallet::public_key_from_base64(&s)?;
+            Ok(SmartAddress::Xfr(address))
         }
     }
 
@@ -80,7 +79,7 @@ impl SmartAddress {
             .c(d!())?;
         match self {
             SmartAddress::Ethereum(addr) => bytes.extend_from_slice(&addr.0),
-            SmartAddress::Xfr(addr) => bytes.extend_from_slice(addr.key.as_bytes()),
+            SmartAddress::Xfr(addr) => bytes.extend_from_slice(addr.as_bytes()),
             SmartAddress::Other => (),
         };
         Ok(bytes)
@@ -91,9 +90,7 @@ impl SmartAddress {
         let sa = match addr_type {
             0 => {
                 // let ed25519_public = PublicKey::from_bytes(&bytes[2..]);
-                SmartAddress::Xfr(XfrAddress {
-                    key: XfrPublicKey::zei_from_bytes(&bytes[2..]).c(d!())?,
-                })
+                SmartAddress::Xfr(XfrPublicKey::zei_from_bytes(&bytes[2..]).c(d!())?)
             }
             1 => {
                 let mut inner = [0u8; 20];
