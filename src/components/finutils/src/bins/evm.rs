@@ -2,7 +2,7 @@ use clap::{crate_authors, crate_version, App, SubCommand};
 use fintools::fns::get_keypair;
 use fintools::fns::utils;
 use ledger::address::SmartAddress;
-use ledger::data_model::BLACK_HOLE_PUBKEY;
+use ledger::data_model::BLACK_HOLE_PUBKEY_ACCOUNT;
 use ruc::*;
 use txn_builder::BuildsTransactions;
 
@@ -34,7 +34,7 @@ fn transfer_amount(amount: u64) -> Result<()> {
 
     let kp = get_keypair()?;
 
-    let transfer_op = utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY, amount)])?;
+    let transfer_op = utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY_ACCOUNT, amount)])?;
     builder
         .add_operation(transfer_op)
         .add_operation_convert_account(&kp)?;
