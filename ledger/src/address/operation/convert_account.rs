@@ -1,7 +1,7 @@
 //! Smart address operation for transaction.
 
 use crate::data_model::NoReplayToken;
-use crate::data_model::{Operation, Transaction, BLACK_HOLE_PUBKEY_ACCOUNT};
+use crate::data_model::{Operation, Transaction, BLACK_HOLE_PUBKEY_STAKING};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -100,7 +100,7 @@ pub fn check_convert_tx(
                     return Err(eg!("convert can't support "));
                 }
                 if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                    if o.record.public_key == *BLACK_HOLE_PUBKEY_ACCOUNT {
+                    if o.record.public_key == *BLACK_HOLE_PUBKEY_STAKING {
                         if let XfrAmount::NonConfidential(i_am) = o.record.amount {
                             if let Some(amount) = assets.get_mut(&ty) {
                                 *amount += i_am;
