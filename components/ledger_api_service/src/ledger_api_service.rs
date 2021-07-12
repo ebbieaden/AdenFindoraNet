@@ -11,7 +11,6 @@ use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
 // use ledger::address::store::BalanceStore;
 use baseapp::BaseApp;
-use ledger::address::{AddressBinder, SmartAddress};
 use ledger::staking::{DelegationRwdDetail, TendermintAddr};
 use ledger::{
     data_model::*,
@@ -569,49 +568,6 @@ async fn query_account_model_balance(
     Ok(web::Json(response::Response::new_success(Some(balance))))
 }
 
-async fn query_address_map_by_xfr(
-    data: web::Data<Arc<RwLock<AddressBinder>>>,
-    address: web::Path<String>,
-) -> actix_web::Result<impl Responder> {
-    let pk = wallet::public_key_from_base64(address.as_str())
-        .c(d!())
-        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    let address_binder = data.read();
-    let storage = address_binder.get_storage();
-    let sa = SmartAddress::Xfr(XfrAddress { key: pk });
-    let result = storage
-        .get(&sa)
-        .c(d!())
-        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    let result = if let Some(addr) = result {
-        response::Response::new_success(Some(addr.to_string()))
-    } else {
-        response::Response::new_no_address()
-    };
-    Ok(web::Json(result))
-}
-
-async fn query_address_map_by_eth(
-    data: web::Data<Arc<RwLock<AddressBinder>>>,
-    address: web::Path<String>,
-) -> actix_web::Result<impl Responder> {
-    let sa = SmartAddress::from_ethereum_address(&address)
-        .c(d!())
-        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    let address_binder = data.read();
-    let storage = address_binder.get_storage();
-    let result = storage
-        .get(&sa)
-        .c(d!())
-        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    let result = if let Some(addr) = result {
-        response::Response::new_success(Some(addr.to_string()))
-    } else {
-        response::Response::new_no_address()
-    };
-    Ok(web::Json(result))
-}
-
 async fn query_delegation_info<SA>(
     data: web::Data<Arc<RwLock<SA>>>,
     address: web::Path<String>,
@@ -929,7 +885,6 @@ where
 impl RestfulApiService {
     pub fn create<LA: 'static + LedgerAccess + Sync + Send>(
         ledger_access: Arc<RwLock<LA>>,
-        address_binder: Arc<RwLock<AddressBinder>>,
         account_base_app: Arc<RwLock<BaseApp>>,
         host: &str,
         port: u16,
@@ -941,21 +896,12 @@ impl RestfulApiService {
                 .wrap(middleware::Logger::default())
                 .wrap(Cors::permissive().supports_credentials())
                 .data(ledger_access.clone())
-                .data(address_binder.clone())
                 .data(account_base_app.clone())
                 .route("/ping", web::get().to(ping))
                 .route("/version", web::get().to(version))
                 .set_route::<LA>(AccessApi::Ledger)
                 .set_route::<LA>(AccessApi::Archive)
                 .set_route::<LA>(AccessApi::Staking)
-                .route(
-                    "/address/get_map_xfr/{address}",
-                    web::get().to(query_address_map_by_xfr),
-                )
-                .route(
-                    "/address/get_map_eth/{address}",
-                    web::get().to(query_address_map_by_eth),
-                )
                 .route(
                     "/account/balance/{address}",
                     web::get().to(query_account_model_balance),
