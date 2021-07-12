@@ -117,7 +117,7 @@ impl ModuleManager {
         for (asset, amount) in assets.iter() {
             module_account::App::<BaseApp>::mint(
                 ctx,
-                &Address::from(owner),
+                &Address::from(owner.clone()),
                 amount.clone().into(),
                 asset.clone(),
             )?;
