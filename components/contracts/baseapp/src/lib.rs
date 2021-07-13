@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
-use zei::xfr::sig::XfrPublicKey;
 
 pub use types::*;
 
@@ -230,8 +229,8 @@ impl BaseApp {
         self.modules.process_findora_tx(&self.check_state, tx)
     }
 
-    pub fn account_of(&self, addr: XfrPublicKey) -> Result<SmartAccount> {
-        module_account::App::<BaseApp>::account_of(&self.deliver_state, &addr.into())
+    pub fn account_of(&self, addr: Address) -> Result<SmartAccount> {
+        module_account::App::<BaseApp>::account_of(&self.deliver_state, &addr)
             .ok_or(eg!("account does not exist"))
     }
 }
