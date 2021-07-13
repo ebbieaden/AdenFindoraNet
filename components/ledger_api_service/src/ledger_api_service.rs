@@ -10,7 +10,7 @@ mod response;
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
 // use ledger::address::store::BalanceStore;
-use baseapp::BaseApp;
+use baseapp::{BaseApp, BaseProvider};
 use ledger::address::SmartAddress;
 use ledger::staking::{DelegationRwdDetail, TendermintAddr};
 use ledger::{

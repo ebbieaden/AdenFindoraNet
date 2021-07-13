@@ -224,22 +224,6 @@ impl BaseApp {
     pub fn check_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
         self.modules.process_findora_tx(&self.check_state, tx)
     }
-
-    pub fn account_of(
-        &self,
-        who: &Address,
-        ctx: Option<Context>,
-    ) -> Result<SmartAccount> {
-        let ctx = match ctx {
-            None => self.create_query_context(
-                self.chain_state.read().height().unwrap_or_default(),
-                false,
-            )?,
-            Some(ctx) => ctx,
-        };
-        module_account::App::<BaseApp>::account_of(&ctx, who)
-            .ok_or(eg!("account does not exist"))
-    }
 }
 
 impl BaseProvider for BaseApp {
