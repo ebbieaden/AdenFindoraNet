@@ -14,7 +14,7 @@ use fp_core::{
 use fp_traits::account::AccountAsset;
 use ledger::data_model::Transaction as FindoraTransaction;
 use parking_lot::RwLock;
-use primitive_types::U256;
+use primitive_types::{H160, U256};
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -245,6 +245,17 @@ impl BaseProvider for BaseApp {
             false,
         ) {
             module_ethereum::storage::CurrentBlock::get(ctx.store).unwrap_or(None)
+        } else {
+            None
+        }
+    }
+
+    fn account_code_at(&self, address: H160) -> Option<Vec<u8>> {
+        if let Ok(ctx) = self.create_query_context(
+            self.chain_state.read().height().unwrap_or_default(),
+            false,
+        ) {
+            module_evm::storage::AccountCodes::get(ctx.store, &address)
         } else {
             None
         }

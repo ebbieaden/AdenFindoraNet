@@ -5,6 +5,7 @@ use fp_core::{
     crypto::{Address, Signature},
     transaction,
 };
+use primitive_types::H160;
 use ruc::{eg, Result};
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
@@ -59,4 +60,6 @@ pub trait BaseProvider {
     fn account_of(&self, who: &Address, ctx: Option<Context>) -> Result<SmartAccount>;
 
     fn current_block(&self) -> Option<ethereum::Block>;
+
+    fn account_code_at(&self, address: H160) -> Option<Vec<u8>>;
 }
