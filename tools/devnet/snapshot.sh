@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-RED='\033[31m'
-GRN="\033[32m"
-YEL='\033[33m'
-NC='\033[0m'
+
+# env
+source env.sh
 
 # paths
-DEVNET="$LEDGER_DIR/devnet"
 WALLET="$HOME/.findora"
 
 # params
@@ -28,7 +26,7 @@ echo "memo_updatable = $memo_updatable"
 echo
 echo -n "confirm (y/n)? "
 read answer
-if [ "$answer" == "${answer#[Yy]}" ] ;then
+if [ "$answer" != "${answer#[Nn]}" ] ;then
     exit 0
 fi
 echo
@@ -84,14 +82,14 @@ echo
 echo -e "${GRN}step-6: restart mainnet---------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
-sleep 1
+sleep 2
 echo
 
 # submit genesis transaction
 echo -e "${GRN}step-7: build and submit genesis transaction------------------------${NC}"
 printf "$pswd\n" | findora build-transaction
 printf "\n\n" | findora submit genesis
-./$stopnodes
+#./$stopnodes
 echo
 
 # submit genesis transaction
