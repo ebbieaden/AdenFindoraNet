@@ -1,5 +1,7 @@
 use crate::Action;
 use fp_core::{
+    account::SmartAccount,
+    context::Context,
     crypto::{Address, Signature},
     transaction,
 };
@@ -50,4 +52,11 @@ pub fn convert_ethereum_transaction(transaction: &[u8]) -> Result<UncheckedTrans
     Ok(UncheckedTransaction::new_unsigned(Action::Ethereum(
         module_ethereum::Action::Transact(tx),
     )))
+}
+
+/// Provide query and call interface provided by each module.
+pub trait BaseProvider {
+    fn account_of(&self, who: &Address, ctx: Option<Context>) -> Result<SmartAccount>;
+
+    fn current_block(&self) -> Option<ethereum::Block>;
 }

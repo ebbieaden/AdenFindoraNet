@@ -34,6 +34,7 @@ sha3 = "0.8"
 
 # modules
 module-ethereum = { path = "../modules/ethereum"}
+module-evm = { path = "../modules/evm"}
 
 # primitives
 fp-traits = { path = "../primitives/traits" }

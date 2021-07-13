@@ -70,9 +70,11 @@ impl<C: Config> App<C> {
         // block.header.state_root =
         //     H256::from_slice(ctx.store.read().root_hash().as_slice());
 
-        CurrentBlock::put(ctx.store.clone(), Some(block));
+        CurrentBlock::put(ctx.store.clone(), Some(block.clone()));
         CurrentReceipts::put(ctx.store.clone(), Some(receipts));
         CurrentTransactionStatuses::put(ctx.store.clone(), Some(statuses));
+        BlockHash::insert(ctx.store.clone(), &block_number, &block.header.hash());
+
         Ok(())
     }
 
@@ -181,6 +183,7 @@ impl<C: Config> App<C> {
                         gas_price,
                         nonce,
                     },
+                    C::config(),
                 )?;
 
                 Ok((Some(target), None, CallOrCreateInfo::Call(res)))
@@ -196,6 +199,7 @@ impl<C: Config> App<C> {
                         gas_price,
                         nonce,
                     },
+                    C::config(),
                 )?;
 
                 Ok((None, Some(res.value), CallOrCreateInfo::Create(res)))

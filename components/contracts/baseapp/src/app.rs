@@ -84,7 +84,7 @@ impl Application for crate::BaseApp {
 
         // initialize the deliver state and check state with a correct header
         self.set_deliver_state(init_header.clone());
-        self.set_check_state(init_header);
+        self.set_check_state(init_header, vec![]);
 
         // TODO init genesis about consensus and validators
 
@@ -139,6 +139,7 @@ impl Application for crate::BaseApp {
 
     fn commit(&mut self, _req: &RequestCommit) -> ResponseCommit {
         let header = self.deliver_state.block_header();
+        let header_hash = self.deliver_state.header_hash();
 
         // Write the DeliverTx state into branched storage and commit the Store.
         // The write to the DeliverTx state writes all state transitions to the root
@@ -150,7 +151,7 @@ impl Application for crate::BaseApp {
             .commit(header.height as u64);
 
         // Reset the Check state to the latest committed.
-        self.set_check_state(header);
+        self.set_check_state(header, header_hash);
         // Reset the deliver state
         self.deliver_state = Context::new(self.chain_state.clone());
 

@@ -1,15 +1,15 @@
-use crate::forward::*;
-use crate::internal_err;
-use baseapp::{BaseApp, ChainId, UncheckedTransaction};
+use crate::{error_on_execution_failure, forward::*, internal_err};
+use baseapp::{BaseApp, BaseProvider, UncheckedTransaction};
 use ethereum_types::{H160, H256, H64, U256, U64};
 use fp_rpc_core::types::{
     BlockNumber, Bytes, CallRequest, Filter, FilterChanges, Index, Log, PeerCount,
     Receipt, RichBlock, SyncStatus, Transaction, TransactionRequest, Work,
 };
 use fp_rpc_core::{EthApi, EthFilterApi, NetApi, Web3Api};
-use fp_traits::evm::{AddressMapping, EthereumAddressMapping};
+use fp_traits::evm::{AddressMapping, EthereumAddressMapping, FeeCalculator};
 use fp_utils::ethereum::{sign_transaction_message, KeyPair};
 use jsonrpc_core::{futures::future, BoxFuture, Result};
+use module_evm::{Call, Create, Runner};
 use parking_lot::RwLock;
 use sha3::{Digest, Keccak256};
 use std::sync::Arc;
@@ -36,7 +36,7 @@ impl EthApiImpl {
 
 impl EthApi for EthApiImpl {
     fn protocol_version(&self) -> Result<u64> {
-        Ok(1)
+        Ok(self.account_base_app.read().app_version)
     }
 
     fn hashrate(&self) -> Result<U256> {
@@ -44,7 +44,7 @@ impl EthApi for EthApiImpl {
     }
 
     fn chain_id(&self) -> Result<Option<U64>> {
-        Ok(Some(ChainId::get().into()))
+        Ok(Some(<BaseApp as module_evm::Config>::ChainId::get().into()))
     }
 
     fn accounts(&self) -> Result<Vec<H160>> {
@@ -67,7 +67,7 @@ impl EthApi for EthApiImpl {
             .account_base_app
             .read()
             .account_of(&account_id, ctx)
-            .map_err(|e| internal_err(e))?;
+            .unwrap_or_default();
         Ok(U256::from(sa.balance))
     }
 
@@ -160,29 +160,95 @@ impl EthApi for EthApiImpl {
         }
     }
 
-    fn call(&self, _request: CallRequest, _: Option<BlockNumber>) -> Result<Bytes> {
-        println!("invoked: fn call");
-        Err(internal_err("Method not available."))
+    fn call(&self, request: CallRequest, _: Option<BlockNumber>) -> Result<Bytes> {
+        let CallRequest {
+            from,
+            to,
+            gas_price,
+            gas,
+            value,
+            data,
+            nonce,
+        } = request;
+
+        // use given gas limit or query current block's limit
+        let gas_limit = match gas {
+            Some(amount) => amount,
+            None => {
+                let block = self.account_base_app.read().current_block();
+                if let Some(block) = block {
+                    block.header.gas_limit
+                } else {
+                    <BaseApp as module_evm::Config>::BlockGasLimit::get()
+                }
+            }
+        };
+        let data = data.map(|d| d.0).unwrap_or_default();
+
+        match to {
+            Some(to) => {
+                let call = Call {
+                    source: from.unwrap_or_default(),
+                    target: to,
+                    input: data,
+                    value: value.unwrap_or_default(),
+                    gas_limit: gas_limit.as_u64(),
+                    gas_price,
+                    nonce,
+                };
+
+                // TODO check state?
+                let info = <BaseApp as module_evm::Config>::Runner::call(
+                    &self.account_base_app.read().check_state.clone(),
+                    call,
+                    <BaseApp as module_evm::Config>::config(),
+                )
+                .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
+
+                error_on_execution_failure(&info.exit_reason, &info.value)?;
+
+                Ok(Bytes(info.value))
+            }
+            None => {
+                let create = Create {
+                    source: from.unwrap_or_default(),
+                    init: data,
+                    value: value.unwrap_or_default(),
+                    gas_limit: gas_limit.as_u64(),
+                    gas_price,
+                    nonce,
+                };
+
+                let info = module_evm::runner::ActionRunner::<BaseApp>::create(
+                    &self.account_base_app.read().check_state.clone(),
+                    create,
+                    <BaseApp as module_evm::Config>::config(),
+                )
+                .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
+
+                error_on_execution_failure(&info.exit_reason, &[])?;
+
+                Ok(Bytes(info.value[..].to_vec()))
+            }
+        }
     }
 
     fn syncing(&self) -> Result<SyncStatus> {
-        println!("invoked: fn syncing");
-        Err(internal_err("Method not available."))
+        // TODO
+        Ok(SyncStatus::None)
     }
 
     fn author(&self) -> Result<H160> {
-        println!("invoked: fn author");
         Err(internal_err("Method not available."))
     }
 
     fn is_mining(&self) -> Result<bool> {
-        println!("invoked: fn is_mining");
-        Err(internal_err("Method not available."))
+        // TODO
+        Ok(false)
     }
 
     fn gas_price(&self) -> Result<U256> {
-        println!("invoked: fn gas_price");
-        Err(internal_err("Method not available."))
+        Ok(<BaseApp as module_evm::Config>::FeeCalculator::min_gas_price())
     }
 
     fn block_number(&self) -> Result<U256> {
@@ -268,20 +334,117 @@ impl EthApi for EthApiImpl {
         Err(internal_err("Method not available."))
     }
 
-    fn send_raw_transaction(&self, _bytes: Bytes) -> BoxFuture<H256> {
-        println!("invoked: fn code_at");
-        Box::new(future::result(Err(internal_err("Method not available."))))
+    fn send_raw_transaction(&self, bytes: Bytes) -> BoxFuture<H256> {
+        let transaction = match rlp::decode::<ethereum::Transaction>(&bytes.0[..]) {
+            Ok(transaction) => transaction,
+            Err(_) => {
+                return Box::new(future::result(Err(internal_err(
+                    "decode transaction failed",
+                ))));
+            }
+        };
+        let transaction_hash =
+            H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
+        let function =
+            baseapp::Action::Ethereum(module_ethereum::Action::Transact(transaction));
+        let resp = match self
+            .forwarder
+            .forward_txn(UncheckedTransaction::new_unsigned(function), TX_SYNC)
+            .map_err(|e| internal_err(e))
+        {
+            Ok(resp) => resp,
+            Err(e) => return Box::new(future::result(Err(e))),
+        };
+
+        if resp.is_success() {
+            Box::new(future::result(Ok(transaction_hash)))
+        } else {
+            Box::new(future::result(Err(internal_err(format!(
+                "send ethereum raw transaction failed"
+            )))))
+        }
     }
 
     fn estimate_gas(
         &self,
-        _request: CallRequest,
+        request: CallRequest,
         _: Option<BlockNumber>,
     ) -> Result<U256> {
-        Ok(U256::from(10))
+        let CallRequest {
+            from,
+            to,
+            gas_price,
+            gas,
+            value,
+            data,
+            nonce,
+        } = request;
 
-        // println!("invoked: fn estimate_gas");
-        // Err(internal_err("Method not available."))
+        // use given gas limit or query current block's limit
+        let gas_limit = match gas {
+            Some(amount) => amount,
+            None => {
+                let block = self.account_base_app.read().current_block();
+                if let Some(block) = block {
+                    block.header.gas_limit
+                } else {
+                    <BaseApp as module_evm::Config>::BlockGasLimit::get()
+                }
+            }
+        };
+        let data = data.map(|d| d.0).unwrap_or_default();
+
+        let mut config = <BaseApp as module_evm::Config>::config().clone();
+        config.estimate = true;
+
+        let used_gas = match to {
+            Some(to) => {
+                let call = Call {
+                    source: from.unwrap_or_default(),
+                    target: to,
+                    input: data,
+                    value: value.unwrap_or_default(),
+                    gas_limit: gas_limit.as_u64(),
+                    gas_price,
+                    nonce,
+                };
+
+                // TODO check state?
+                let info = module_evm::runner::ActionRunner::<BaseApp>::call(
+                    &self.account_base_app.read().check_state.clone(),
+                    call,
+                    &config,
+                )
+                .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
+
+                error_on_execution_failure(&info.exit_reason, &info.value)?;
+
+                info.used_gas
+            }
+            None => {
+                let create = Create {
+                    source: from.unwrap_or_default(),
+                    init: data,
+                    value: value.unwrap_or_default(),
+                    gas_limit: gas_limit.as_u64(),
+                    gas_price,
+                    nonce,
+                };
+
+                let info = module_evm::runner::ActionRunner::<BaseApp>::create(
+                    &self.account_base_app.read().check_state.clone(),
+                    create,
+                    &config,
+                )
+                .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
+
+                error_on_execution_failure(&info.exit_reason, &[])?;
+
+                info.used_gas
+            }
+        };
+
+        Ok(used_gas)
     }
 
     fn transaction_by_hash(&self, _hash: H256) -> Result<Option<Transaction>> {

@@ -132,7 +132,7 @@ impl<C: Config> ActionRunner<C> {
 }
 
 impl<C: Config> Runner for ActionRunner<C> {
-    fn call(ctx: &Context, args: Call) -> Result<CallInfo> {
+    fn call(ctx: &Context, args: Call, config: &evm::Config) -> Result<CallInfo> {
         Self::execute(
             ctx,
             args.source,
@@ -140,7 +140,7 @@ impl<C: Config> Runner for ActionRunner<C> {
             args.gas_limit,
             args.gas_price,
             args.nonce,
-            C::config(),
+            config,
             |executor| {
                 executor.transact_call(
                     args.source,
@@ -153,7 +153,7 @@ impl<C: Config> Runner for ActionRunner<C> {
         )
     }
 
-    fn create(ctx: &Context, args: Create) -> Result<CreateInfo> {
+    fn create(ctx: &Context, args: Create, config: &evm::Config) -> Result<CreateInfo> {
         Self::execute(
             ctx,
             args.source,
@@ -161,7 +161,7 @@ impl<C: Config> Runner for ActionRunner<C> {
             args.gas_limit,
             args.gas_price,
             args.nonce,
-            C::config(),
+            config,
             |executor| {
                 let address = executor.create_address(evm::CreateScheme::Legacy {
                     caller: args.source,
@@ -179,7 +179,11 @@ impl<C: Config> Runner for ActionRunner<C> {
         )
     }
 
-    fn create2(ctx: &Context, args: Create2) -> Result<CreateInfo> {
+    fn create2(
+        ctx: &Context,
+        args: Create2,
+        config: &evm::Config,
+    ) -> Result<CreateInfo> {
         let code_hash = H256::from_slice(Keccak256::digest(&args.init).as_slice());
         Self::execute(
             ctx,
@@ -188,7 +192,7 @@ impl<C: Config> Runner for ActionRunner<C> {
             args.gas_limit,
             args.gas_price,
             args.nonce,
-            C::config(),
+            config,
             |executor| {
                 let address = executor.create_address(evm::CreateScheme::Create2 {
                     caller: args.source,
