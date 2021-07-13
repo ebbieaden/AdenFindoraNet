@@ -563,7 +563,7 @@ async fn query_account_model_balance(
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
     let account_base_app = data.read();
     let balance = account_base_app
-        .account_of(&sa.into(), None)
+        .account_of(sa.into())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
     Ok(web::Json(response::Response::new_success(Some(balance))))
 }

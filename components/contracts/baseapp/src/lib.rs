@@ -3,6 +3,7 @@ mod modules;
 mod types;
 
 use crate::modules::ModuleManager;
+use abci::Header;
 use fp_core::account::SmartAccount;
 use fp_core::{
     context::Context,
@@ -20,7 +21,6 @@ use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
 
-use abci::Header;
 pub use types::*;
 
 const APP_NAME: &str = "findora";
@@ -28,30 +28,33 @@ const APP_DB_NAME: &str = "findora_db";
 
 pub struct BaseApp {
     /// application name from abci.Info
-    name: String,
+    pub name: String,
     /// application's version string
-    version: String,
+    pub version: String,
     /// application's protocol version that increments on every upgrade
     /// if BaseApp is passed to the upgrade keeper's NewKeeper method.
-    app_version: u64,
+    pub app_version: u64,
     /// Chain persistent state
-    chain_state: Arc<RwLock<ChainState<FinDB>>>,
+    pub chain_state: Arc<RwLock<ChainState<FinDB>>>,
     /// volatile states
     ///
     /// check_state is set on InitChain and reset on Commit
     /// deliver_state is set on InitChain and BeginBlock and set to nil on Commit
-    check_state: Context,
-    deliver_state: Context,
+    pub check_state: Context,
+    pub deliver_state: Context,
     /// Ordered module set
-    modules: ModuleManager,
+    pub modules: ModuleManager,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
+    Account(module_account::Action),
     Ethereum(module_ethereum::Action),
     Evm(module_evm::Action),
-    Account(module_account::Action),
+    Template(module_template::Action),
 }
+
+impl module_template::Config for BaseApp {}
 
 impl module_account::Config for BaseApp {}
 
@@ -88,22 +91,6 @@ impl BaseApp {
             deliver_state: Context::new(chain_state),
             modules: Default::default(),
         })
-    }
-
-    pub fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    pub fn version(&self) -> String {
-        self.version.clone()
-    }
-
-    pub fn app_version(&self) -> u64 {
-        self.app_version
-    }
-
-    pub fn modules(&mut self) -> &mut ModuleManager {
-        &mut self.modules
     }
 }
 
@@ -144,15 +131,23 @@ impl Executable for BaseApp {
             Action::Account(action) => {
                 module_account::App::<Self>::execute(origin, action, ctx)
             }
+            Action::Template(action) => {
+                module_template::App::<Self>::execute(origin, action, ctx)
+            }
         }
     }
 }
 
 impl BaseApp {
-    pub fn create_query_context(&self, mut height: u64, prove: bool) -> Result<Context> {
+    pub fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
+        ensure!(
+            height >= 0,
+            "cannot query with height < 0; please provide a valid height"
+        );
+
         // when a client did not provide a query height, manually inject the latest
         if height == 0 {
-            height = self.chain_state.read().height()?;
+            height = self.chain_state.read().height()? as i64;
         }
         if height <= 1 && prove {
             return Err(eg!(
@@ -219,11 +214,10 @@ impl BaseApp {
         self.deliver_state.chain_id = header.chain_id;
     }
 
-    fn set_check_state(&mut self, header: Header, header_hash: Vec<u8>) {
+    fn set_check_state(&mut self, header: Header) {
         self.check_state.check_tx = true;
-        self.check_state.recheck_tx = false;
+        self.deliver_state.recheck_tx = false;
         self.check_state.header = header.clone();
-        self.check_state.header_hash = header_hash;
         self.check_state.chain_id = header.chain_id;
     }
 
@@ -235,44 +229,8 @@ impl BaseApp {
         self.modules.process_findora_tx(&self.check_state, tx)
     }
 
-    pub fn account_of(
-        &self,
-        who: &Address,
-        ctx: Option<Context>,
-    ) -> Result<SmartAccount> {
-        let ctx = match ctx {
-            None => self.create_query_context(
-                self.chain_state.read().height().unwrap_or_default(),
-                false,
-            )?,
-            Some(ctx) => ctx,
-        };
-        module_account::App::<BaseApp>::account_of(&ctx, who)
+    pub fn account_of(&self, addr: Address) -> Result<SmartAccount> {
+        module_account::App::<BaseApp>::account_of(&self.deliver_state, &addr)
             .ok_or(eg!("account does not exist"))
-    }
-}
-
-impl BaseProvider for BaseApp {
-    fn account_of(&self, who: &Address, ctx: Option<Context>) -> Result<SmartAccount> {
-        let ctx = match ctx {
-            None => self.create_query_context(
-                self.chain_state.read().height().unwrap_or_default(),
-                false,
-            )?,
-            Some(ctx) => ctx,
-        };
-        module_account::App::<BaseApp>::account_of(&ctx, who)
-            .ok_or(eg!("account does not exist"))
-    }
-
-    fn current_block(&self) -> Option<ethereum::Block> {
-        if let Ok(ctx) = self.create_query_context(
-            self.chain_state.read().height().unwrap_or_default(),
-            false,
-        ) {
-            module_ethereum::storage::CurrentBlock::get(ctx.store).unwrap_or(None)
-        } else {
-            None
-        }
     }
 }
