@@ -67,8 +67,13 @@ pub fn run() -> Result<()> {
     }
 
     if env::var("ENABLE_ETH_API_SERVICE").is_ok() {
+        let account_base_app = app.account_base_app.clone();
+        let url = format!(
+            "http://{}:{}",
+            config.tendermint_host, config.tendermint_port
+        );
         thread::spawn(move || {
-            fc_rpc::start_service();
+            fc_rpc::start_service(url, account_base_app);
         });
     }
 

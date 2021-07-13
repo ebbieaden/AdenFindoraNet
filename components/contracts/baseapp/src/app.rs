@@ -29,13 +29,20 @@ impl Application for crate::BaseApp {
             resp
         };
 
+        if req.height < 0 {
+            return err_resp(
+                "cannot query with height < 0; please provide a valid height"
+                    .to_string(),
+            );
+        }
+
         // example: "module/evm/code"
         let mut path: Vec<_> = req.path.split('/').collect();
         if 0 == path.len() {
-            return err_resp("Empty query path !".to_string());
+            return err_resp("Empty query path!".to_string());
         }
 
-        let ctx = self.create_query_context(req.height, req.prove);
+        let ctx = self.create_query_context(req.height as u64, req.prove);
         if let Err(e) = ctx {
             return err_resp(format!("Cannot create query context with err: {}!", e));
         }
@@ -77,7 +84,7 @@ impl Application for crate::BaseApp {
 
         // initialize the deliver state and check state with a correct header
         self.set_deliver_state(init_header.clone());
-        self.set_check_state(init_header);
+        self.set_check_state(init_header, vec![]);
 
         // TODO init genesis about consensus and validators
 
@@ -132,6 +139,7 @@ impl Application for crate::BaseApp {
 
     fn commit(&mut self, _req: &RequestCommit) -> ResponseCommit {
         let header = self.deliver_state.block_header();
+        let header_hash = self.deliver_state.header_hash();
 
         // Write the DeliverTx state into branched storage and commit the Store.
         // The write to the DeliverTx state writes all state transitions to the root
@@ -143,7 +151,7 @@ impl Application for crate::BaseApp {
             .commit(header.height as u64);
 
         // Reset the Check state to the latest committed.
-        self.set_check_state(header);
+        self.set_check_state(header, header_hash);
         // Reset the deliver state
         self.deliver_state = Context::new(self.chain_state.clone());
 

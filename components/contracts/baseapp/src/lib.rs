@@ -139,15 +139,10 @@ impl Executable for BaseApp {
 }
 
 impl BaseApp {
-    pub fn create_query_context(&self, mut height: i64, prove: bool) -> Result<Context> {
-        ensure!(
-            height >= 0,
-            "cannot query with height < 0; please provide a valid height"
-        );
-
+    pub fn create_query_context(&self, mut height: u64, prove: bool) -> Result<Context> {
         // when a client did not provide a query height, manually inject the latest
         if height == 0 {
-            height = self.chain_state.read().height()? as i64;
+            height = self.chain_state.read().height()?;
         }
         if height <= 1 && prove {
             return Err(eg!(
@@ -214,10 +209,11 @@ impl BaseApp {
         self.deliver_state.chain_id = header.chain_id;
     }
 
-    fn set_check_state(&mut self, header: Header) {
+    fn set_check_state(&mut self, header: Header, header_hash: Vec<u8>) {
         self.check_state.check_tx = true;
-        self.deliver_state.recheck_tx = false;
+        self.check_state.recheck_tx = false;
         self.check_state.header = header.clone();
+        self.check_state.header_hash = header_hash;
         self.check_state.chain_id = header.chain_id;
     }
 
@@ -228,9 +224,29 @@ impl BaseApp {
     pub fn check_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
         self.modules.process_findora_tx(&self.check_state, tx)
     }
+}
 
-    pub fn account_of(&self, addr: Address) -> Result<SmartAccount> {
-        module_account::App::<BaseApp>::account_of(&self.deliver_state, &addr)
+impl BaseProvider for BaseApp {
+    fn account_of(&self, who: &Address, ctx: Option<Context>) -> Result<SmartAccount> {
+        let ctx = match ctx {
+            None => self.create_query_context(
+                self.chain_state.read().height().unwrap_or_default(),
+                false,
+            )?,
+            Some(ctx) => ctx,
+        };
+        module_account::App::<BaseApp>::account_of(&ctx, who)
             .ok_or(eg!("account does not exist"))
+    }
+
+    fn current_block(&self) -> Option<ethereum::Block> {
+        if let Ok(ctx) = self.create_query_context(
+            self.chain_state.read().height().unwrap_or_default(),
+            false,
+        ) {
+            module_ethereum::storage::CurrentBlock::get(ctx.store).unwrap_or(None)
+        } else {
+            None
+        }
     }
 }
