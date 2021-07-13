@@ -239,7 +239,7 @@ impl EthApi for EthApiImpl {
     }
 
     fn author(&self) -> Result<H160> {
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available1."))
     }
 
     fn is_mining(&self) -> Result<bool> {
@@ -269,12 +269,12 @@ impl EthApi for EthApiImpl {
         _number: Option<BlockNumber>,
     ) -> Result<H256> {
         println!("invoked: fn storage_at");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available2."))
     }
 
     fn block_by_hash(&self, _hash: H256, _full: bool) -> Result<Option<RichBlock>> {
         println!("invoked: fn block_by_hash");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available3."))
     }
 
     fn block_by_number(
@@ -283,7 +283,7 @@ impl EthApi for EthApiImpl {
         _full: bool,
     ) -> Result<Option<RichBlock>> {
         println!("invoked: fn block_by_number");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available4."))
     }
 
     fn transaction_count(
@@ -308,7 +308,7 @@ impl EthApi for EthApiImpl {
 
     fn block_transaction_count_by_hash(&self, _hash: H256) -> Result<Option<U256>> {
         println!("invoked: fn block_transaction_count_by_hash");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available5."))
     }
 
     fn block_transaction_count_by_number(
@@ -316,22 +316,26 @@ impl EthApi for EthApiImpl {
         _number: BlockNumber,
     ) -> Result<Option<U256>> {
         println!("invoked: fn block_transaction_count_by_number");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available6."))
     }
 
     fn block_uncles_count_by_hash(&self, _: H256) -> Result<U256> {
         println!("invoked: fn block_uncles_count_by_hash");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available7."))
     }
 
     fn block_uncles_count_by_number(&self, _: BlockNumber) -> Result<U256> {
         println!("invoked: fn block_uncles_count_by_number");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available8."))
     }
 
-    fn code_at(&self, _address: H160, _number: Option<BlockNumber>) -> Result<Bytes> {
-        println!("invoked: fn code_at");
-        Err(internal_err("Method not available."))
+    fn code_at(&self, address: H160, _number: Option<BlockNumber>) -> Result<Bytes> {
+        Ok(self
+            .account_base_app
+            .read()
+            .account_code_at(address)
+            .unwrap_or(vec![])
+            .into())
     }
 
     fn send_raw_transaction(&self, bytes: Bytes) -> BoxFuture<H256> {
@@ -449,7 +453,7 @@ impl EthApi for EthApiImpl {
 
     fn transaction_by_hash(&self, _hash: H256) -> Result<Option<Transaction>> {
         println!("invoked: fn transaction_by_hash");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available10."))
     }
 
     fn transaction_by_block_hash_and_index(
@@ -458,7 +462,7 @@ impl EthApi for EthApiImpl {
         _index: Index,
     ) -> Result<Option<Transaction>> {
         println!("invoked: fn transaction_by_block_hash_and_index");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available11."))
     }
 
     fn transaction_by_block_number_and_index(
@@ -467,12 +471,12 @@ impl EthApi for EthApiImpl {
         _index: Index,
     ) -> Result<Option<Transaction>> {
         println!("invoked: fn transaction_by_block_number_and_index");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available12."))
     }
 
     fn transaction_receipt(&self, _hash: H256) -> Result<Option<Receipt>> {
         println!("invoked: fn transaction_receipt");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available13."))
     }
 
     fn uncle_by_block_hash_and_index(
@@ -493,7 +497,7 @@ impl EthApi for EthApiImpl {
 
     fn logs(&self, _filter: Filter) -> Result<Vec<Log>> {
         println!("invoked: fn logs");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available14."))
     }
 
     fn work(&self) -> Result<Work> {
@@ -600,21 +604,21 @@ impl EthFilterApi for EthFilterApiImpl {
 
     fn new_pending_transaction_filter(&self) -> Result<U256> {
         println!("invoked: fn new_pending_transaction_filter");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available15."))
     }
 
     fn filter_changes(&self, _index: Index) -> Result<FilterChanges> {
         println!("invoked: fn filter_changes");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available16."))
     }
 
     fn filter_logs(&self, _index: Index) -> Result<Vec<Log>> {
         println!("invoked: fn filter_logs");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available17."))
     }
 
     fn uninstall_filter(&self, _index: Index) -> Result<bool> {
         println!("invoked: fn uninstall_filter");
-        Err(internal_err("Method not available."))
+        Err(internal_err("Method not available18."))
     }
 }
