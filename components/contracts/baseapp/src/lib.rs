@@ -209,10 +209,11 @@ impl BaseApp {
         self.deliver_state.chain_id = header.chain_id;
     }
 
-    fn set_check_state(&mut self, header: Header) {
+    fn set_check_state(&mut self, header: Header, header_hash: Vec<u8>) {
         self.check_state.check_tx = true;
-        self.deliver_state.recheck_tx = false;
+        self.check_state.recheck_tx = false;
         self.check_state.header = header.clone();
+        self.check_state.header_hash = header_hash;
         self.check_state.chain_id = header.chain_id;
     }
 
@@ -238,5 +239,30 @@ impl BaseApp {
         };
         module_account::App::<BaseApp>::account_of(&ctx, who)
             .ok_or(eg!("account does not exist"))
+    }
+}
+
+impl BaseProvider for BaseApp {
+    fn account_of(&self, who: &Address, ctx: Option<Context>) -> Result<SmartAccount> {
+        let ctx = match ctx {
+            None => self.create_query_context(
+                self.chain_state.read().height().unwrap_or_default(),
+                false,
+            )?,
+            Some(ctx) => ctx,
+        };
+        module_account::App::<BaseApp>::account_of(&ctx, who)
+            .ok_or(eg!("account does not exist"))
+    }
+
+    fn current_block(&self) -> Option<ethereum::Block> {
+        if let Ok(ctx) = self.create_query_context(
+            self.chain_state.read().height().unwrap_or_default(),
+            false,
+        ) {
+            module_ethereum::storage::CurrentBlock::get(ctx.store).unwrap_or(None)
+        } else {
+            None
+        }
     }
 }

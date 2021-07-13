@@ -40,9 +40,10 @@ pub struct Create2 {
 }
 
 pub trait Runner {
-    fn call(_ctx: &Context, _args: Call) -> Result<CallInfo>;
+    fn call(ctx: &Context, args: Call, config: &evm::Config) -> Result<CallInfo>;
 
-    fn create(_ctx: &Context, _args: Create) -> Result<CreateInfo>;
+    fn create(ctx: &Context, args: Create, config: &evm::Config) -> Result<CreateInfo>;
 
-    fn create2(_ctx: &Context, _args: Create2) -> Result<CreateInfo>;
+    fn create2(ctx: &Context, args: Create2, config: &evm::Config)
+    -> Result<CreateInfo>;
 }

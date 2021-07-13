@@ -26,10 +26,11 @@ pub enum Action {
     Transact(ethereum::Transaction),
 }
 
-mod storage {
+pub mod storage {
     use ethereum::{Block, Receipt, Transaction};
     use fp_evm::TransactionStatus;
     use fp_storage::*;
+    use primitive_types::{H256, U256};
 
     // Current building block's transactions and receipts.
     generate_storage!(Ethereum, Pending => Value<Vec<(Transaction, TransactionStatus, Receipt)>>);
@@ -39,6 +40,8 @@ mod storage {
     generate_storage!(Ethereum, CurrentReceipts => Value<Option<Vec<Receipt>>>);
     // The current transaction statuses.
     generate_storage!(Ethereum, CurrentTransactionStatuses => Value<Option<Vec<TransactionStatus>>>);
+    // Mapping for block number and hashes.
+    generate_storage!(Ethereum, BlockHash => Map<U256, H256>);
 }
 
 pub struct App<C> {

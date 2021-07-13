@@ -11,6 +11,7 @@ use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
 // use ledger::address::store::BalanceStore;
 use baseapp::BaseApp;
+use ledger::address::SmartAddress;
 use ledger::staking::{DelegationRwdDetail, TendermintAddr};
 use ledger::{
     data_model::*,
@@ -558,12 +559,11 @@ async fn query_account_model_balance(
     data: web::Data<Arc<RwLock<BaseApp>>>,
     address: web::Path<String>,
 ) -> actix_web::Result<impl Responder> {
-    let pk = wallet::public_key_from_base64(address.as_str())
-        .c(d!())
+    let sa = SmartAddress::from_string(address.to_string())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
     let account_base_app = data.read();
     let balance = account_base_app
-        .account_of(&pk.into(), None)
+        .account_of(&sa.into(), None)
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
     Ok(web::Json(response::Response::new_success(Some(balance))))
 }
