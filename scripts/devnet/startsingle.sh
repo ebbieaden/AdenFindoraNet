@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 
-RED='\033[31m'
-GRN="\033[32m"
-NC='\033[0m'
+# env
+source env.sh
 
 # paths
-SINGLE="$LEDGER_DIR/single"
+SINGLE="$FIN_HOME/single"
 
 # start abci
 echo -n "starting node: "

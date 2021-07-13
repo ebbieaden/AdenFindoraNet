@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 
-RED='\033[31m'
-GRN="\033[32m"
-NC='\033[0m'
-
-# paths
-DEVNET="$LEDGER_DIR/devnet"
+# env
+source env.sh
 
 # start abcis
 nodes=`ls -l $DEVNET | grep node  | awk '(NR>0){print $9}' | sort -V`
 for node in $nodes
 do
+    #rm -rf ${DEVNET}/${node}/abci/db
     SelfAddr=$(grep 'address' ${DEVNET}/${node}/config/priv_validator_key.json | grep -oE '[^",]{40}')
     TD_NODE_SELF_ADDR=$SelfAddr \
         LEDGER_DIR=$DEVNET/$node/abci \

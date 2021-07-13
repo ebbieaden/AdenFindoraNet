@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-RED='\033[31m'
-GRN="\033[32m"
-NC='\033[0m'
+
+# env
+source env.sh
 
 # stop all abci nodes
 abcis=`pgrep -f abci_validator_node`
