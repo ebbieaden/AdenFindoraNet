@@ -16,12 +16,16 @@ pub use eth::{EthApiImpl, EthFilterApiImpl, NetApiImpl, Web3ApiImpl};
 pub use fp_rpc_core::{EthApiServer, EthFilterApiServer, NetApiServer, Web3ApiServer};
 use rustc_hex::ToHex;
 
-pub fn start_service(url: String, account_base_app: Arc<RwLock<BaseApp>>) {
+pub fn start_service(
+    url_evm: String,
+    url_tdmt: String,
+    account_base_app: Arc<RwLock<BaseApp>>,
+) {
     let mut io = jsonrpc_core::IoHandler::default();
 
     let signers = vec![generate_address(1)];
     io.extend_with(EthApiServer::to_delegate(EthApiImpl::new(
-        url,
+        url_tdmt,
         account_base_app,
         signers,
     )));
@@ -34,7 +38,7 @@ pub fn start_service(url: String, account_base_app: Arc<RwLock<BaseApp>>) {
         .cors(DomainsValidation::AllowOnly(vec![
             AccessControlAllowOrigin::Any,
         ]))
-        .start_http(&"0.0.0.0:8545".parse().unwrap())
+        .start_http(&url_evm.parse().unwrap())
         .expect("Unable to start Ethereum api service");
 
     server.wait()

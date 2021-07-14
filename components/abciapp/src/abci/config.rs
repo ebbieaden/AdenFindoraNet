@@ -13,6 +13,8 @@ pub struct ABCIConfig {
     pub ledger_port: u16,
     pub query_host: String,
     pub query_port: u16,
+    pub evm_api_host: String,
+    pub evm_api_port: u16,
 }
 
 #[derive(Deserialize)]
@@ -25,6 +27,8 @@ pub struct ABCIConfigStr {
     pub submission_port: String,
     pub ledger_host: String,
     pub ledger_port: String,
+    pub evm_api_host: String,
+    pub evm_api_port: String,
 }
 
 impl TryFrom<ABCIConfigStr> for ABCIConfig {
@@ -33,6 +37,7 @@ impl TryFrom<ABCIConfigStr> for ABCIConfig {
         let query_host = cfg.ledger_host.clone();
         let ledger_port = cfg.ledger_port.parse::<u16>().c(d!())?;
         let query_port = ledger_port - 1;
+        let evm_api_port = cfg.evm_api_port.parse::<u16>().c(d!())?;
         Ok(ABCIConfig {
             abci_host: cfg.abci_host,
             abci_port: cfg.abci_port.parse::<u16>().c(d!())?,
@@ -44,6 +49,8 @@ impl TryFrom<ABCIConfigStr> for ABCIConfig {
             ledger_port,
             query_host,
             query_port,
+            evm_api_host: cfg.evm_api_host,
+            evm_api_port,
         })
     }
 }
@@ -81,6 +88,14 @@ impl ABCIConfig {
             .parse::<u16>()
             .c(d!())?;
 
+        // evm json api port
+        let evm_api_host =
+            std::env::var("EVM_API_HOST").unwrap_or_else(|_| "0.0.0.0".to_owned());
+        let evm_api_port = std::env::var("EVM_API_PORT")
+            .unwrap_or_else(|_| "8545".to_owned())
+            .parse::<u16>()
+            .c(d!())?;
+
         let query_host = ledger_host.clone();
         let query_port = ledger_port - 1;
 
@@ -95,6 +110,8 @@ impl ABCIConfig {
             ledger_port,
             query_host,
             query_port,
+            evm_api_host,
+            evm_api_port,
         })
     }
 
