@@ -12,14 +12,15 @@
 #![deny(missing_docs)]
 #![allow(clippy::needless_borrow)]
 
-mod wasm_data_model;
-
-use crate::wasm_data_model::{
-    error_to_jsvalue, AssetRules, AssetTracerKeyPair, AttributeAssignment,
-    AttributeDefinition, ClientAssetRecord, Credential, CredentialCommitment,
-    CredentialCommitmentData, CredentialCommitmentKey, CredentialIssuerKeyPair,
-    CredentialPoK, CredentialRevealSig, CredentialSignature, CredentialUserKeyPair,
-    OwnerMemo, PublicParams, TracingPolicies, TxoRef,
+use crate::{
+    util::error_to_jsvalue,
+    wasm_data_model::{
+        AssetRules, AssetTracerKeyPair, AttributeAssignment, AttributeDefinition,
+        ClientAssetRecord, Credential, CredentialCommitment, CredentialCommitmentData,
+        CredentialCommitmentKey, CredentialIssuerKeyPair, CredentialPoK,
+        CredentialRevealSig, CredentialSignature, CredentialUserKeyPair, OwnerMemo,
+        PublicParams, TracingPolicies, TxoRef,
+    },
 };
 use credentials::{
     credential_commit, credential_issuer_key_gen, credential_open_commitment,
@@ -29,7 +30,7 @@ use credentials::{
 };
 use cryptohash::sha256;
 use finutils::txn_builder::{
-    FeeInput as PlatformFeeInput, FeeInputs as PlatformFeeInputs,
+    BuildsTransactions, FeeInput as PlatformFeeInput, FeeInputs as PlatformFeeInputs,
     TransactionBuilder as PlatformTransactionBuilder,
     TransferOperationBuilder as PlatformTransferOperationBuilder,
 };
@@ -59,6 +60,11 @@ use zei::{
         },
     },
 };
+
+use ledger::address::SmartAddress;
+
+mod util;
+mod wasm_data_model;
 
 /// Constant defining the git commit hash and commit date of the commit this library was built
 /// against.
@@ -411,6 +417,21 @@ impl TransactionBuilder {
         Ok(self)
     }
 
+    pub fn add_operation_convert_account(
+        mut self,
+        keypair: &XfrKeyPair,
+        s: String,
+    ) -> Result<TransactionBuilder, JsValue> {
+        let sa = SmartAddress::from_string(s)
+            .c(d!())
+            .map_err(error_to_jsvalue)?;
+        self.get_builder_mut()
+            .add_operation_convert_account(keypair, sa)
+            .c(d!())
+            .map_err(error_to_jsvalue)?;
+        Ok(self)
+    }
+
     #[allow(missing_docs)]
     pub fn add_operation_delegate(
         mut self,
@@ -623,6 +644,12 @@ impl TransferOperationBuilder {
     /// Create a new transfer operation builder.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    // Debug function that does not need to go into the docs.
+    /// @ignore
+    pub fn debug(&self) -> String {
+        serde_json::to_string(&self.op_builder).unwrap()
     }
 
     /// Wraps around TransferOperationBuilder to add an input to a transfer operation builder.
