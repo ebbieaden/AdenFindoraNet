@@ -169,10 +169,10 @@ wasm:
 	tar -zcpf $(WASM_PKG) components/wasm/pkg
 
 debug_env: stop_debug_env build_release_debug
-	@- rm -rf $(FIN_HOME)
-	@ mkdir $(FIN_HOME)
-	@ cp tools/debug_env.tar.gz $(FIN_HOME)/
-	@ cd $(FIN_HOME) && tar -xpf debug_env.tar.gz && mv debug_env devnet
+	@- rm -rf $(FIN_HOME)/devnet
+	@ mkdir -p $(FIN_HOME)/devnet
+	@ cp tools/debug_env.tar.gz $(FIN_HOME)
+	@ cd $(FIN_HOME) && tar -xpf debug_env.tar.gz -C devnet
 	@ ./scripts/devnet/startnodes.sh
 
 run_staking_demo:
