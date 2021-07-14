@@ -94,7 +94,7 @@ impl ModuleManager {
 
         let checked = tx.clone().check()?;
         // add match field if tx is unsigned transaction
-        match tx.function {
+        match tx.function.clone() {
             Action::Ethereum(action) => {
                 let module_ethereum::Action::Transact(eth_tx) = action.clone();
                 ctx.tx = serde_json::to_vec(&eth_tx)
@@ -103,6 +103,17 @@ impl ModuleManager {
                 Self::dispatch::<module_ethereum::Action, module_ethereum::App<BaseApp>>(
                     &ctx, mode, action, checked,
                 )
+            }
+            Action::Account(action) => {
+                if let module_account::Action::TransferToUTXO(fin_tx) = action.clone() {
+                    ctx.tx = serde_json::to_vec(&fin_tx)
+                        .map_err(|e| eg!(format!("Serialize findora tx err: {}", e)))?;
+                    Self::dispatch::<module_account::Action, module_account::App<BaseApp>>(
+                        &ctx, mode, action, checked,
+                    )
+                } else {
+                    Self::dispatch::<Action, BaseApp>(&ctx, mode, tx.function, checked)
+                }
             }
             _ => Self::dispatch::<Action, BaseApp>(&ctx, mode, tx.function, checked),
         }

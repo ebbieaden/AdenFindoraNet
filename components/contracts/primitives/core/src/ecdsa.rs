@@ -1,5 +1,6 @@
 use bip39::{Language, Mnemonic, MnemonicType};
 use libsecp256k1::{PublicKey, SecretKey};
+use primitive_types::{H160, H256};
 use rand::{rngs::OsRng, RngCore};
 use ruc::eg;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
@@ -349,6 +350,13 @@ impl Pair {
     /// Get the public key.
     pub fn public(&self) -> Public {
         Public(self.public.serialize_compressed())
+    }
+
+    /// Ethereum address format.
+    pub fn address(&self) -> H160 {
+        let mut res = [0u8; 64];
+        res.copy_from_slice(&self.public.serialize()[1..65]);
+        H160::from(H256::from_slice(Keccak256::digest(&res).as_slice()))
     }
 
     /// Sign a message.
