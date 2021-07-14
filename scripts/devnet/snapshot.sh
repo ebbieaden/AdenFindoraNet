@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-RED='\033[31m'
-GRN="\033[32m"
-YEL='\033[33m'
-NC='\033[0m'
+
+# env
+source env.sh
 
 # paths
-DEVNET="$LEDGER_DIR/devnet"
 WALLET="$HOME/.findora"
 
 # params
@@ -28,7 +26,7 @@ echo "memo_updatable = $memo_updatable"
 echo
 echo -n "confirm (y/n)? "
 read answer
-if [ "$answer" == "${answer#[Yy]}" ] ;then
+if [ "$answer" != "${answer#[Nn]}" ] ;then
     exit 0
 fi
 echo
@@ -44,7 +42,7 @@ rm -rf $WALLET/*_passphrase
 rm -rf $WALLET/snapshot.tar.gz
 
 # clean and restart nodes
-echo -e "${GRN}step-1: run mainnet------------------------------------------------${NC}"
+echo -e "${GRN}step-1: run network------------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
 echo
@@ -63,7 +61,7 @@ printf "y\n" | findora query-ledger-state
 echo
 
 # clean and restart nodes
-echo -e "${GRN}step-4: restart mainnet---------------------------------------------${NC}"
+echo -e "${GRN}step-4: restart network---------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
 echo
@@ -81,17 +79,17 @@ printf "$pswd\n" | findora issue-asset genesis $token 0 $issuance
 echo
 
 # clean and restart nodes
-echo -e "${GRN}step-6: restart mainnet---------------------------------------------${NC}"
+echo -e "${GRN}step-6: restart network---------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
-sleep 1
+sleep 3
 echo
 
 # submit genesis transaction
 echo -e "${GRN}step-7: build and submit genesis transaction------------------------${NC}"
 printf "$pswd\n" | findora build-transaction
 printf "\n\n" | findora submit genesis
-./$stopnodes
+#./$stopnodes
 echo
 
 # submit genesis transaction

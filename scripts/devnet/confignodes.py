@@ -4,12 +4,14 @@ import os
 import subprocess
 import toml
 
-devnet = os.path.join(os.environ['LEDGER_DIR'], "devnet")
+devnet = "/tmp/findora/devnet"
+if os.getenv('FIN_HOME') != None:
+    devnet = os.path.join(os.environ['FIN_HOME'], "devnet")
 localhost = "127.0.0.1"
 base_url = "tcp://127.0.0.1:"
 base_port_node = 26610
 base_port_abci = 8620
-blocks_interval = "15s"
+blocks_interval = "1s"
 timeout_commit = "15s"
 toml_string = """
 abci_host = "127.0.0.1"
@@ -37,8 +39,8 @@ def set_persistent_peers(config_toml, contents, i):
     peers = contents["p2p"]["persistent_peers"].split(",")
     peers_new = []
     for j, peer in enumerate(peers):
-        if i == j:  # skip self
-            continue
+        #if i == j:  # skip self
+        #    continue
         p2p_laddr_j = str(base_port_node + 10 * j + 6)
         peer_id = peer.split("@")[0]
         peers_new.append("{}@{}:{}".format(peer_id, localhost, p2p_laddr_j))

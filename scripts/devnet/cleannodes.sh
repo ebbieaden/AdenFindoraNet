@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-RED='\033[31m'
-GRN="\033[32m"
-NC='\033[0m'
 
-# paths
-DEVNET="$LEDGER_DIR/devnet"
+# env
+source env.sh
 
 # stop nodes
 script_stop=$(dirname "$0")/stopnodes.sh
