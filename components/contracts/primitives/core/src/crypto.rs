@@ -1,7 +1,9 @@
 use crate::ecdsa;
 use ledger::address::SmartAddress;
+use primitive_types::{H160, H256};
 use ruc::eg;
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Keccak256};
 use std::convert::TryFrom;
 use zei::serialization::ZeiFromToBytes;
 use zei::xfr::sig::{XfrPublicKey, XfrSignature};
@@ -64,6 +66,14 @@ impl From<XfrPublicKey> for Address32 {
 impl From<ecdsa::Public> for Address32 {
     fn from(k: ecdsa::Public) -> Self {
         ecdsa::keccak_256(k.as_ref()).into()
+    }
+}
+
+impl From<H160> for Address32 {
+    fn from(k: H160) -> Self {
+        let mut data = [0u8; 32];
+        data[0..20].copy_from_slice(k.as_bytes());
+        data.into()
     }
 }
 
@@ -156,13 +166,25 @@ impl Verify for MultiSignature {
                 Ok(who) => sig.verify(msg, &who),
                 _ => false,
             },
-            Self::Ecdsa(ref sig) => match sig.recover(msg) {
-                Some(pubkey) => {
-                    &ecdsa::keccak_256(pubkey.as_ref())
-                        == <dyn AsRef<[u8; 32]>>::as_ref(signer)
+            // Self::Ecdsa(ref sig) => match sig.recover(msg) {
+            //     Some(pubkey) => {
+            //         &ecdsa::keccak_256(pubkey.as_ref())
+            //             == <dyn AsRef<[u8; 32]>>::as_ref(signer)
+            //     }
+            //     _ => false,
+            // },
+            Self::Ecdsa(ref sig) => {
+                let mut msg_hashed = [0u8; 32];
+                msg_hashed.copy_from_slice(msg);
+                match secp256k1_ecdsa_recover(sig.as_ref(), &msg_hashed) {
+                    Ok(pubkey) => {
+                        Address32::from(H160::from(H256::from_slice(
+                            Keccak256::digest(&pubkey).as_slice(),
+                        ))) == signer.clone()
+                    }
+                    _ => false,
                 }
-                _ => false,
-            },
+            }
         }
     }
 }
@@ -171,8 +193,10 @@ impl Verify for MultiSignature {
 pub enum MultiSigner {
     /// An zei xfr identity.
     Xfr(XfrPublicKey),
-    /// An SECP256k1/ECDSA identity (actually, the Blake2 hash of the compressed pub key).
-    Ecdsa(ecdsa::Public),
+    // /// An SECP256k1/ECDSA identity (actually, the keccak 256 hash of the compressed pub key).
+    // Ecdsa(ecdsa::Public),
+    /// An Ethereum address identity.
+    Ethereum(H160),
 }
 
 impl Default for MultiSigner {
@@ -198,16 +222,33 @@ impl TryFrom<MultiSigner> for XfrPublicKey {
     }
 }
 
-impl From<ecdsa::Public> for MultiSigner {
-    fn from(x: ecdsa::Public) -> Self {
-        Self::Ecdsa(x)
+// impl From<ecdsa::Public> for MultiSigner {
+//     fn from(x: ecdsa::Public) -> Self {
+//         Self::Ecdsa(x)
+//     }
+// }
+//
+// impl TryFrom<MultiSigner> for ecdsa::Public {
+//     type Error = ();
+//     fn try_from(m: MultiSigner) -> Result<Self, Self::Error> {
+//         if let MultiSigner::Ecdsa(x) = m {
+//             Ok(x)
+//         } else {
+//             Err(())
+//         }
+//     }
+// }
+
+impl From<H160> for MultiSigner {
+    fn from(x: H160) -> Self {
+        Self::Ethereum(x)
     }
 }
 
-impl TryFrom<MultiSigner> for ecdsa::Public {
+impl TryFrom<MultiSigner> for H160 {
     type Error = ();
     fn try_from(m: MultiSigner) -> Result<Self, Self::Error> {
-        if let MultiSigner::Ecdsa(x) = m {
+        if let MultiSigner::Ethereum(x) = m {
             Ok(x)
         } else {
             Err(())
@@ -227,7 +268,8 @@ impl IdentifyAccount for MultiSigner {
     fn into_account(self) -> Address32 {
         match self {
             MultiSigner::Xfr(who) => who.into(),
-            MultiSigner::Ecdsa(who) => who.into(),
+            // MultiSigner::Ecdsa(who) => who.into(),
+            MultiSigner::Ethereum(who) => who.into(),
         }
     }
 }
@@ -283,7 +325,6 @@ mod tests {
         let sig = alice.get_sk_ref().sign(b"hello", alice.get_pk_ref());
         let signer = MultiSigner::from(alice.get_pk());
         let sig = MultiSignature::from(sig);
-
         assert!(
             sig.verify(b"hello", &signer.into_account()),
             "xfr signature verify failed"
@@ -294,11 +335,10 @@ mod tests {
     fn ecdsa_sign_verify_work() {
         let (alice, _) = ecdsa::Pair::generate();
         let sig = alice.sign(b"hello");
-        let signer = MultiSigner::from(alice.public());
+        let signer = MultiSigner::from(alice.address());
         let sig = MultiSignature::from(sig);
-
         assert!(
-            sig.verify(b"hello", &signer.into_account()),
+            sig.verify(ecdsa::keccak_256(b"hello").as_ref(), &signer.into_account()),
             "ecdsa signature verify failed"
         );
     }
