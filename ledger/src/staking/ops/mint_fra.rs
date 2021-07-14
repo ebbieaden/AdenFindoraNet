@@ -20,6 +20,7 @@ use zei::{
         structs::{AssetRecordTemplate, OwnerMemo},
     },
 };
+// use zei::xfr::structs::AssetType;
 
 /// 420 million FRAs
 pub const MINT_AMOUNT_LIMIT: Amount = 420 * 100_0000 * FRA;
