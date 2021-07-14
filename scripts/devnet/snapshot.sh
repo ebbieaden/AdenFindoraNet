@@ -42,7 +42,7 @@ rm -rf $WALLET/*_passphrase
 rm -rf $WALLET/snapshot.tar.gz
 
 # clean and restart nodes
-echo -e "${GRN}step-1: run mainnet------------------------------------------------${NC}"
+echo -e "${GRN}step-1: run network------------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
 echo
@@ -61,7 +61,7 @@ printf "y\n" | findora query-ledger-state
 echo
 
 # clean and restart nodes
-echo -e "${GRN}step-4: restart mainnet---------------------------------------------${NC}"
+echo -e "${GRN}step-4: restart network---------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
 echo
@@ -79,10 +79,10 @@ printf "$pswd\n" | findora issue-asset genesis $token 0 $issuance
 echo
 
 # clean and restart nodes
-echo -e "${GRN}step-6: restart mainnet---------------------------------------------${NC}"
+echo -e "${GRN}step-6: restart network---------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
-sleep 2
+sleep 3
 echo
 
 # submit genesis transaction
