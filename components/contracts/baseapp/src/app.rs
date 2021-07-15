@@ -148,6 +148,9 @@ impl Application for crate::BaseApp {
         let header = self.deliver_state.block_header();
         let header_hash = self.deliver_state.header_hash();
 
+        // TODO not clear cache
+        self.check_state.store = self.deliver_state.store.clone();
+
         // Write the DeliverTx state into branched storage and commit the Store.
         // The write to the DeliverTx state writes all state transitions to the root
         // Store so when commit() is called is persists those values.

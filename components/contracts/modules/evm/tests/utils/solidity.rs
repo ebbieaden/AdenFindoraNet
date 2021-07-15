@@ -9,6 +9,7 @@ pub struct ContractConstructor {
     pub code: Vec<u8>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct DeployedContract {
     pub abi: Contract,
     pub address: H160,
