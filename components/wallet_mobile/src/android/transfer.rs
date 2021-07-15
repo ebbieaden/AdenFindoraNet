@@ -622,3 +622,57 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_fraGetDestPubkey(
 ) -> jlong {
     Box::into_raw(Box::new(fra_get_dest_pubkey())) as jlong
 }
+
+#[no_mangle]
+/// The system address used to reveive delegation principals.
+pub unsafe extern "system" fn Java_com_findora_JniApi_getDelegationTargetAddress(
+    env: JNIEnv,
+    _: JClass,
+) -> jstring {
+    let output = env
+        .new_string(get_delegation_target_address())
+        .expect("Couldn't create java string!");
+    output.into_inner()
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_getCoinbaseAddress(
+    env: JNIEnv,
+    _: JClass,
+) -> jstring {
+    let output = env
+        .new_string(get_coinbase_address())
+        .expect("Couldn't create java string!");
+    output.into_inner()
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_getCoinbasePrincipalAddress(
+    env: JNIEnv,
+    _: JClass,
+) -> jstring {
+    let output = env
+        .new_string(get_coinbase_principal_address())
+        .expect("Couldn't create java string!");
+    output.into_inner()
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_getDelegationMinAmount(
+    _env: JNIEnv,
+    _: JClass,
+) -> jvalue {
+    jvalue {
+        _data: get_delegation_min_amount(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_getDelegationMaxAmount(
+    _env: JNIEnv,
+    _: JClass,
+) -> jvalue {
+    jvalue {
+        _data: get_delegation_max_amount(),
+    }
+}

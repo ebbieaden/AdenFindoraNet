@@ -435,6 +435,19 @@ void findora_ffi_fee_inputs_append(struct FeeInputs *ptr,
                                    const struct OwnerMemo *om,
                                    const struct XfrKeyPair *kp);
 
+/**
+ * The system address used to reveive delegation principals.
+ */
+char *findora_ffi_get_delegation_target_address(void);
+
+char *findora_ffi_get_coinbase_address(void);
+
+char *findora_ffi_get_coinbase_principal_address(void);
+
+uint64_t findora_ffi_get_delegation_min_amount(void);
+
+uint64_t findora_ffi_get_delegation_max_amount(void);
+
 void findora_ffi_xfr_public_key_free(struct XfrPublicKey *ptr);
 
 void findora_ffi_fee_inputs_free(struct FeeInputs *ptr);
@@ -531,6 +544,25 @@ struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_update_
                                                                                      const struct XfrKeyPair *auth_key_pair,
                                                                                      const char *code,
                                                                                      const char *new_memo);
+
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_delegate(const struct TransactionBuilder *builder,
+                                                                                  const struct XfrKeyPair *keypair,
+                                                                                  const char *validator);
+
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_undelegate(const struct TransactionBuilder *builder,
+                                                                                    const struct XfrKeyPair *keypair);
+
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_undelegate_partially(const struct TransactionBuilder *builder,
+                                                                                              const struct XfrKeyPair *keypair,
+                                                                                              uint64_t am,
+                                                                                              const char *target_validator);
+
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_claim(const struct TransactionBuilder *builder,
+                                                                               const struct XfrKeyPair *keypair);
+
+struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_claim_custom(const struct TransactionBuilder *builder,
+                                                                                      const struct XfrKeyPair *keypair,
+                                                                                      uint64_t am);
 
 /**
  * Adds a serialized transfer asset operation to a transaction builder instance.

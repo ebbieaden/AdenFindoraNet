@@ -155,6 +155,77 @@ pub extern "C" fn findora_ffi_transaction_builder_add_operation_update_memo(
     }
 }
 
+#[no_mangle]
+pub extern "C" fn findora_ffi_transaction_builder_add_operation_delegate(
+    builder: &TransactionBuilder,
+    keypair: &XfrKeyPair,
+    validator: *const c_char,
+) -> *mut TransactionBuilder {
+    if let Ok(info) = builder
+        .clone()
+        .add_operation_delegate(keypair, c_char_to_string(validator))
+    {
+        Box::into_raw(Box::new(info))
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn findora_ffi_transaction_builder_add_operation_undelegate(
+    builder: &TransactionBuilder,
+    keypair: &XfrKeyPair,
+) -> *mut TransactionBuilder {
+    if let Ok(info) = builder.clone().add_operation_undelegate(keypair) {
+        Box::into_raw(Box::new(info))
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn findora_ffi_transaction_builder_add_operation_undelegate_partially(
+    builder: &TransactionBuilder,
+    keypair: &XfrKeyPair,
+    am: u64,
+    target_validator: *const c_char,
+) -> *mut TransactionBuilder {
+    if let Ok(info) = builder.clone().add_operation_undelegate_partially(
+        keypair,
+        am,
+        c_char_to_string(target_validator),
+    ) {
+        Box::into_raw(Box::new(info))
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn findora_ffi_transaction_builder_add_operation_claim(
+    builder: &TransactionBuilder,
+    keypair: &XfrKeyPair,
+) -> *mut TransactionBuilder {
+    if let Ok(info) = builder.clone().add_operation_claim(keypair) {
+        Box::into_raw(Box::new(info))
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn findora_ffi_transaction_builder_add_operation_claim_custom(
+    builder: &TransactionBuilder,
+    keypair: &XfrKeyPair,
+    am: u64,
+) -> *mut TransactionBuilder {
+    if let Ok(info) = builder.clone().add_operation_claim_custom(keypair, am) {
+        Box::into_raw(Box::new(info))
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
 /// Adds a serialized transfer asset operation to a transaction builder instance.
 /// @param {string} op - a JSON-serialized transfer operation.
 /// @see {@link module:Findora-Wasm~TransferOperationBuilder} for details on constructing a transfer operation.

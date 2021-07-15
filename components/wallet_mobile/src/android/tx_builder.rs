@@ -198,6 +198,92 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOpera
 }
 
 #[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOperationDelegate(
+    env: JNIEnv,
+    _: JClass,
+    builder: jlong,
+    keypair: jlong,
+    validator: JString,
+) -> jlong {
+    let builder = &*(builder as *mut TransactionBuilder);
+    let keypair = &*(keypair as *mut XfrKeyPair);
+    let validator: String = env
+        .get_string(validator)
+        .expect("Couldn't get java string!")
+        .into();
+    let builder = builder
+        .clone()
+        .add_operation_delegate(keypair, validator)
+        .unwrap();
+    Box::into_raw(Box::new(builder)) as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOperationUndelegate(
+    _env: JNIEnv,
+    _: JClass,
+    builder: jlong,
+    keypair: jlong,
+) -> jlong {
+    let builder = &*(builder as *mut TransactionBuilder);
+    let keypair = &*(keypair as *mut XfrKeyPair);
+    let builder = builder.clone().add_operation_undelegate(keypair).unwrap();
+    Box::into_raw(Box::new(builder)) as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOperationUndelegatePartially(
+    env: JNIEnv,
+    _: JClass,
+    builder: jlong,
+    keypair: jlong,
+    am: jint,
+    validator: JString,
+) -> jlong {
+    let builder = &*(builder as *mut TransactionBuilder);
+    let keypair = &*(keypair as *mut XfrKeyPair);
+    let validator: String = env
+        .get_string(validator)
+        .expect("Couldn't get java string!")
+        .into();
+    let builder = builder
+        .clone()
+        .add_operation_undelegate_partially(keypair, am as u64, validator)
+        .unwrap();
+    Box::into_raw(Box::new(builder)) as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOperationClaim(
+    _env: JNIEnv,
+    _: JClass,
+    builder: jlong,
+    keypair: jlong,
+) -> jlong {
+    let builder = &*(builder as *mut TransactionBuilder);
+    let keypair = &*(keypair as *mut XfrKeyPair);
+    let builder = builder.clone().add_operation_claim(keypair).unwrap();
+    Box::into_raw(Box::new(builder)) as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOperationClaimCustom(
+    _env: JNIEnv,
+    _: JClass,
+    builder: jlong,
+    keypair: jlong,
+    am: jint,
+) -> jlong {
+    let builder = &*(builder as *mut TransactionBuilder);
+    let keypair = &*(keypair as *mut XfrKeyPair);
+    let builder = builder
+        .clone()
+        .add_operation_claim_custom(keypair, am as u64)
+        .unwrap();
+    Box::into_raw(Box::new(builder)) as jlong
+}
+
+#[no_mangle]
 /// Adds a serialized transfer asset operation to a transaction builder instance.
 /// @param {string} op - a JSON-serialized transfer operation.
 /// @see {@link module:Findora-Wasm~TransferOperationBuilder} for details on constructing a transfer operation.
