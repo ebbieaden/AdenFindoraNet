@@ -9,7 +9,7 @@ use fp_core::{
     context::Context,
     crypto::Address,
     ensure, parameter_types,
-    transaction::{Executable, ValidateUnsigned},
+    transaction::{ActionResult, Executable, ValidateUnsigned},
 };
 use fp_traits::account::AccountAsset;
 use ledger::data_model::Transaction as FindoraTransaction;
@@ -122,7 +122,7 @@ impl Executable for BaseApp {
         origin: Option<Self::Origin>,
         call: Self::Call,
         ctx: &Context,
-    ) -> Result<()> {
+    ) -> Result<ActionResult> {
         match call {
             Action::Ethereum(action) => {
                 module_ethereum::App::<Self>::execute(origin, action, ctx)

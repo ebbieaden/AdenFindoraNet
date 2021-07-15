@@ -10,7 +10,7 @@ use fp_core::{
     ensure,
     macros::Get,
     module::AppModule,
-    transaction::{Executable, ValidateUnsigned},
+    transaction::{ActionResult, Executable, ValidateUnsigned},
 };
 use fp_traits::evm::FeeCalculator;
 use primitive_types::U256;
@@ -89,7 +89,7 @@ impl<C: Config> Executable for App<C> {
         origin: Option<Self::Origin>,
         call: Self::Call,
         ctx: &Context,
-    ) -> Result<()> {
+    ) -> Result<ActionResult> {
         ensure!(origin.is_none(), "InvalidTransaction: IllegalOrigin");
 
         match call {
@@ -112,7 +112,7 @@ impl<C: Config> ValidateUnsigned for App<C> {
         let origin = Self::recover_signer(&transaction)
             .ok_or_else(|| eg!("TransactionValidationError: InvalidSignature"))?;
 
-        if transaction.gas_limit >= C::BlockGasLimit::get() {
+        if transaction.gas_limit > C::BlockGasLimit::get() {
             return Err(eg!("TransactionValidationError: InvalidGasLimit"));
         }
 

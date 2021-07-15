@@ -2,7 +2,10 @@ use crate::storage::*;
 use crate::{App, Config};
 use ethereum_types::{Bloom, BloomInput, H64};
 use evm::ExitReason;
-use fp_core::{context::Context, crypto::secp256k1_ecdsa_recover, macros::Get};
+use fp_core::{
+    context::Context, crypto::secp256k1_ecdsa_recover, macros::Get,
+    transaction::ActionResult,
+};
 use fp_evm::{CallOrCreateInfo, TransactionStatus};
 use module_evm::Runner;
 use primitive_types::{H160, H256, U256};
@@ -78,7 +81,10 @@ impl<C: Config> App<C> {
         Ok(())
     }
 
-    pub fn do_transact(ctx: &Context, transaction: ethereum::Transaction) -> Result<()> {
+    pub fn do_transact(
+        ctx: &Context,
+        transaction: ethereum::Transaction,
+    ) -> Result<ActionResult> {
         let source = Self::recover_signer(&transaction)
             .ok_or_else(|| eg!("ExecuteTransaction: InvalidSignature"))?;
 
@@ -89,8 +95,8 @@ impl<C: Config> App<C> {
 
         // Note: the index is not the transaction index in the real block.
         let transaction_index = pending.len() as u32;
+        let gas_limit = transaction.gas_limit;
 
-        // TODO
         let (to, _contract_address, info) = Self::execute_transaction(
             &ctx,
             source,
@@ -102,7 +108,7 @@ impl<C: Config> App<C> {
             transaction.action,
         )?;
 
-        let (reason, status, used_gas) = match info {
+        let (reason, status, used_gas) = match info.clone() {
             CallOrCreateInfo::Call(info) => (
                 info.exit_reason,
                 TransactionStatus {
@@ -154,9 +160,14 @@ impl<C: Config> App<C> {
         pending.push((transaction, status, receipt));
         Pending::put(ctx.store.clone(), pending);
 
-        // TODO maybe events
+        // TODO events
         // Self::deposit_event(Event::Executed(source, contract_address.unwrap_or_default(), transaction_hash, reason));
-        Ok(())
+
+        let mut ar = ActionResult::default();
+        ar.data = serde_json::to_vec(&info).unwrap_or_default();
+        ar.gas_wanted = gas_limit.low_u64();
+        ar.gas_used = used_gas.low_u64();
+        Ok(ar)
     }
 
     /// Execute an Ethereum transaction.
