@@ -4,7 +4,10 @@ mod genesis;
 pub use crate::storage::*;
 use abci::{RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery};
 use fp_core::{
-    context::Context, crypto::Address, module::AppModule, transaction::Executable,
+    context::Context,
+    crypto::Address,
+    module::AppModule,
+    transaction::{ActionResult, Executable},
 };
 use ruc::Result;
 use serde::{Deserialize, Serialize};
@@ -79,11 +82,13 @@ impl<C: Config> Executable for App<C> {
         _origin: Option<Self::Origin>,
         call: Self::Call,
         ctx: &Context,
-    ) -> Result<()> {
+    ) -> Result<ActionResult> {
         match call {
             Action::SetValue(v) => {
                 ValueStore::put(ctx.store.clone(), v);
-                Ok(())
+                let mut ar = ActionResult::default();
+                ar.data = v.to_be_bytes().to_vec();
+                Ok(ar)
             }
         }
     }

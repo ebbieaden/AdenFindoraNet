@@ -2,6 +2,7 @@ use crate::{
     context::Context,
     crypto::{IdentifyAccount, Verify},
 };
+use abci::Event;
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -26,7 +27,7 @@ pub trait Executable {
         origin: Option<Self::Origin>,
         call: Self::Call,
         ctx: &Context,
-    ) -> Result<()>;
+    ) -> Result<ActionResult>;
 }
 
 /// This is unchecked and so can contain a signature.
@@ -112,7 +113,7 @@ pub trait Applyable {
     >(
         self,
         ctx: &Context,
-    ) -> Result<()>;
+    ) -> Result<ActionResult>;
 }
 
 /// Something that can validate unsigned transactions for the transaction pool.
@@ -153,7 +154,7 @@ impl<Address, Call> Applyable for CheckedTransaction<Address, Call> {
         }
     }
 
-    fn apply<U>(self, ctx: &Context) -> Result<()>
+    fn apply<U>(self, ctx: &Context) -> Result<ActionResult>
     where
         U: ValidateUnsigned<Call = Self::Call>,
         U: Executable<Origin = Self::Origin, Call = Self::Call>,
@@ -167,4 +168,20 @@ impl<Address, Call> Applyable for CheckedTransaction<Address, Call> {
 
         U::execute(maybe_who, self.function, ctx)
     }
+}
+
+/// Action execution result in the transaction.
+#[derive(PartialEq, Clone, Default)]
+pub struct ActionResult {
+    /// Data is any data returned from message or handler execution.
+    pub data: Vec<u8>,
+    /// Log contains the log information from message or handler execution.
+    pub log: String,
+    /// gas_wanted is the maximum units of work we allow this tx to perform.
+    pub gas_wanted: u64,
+    /// gas_used is the amount of gas actually consumed.
+    pub gas_used: u64,
+    /// Events contains a slice of Event objects that were emitted during message
+    /// or handler execution.
+    pub events: Vec<Event>,
 }
