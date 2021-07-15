@@ -111,15 +111,13 @@ pub fn deliver_tx(
                 resp.set_events(attr);
             }
 
-            if is_convert_tx(&tx)
-                && s.account_base_app.write().deliver_findora_tx(&tx).is_err()
-            {
-                resp.set_code(1);
-                resp.set_log(String::from("Failed to deliver transaction!"));
-                return resp;
-            }
-
-            if s.la.write().cache_transaction(tx).is_ok() {
+            if s.la.write().cache_transaction(tx.clone()).is_ok() {
+                if is_convert_tx(&tx)
+                    && s.account_base_app.write().deliver_findora_tx(&tx).is_err()
+                {
+                    resp.set_code(1);
+                    resp.set_log(String::from("Failed to deliver transaction!"));
+                }
                 return resp;
             }
         }
