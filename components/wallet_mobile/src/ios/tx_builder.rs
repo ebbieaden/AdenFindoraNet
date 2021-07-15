@@ -1,5 +1,4 @@
 use crate::rust::*;
-use credentials::{CredIssuerPublicKey, CredUserPublicKey};
 use std::os::raw::c_char;
 use zei::xfr::sig::XfrKeyPair;
 
@@ -8,10 +7,9 @@ use zei::xfr::sig::XfrKeyPair;
 /// @param kp: owner's XfrKeyPair
 pub extern "C" fn findora_ffi_transaction_builder_add_fee_relative_auto(
     builder: &TransactionBuilder,
-    am: u64,
     kp: &XfrKeyPair,
 ) -> *mut TransactionBuilder {
-    if let Ok(info) = builder.clone().add_fee_relative_auto(am, kp.clone()) {
+    if let Ok(info) = builder.clone().add_fee_relative_auto(kp.clone()) {
         Box::into_raw(Box::new(info))
     } else {
         std::ptr::null_mut()
@@ -124,90 +122,6 @@ pub extern "C" fn findora_ffi_transaction_builder_add_basic_issue_asset(
         amount,
         conf_amount,
         zei_params,
-    ) {
-        Box::into_raw(Box::new(info))
-    } else {
-        std::ptr::null_mut()
-    }
-}
-
-/// Adds an operation to the transaction builder that appends a credential commitment to the address
-/// identity registry.
-/// @param {XfrKeyPair} key_pair - Ledger key that is tied to the credential.
-/// @param {CredUserPublicKey} user_public_key - Public key of the credential user.
-/// @param {CredIssuerPublicKey} issuer_public_key - Public key of the credential issuer.
-/// @param {CredentialCommitment} commitment - Credential commitment to add to the address identity registry.
-/// @param {CredPoK} pok- Proof that the credential commitment is valid.
-/// @see {@link module:Findora-Wasm.wasm_credential_commit|wasm_credential_commit} for information about how to generate a credential
-/// commitment.
-#[no_mangle]
-pub extern "C" fn findora_ffi_transaction_builder_add_operation_air_assign(
-    builder: &TransactionBuilder,
-    key_pair: &XfrKeyPair,
-    user_public_key: &CredUserPublicKey,
-    issuer_public_key: &CredIssuerPublicKey,
-    commitment: &CredentialCommitment,
-    pok: &CredentialPoK,
-) -> *mut TransactionBuilder {
-    if let Ok(info) = (*builder).clone().add_operation_air_assign(
-        key_pair,
-        user_public_key,
-        issuer_public_key,
-        commitment,
-        pok,
-    ) {
-        Box::into_raw(Box::new(info))
-    } else {
-        std::ptr::null_mut()
-    }
-}
-
-/// Adds an operation to the transaction builder that removes a hash from ledger's custom data
-/// store.
-/// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to delete the hash at the
-/// provided key.
-/// @param {Key} key - The key of the custom data store whose value will be cleared if the
-/// transaction validates.
-/// @param {BigInt} seq_num - Nonce to prevent replays.
-#[no_mangle]
-pub extern "C" fn findora_ffi_transaction_builder_add_operation_kv_update_no_hash(
-    builder: &TransactionBuilder,
-    auth_key_pair: &XfrKeyPair,
-    key: &Key,
-    seq_num: u64,
-) -> *mut TransactionBuilder {
-    if let Ok(info) =
-        builder
-            .clone()
-            .add_operation_kv_update_no_hash(auth_key_pair, key, seq_num)
-    {
-        Box::into_raw(Box::new(info))
-    } else {
-        std::ptr::null_mut()
-    }
-}
-
-/// Adds an operation to the transaction builder that adds a hash to the ledger's custom data
-/// store.
-/// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to add the hash at the
-/// provided key.
-/// @param {Key} key - The key of the custom data store the value will be added to if the
-/// transaction validates.
-/// @param {KVHash} hash - The hash to add to the custom data store.
-/// @param {BigInt} seq_num - Nonce to prevent replays.
-#[no_mangle]
-pub extern "C" fn findora_ffi_transaction_builder_add_operation_kv_update_with_hash(
-    builder: &TransactionBuilder,
-    auth_key_pair: &XfrKeyPair,
-    key: &Key,
-    seq_num: u64,
-    kv_hash: &KVHash,
-) -> *mut TransactionBuilder {
-    if let Ok(info) = builder.clone().add_operation_kv_update_with_hash(
-        auth_key_pair,
-        key,
-        seq_num,
-        kv_hash,
     ) {
         Box::into_raw(Box::new(info))
     } else {

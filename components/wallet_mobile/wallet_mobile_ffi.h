@@ -35,8 +35,6 @@ typedef struct AssetRules AssetRules;
  */
 typedef struct AssetType AssetType;
 
-typedef struct AuthenticatedKVLookup AuthenticatedKVLookup;
-
 /**
  * This object represents an asset record owned by a ledger key pair.
  * @see {@link module:Findora-Wasm.open_client_asset_record|open_client_asset_record} for information about how to decrypt an encrypted asset
@@ -53,24 +51,9 @@ typedef struct CredUserPublicKey CredUserPublicKey;
 typedef struct CredUserSecretKey CredUserSecretKey;
 
 /**
- * Commitment to a credential record.
- * @see {@link module:Findora-Wasm.wasm_credential_verify_commitment|wasm_credential_verify_commitment} for information about how to verify a
- * credential commitment.
- */
-typedef struct CredentialCommitment CredentialCommitment;
-
-/**
  * Key pair of a credential issuer.
  */
 typedef struct CredentialIssuerKeyPair CredentialIssuerKeyPair;
-
-/**
- * Proof that a credential is a valid re-randomization of a credential signed by a certain asset
- * issuer.
- * @see {@link module:Findora-Wasm.wasm_credential_verify_commitment|wasm_credential_verify_commitment} for information about how to verify a
- * credential commitment.
- */
-typedef struct CredentialPoK CredentialPoK;
 
 /**
  * Key pair of a credential user.
@@ -78,16 +61,6 @@ typedef struct CredentialPoK CredentialPoK;
 typedef struct CredentialUserKeyPair CredentialUserKeyPair;
 
 typedef struct FeeInputs FeeInputs;
-
-/**
- * Hash that can be stored in the ledger's custom data store.
- */
-typedef struct KVHash KVHash;
-
-/**
- * Key for hashes in the ledger's custom data store.
- */
-typedef struct Key Key;
 
 typedef struct OpenAssetRecord OpenAssetRecord;
 
@@ -172,19 +145,6 @@ char *findora_ffi_asset_type_from_value(struct ByteBuffer code);
  */
 bool findora_ffi_verify_authenticated_txn(const char *state_commitment,
                                           const char *authenticated_txn);
-
-struct AuthenticatedKVLookup *findora_ffi_authenticated_kv_lookup_new(void);
-
-/**
- * Given a serialized state commitment and an authenticated custom data result, returns true if the custom data result correctly
- * hashes up to the state commitment and false otherwise.
- * @param {string} state_commitment - String representing the state commitment.
- * @param {JsValue} authenticated_txn - JSON-encoded value representing the authenticated custom
- * data result.
- * @throws Will throw an error if the state commitment or the authenticated result fail to deserialize.
- */
-bool findora_ffi_verify_authenticated_custom_data_result(const char *state_commitment,
-                                                         const struct AuthenticatedKVLookup *authenticated_res);
 
 uint64_t findora_ffi_calculate_fee(uint64_t ir_numerator,
                                    uint64_t ir_denominator,
@@ -475,8 +435,6 @@ void findora_ffi_fee_inputs_append(struct FeeInputs *ptr,
                                    const struct OwnerMemo *om,
                                    const struct XfrKeyPair *kp);
 
-void findora_ffi_authenticated_kv_lookup_free(struct AuthenticatedKVLookup *ptr);
-
 void findora_ffi_xfr_public_key_free(struct XfrPublicKey *ptr);
 
 void findora_ffi_fee_inputs_free(struct FeeInputs *ptr);
@@ -486,7 +444,6 @@ void findora_ffi_fee_inputs_free(struct FeeInputs *ptr);
  * @param kp: owner's XfrKeyPair
  */
 struct TransactionBuilder *findora_ffi_transaction_builder_add_fee_relative_auto(const struct TransactionBuilder *builder,
-                                                                                 uint64_t am,
                                                                                  const struct XfrKeyPair *kp);
 
 /**
@@ -559,54 +516,6 @@ struct TransactionBuilder *findora_ffi_transaction_builder_add_basic_issue_asset
                                                                                  uint64_t amount,
                                                                                  bool conf_amount,
                                                                                  const struct PublicParams *zei_params);
-
-/**
- * Adds an operation to the transaction builder that appends a credential commitment to the address
- * identity registry.
- * @param {XfrKeyPair} key_pair - Ledger key that is tied to the credential.
- * @param {CredUserPublicKey} user_public_key - Public key of the credential user.
- * @param {CredIssuerPublicKey} issuer_public_key - Public key of the credential issuer.
- * @param {CredentialCommitment} commitment - Credential commitment to add to the address identity registry.
- * @param {CredPoK} pok- Proof that the credential commitment is valid.
- * @see {@link module:Findora-Wasm.wasm_credential_commit|wasm_credential_commit} for information about how to generate a credential
- * commitment.
- */
-struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_air_assign(const struct TransactionBuilder *builder,
-                                                                                    const struct XfrKeyPair *key_pair,
-                                                                                    const struct CredUserPublicKey *user_public_key,
-                                                                                    const struct CredIssuerPublicKey *issuer_public_key,
-                                                                                    const struct CredentialCommitment *commitment,
-                                                                                    const struct CredentialPoK *pok);
-
-/**
- * Adds an operation to the transaction builder that removes a hash from ledger's custom data
- * store.
- * @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to delete the hash at the
- * provided key.
- * @param {Key} key - The key of the custom data store whose value will be cleared if the
- * transaction validates.
- * @param {BigInt} seq_num - Nonce to prevent replays.
- */
-struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_kv_update_no_hash(const struct TransactionBuilder *builder,
-                                                                                           const struct XfrKeyPair *auth_key_pair,
-                                                                                           const struct Key *key,
-                                                                                           uint64_t seq_num);
-
-/**
- * Adds an operation to the transaction builder that adds a hash to the ledger's custom data
- * store.
- * @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to add the hash at the
- * provided key.
- * @param {Key} key - The key of the custom data store the value will be added to if the
- * transaction validates.
- * @param {KVHash} hash - The hash to add to the custom data store.
- * @param {BigInt} seq_num - Nonce to prevent replays.
- */
-struct TransactionBuilder *findora_ffi_transaction_builder_add_operation_kv_update_with_hash(const struct TransactionBuilder *builder,
-                                                                                             const struct XfrKeyPair *auth_key_pair,
-                                                                                             const struct Key *key,
-                                                                                             uint64_t seq_num,
-                                                                                             const struct KVHash *kv_hash);
 
 /**
  * Adds an operation to the transaction builder that adds a hash to the ledger's custom data

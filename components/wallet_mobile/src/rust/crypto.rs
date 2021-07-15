@@ -11,7 +11,13 @@ use credentials::{
     CredUserPublicKey, CredUserSecretKey, Credential as PlatformCredential,
 };
 use cryptohash::sha256;
-use ledger::data_model::{AssetTypeCode, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN};
+use ledger::{
+    data_model::{
+        AssetTypeCode, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING,
+        TX_FEE_MIN,
+    },
+    staking::{MAX_DELEGATION_AMOUNT, MIN_DELEGATION_AMOUNT},
+};
 use rand::{thread_rng, Rng};
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
@@ -468,4 +474,34 @@ pub fn fra_get_minimal_fee() -> u64 {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn fra_get_dest_pubkey() -> XfrPublicKey {
     *BLACK_HOLE_PUBKEY
+}
+
+/// The system address used to reveive delegation principals.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn get_delegation_target_address() -> String {
+    get_coinbase_principal_address()
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[allow(missing_docs)]
+pub fn get_coinbase_address() -> String {
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[allow(missing_docs)]
+pub fn get_coinbase_principal_address() -> String {
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[allow(missing_docs)]
+pub fn get_delegation_min_amount() -> u64 {
+    MIN_DELEGATION_AMOUNT
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[allow(missing_docs)]
+pub fn get_delegation_max_amount() -> u64 {
+    MAX_DELEGATION_AMOUNT
 }

@@ -29,25 +29,3 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_xfrKeyPairDestroy(
 ) {
     let _boxed_key = Box::from_raw(xfr_keypair_ptr as *mut types::XfrKeyPair);
 }
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_findora_JniApi_authenticatedKVLookupNew(
-    _env: JNIEnv,
-    _class: JClass,
-) -> jlong {
-    unimplemented!()
-    // let val = types::AuthenticatedKVLookup{
-    // };
-    //
-    // Box::into_raw(Box::new(val)) as jlong
-}
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_findora_JniApi_authenticatedKVLookupDestroy(
-    _env: JNIEnv,
-    _class: JClass,
-    authenticated_res_ptr: jlong,
-) {
-    let _boxed_authenticated_res =
-        Box::from_raw(authenticated_res_ptr as *mut types::AuthenticatedKVLookup);
-}

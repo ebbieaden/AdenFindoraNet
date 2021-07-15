@@ -28,7 +28,6 @@ rand = { version = "0.7", features = ["wasm-bindgen"] }
 rand_chacha = "0.2.0"
 rand_core = { version = "0.5", default-features = false, features = ["alloc"] }
 ring = "0.16.19"
-safer-ffi = "0.0.6"
 serde = { version = "1.0.124", features = ["derive"] }
 serde_derive = "^1.0.59"
 serde_json = "1.0"
@@ -43,7 +42,7 @@ sparse_merkle_tree = { path = "../../libs/ads/sparse_merkle_tree" }
 txn_builder = {path = "../txn_builder"}
 utils = { path = "../../libs/utils" }
 wallet = { path = "../wallet" }
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.1" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
 
 [dependencies.web-sys]
 version = "0.3.4"
@@ -62,6 +61,9 @@ jni = { version = "0.5", default-features = false }
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 wasm-bindgen = { version = "=0.2.73", features = ["serde-serialize"]  }
+
+[target.'cfg(not(target_arch="wasm32"))'.dependencies]
+safer-ffi = "0.0.6"
 
 [build-dependencies]
 cbindgen = "0.19.0"

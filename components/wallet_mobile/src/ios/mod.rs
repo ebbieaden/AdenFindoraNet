@@ -28,17 +28,12 @@ pub extern "C" fn findora_ffi_random_asset_type() -> *mut c_char {
 #[no_mangle]
 /// Generates asset type as a Base64 string from a JSON-serialized JavaScript value.
 pub extern "C" fn findora_ffi_asset_type_from_value(code: ByteBuffer) -> *mut c_char {
-    println!(
-        "code ByteBuffer: data_ptr:{:?}, data_len:{:?}",
-        code.data, code.len
-    );
     use std::convert::TryInto;
     let len = code
         .len
         .try_into()
         .expect("ByteBuffer length negative or overflowed");
     let s = unsafe { std::slice::from_raw_parts(code.data, len) };
-    println!("read code: {:?}", s);
     let mut dst = [0u8; ASSET_TYPE_LENGTH];
     dst.copy_from_slice(s);
     string_to_c_char(rs_asset_type_from_value(dst))
@@ -60,34 +55,6 @@ pub extern "C" fn findora_ffi_verify_authenticated_txn(
     let state_commitment = c_char_to_string(state_commitment);
     let authenticated_txn = c_char_to_string(authenticated_txn);
     rs_verify_authenticated_txn(state_commitment, authenticated_txn).unwrap_or(false)
-}
-
-// TODO
-#[no_mangle]
-pub extern "C" fn findora_ffi_authenticated_kv_lookup_new()
--> *mut types::AuthenticatedKVLookup {
-    unimplemented!()
-    // let val = AuthenticatedKVLookup{
-    // };
-    //
-    // let boxed_data = Box::new(val);
-    // Box::into_raw(boxed_data)
-}
-
-#[no_mangle]
-/// Given a serialized state commitment and an authenticated custom data result, returns true if the custom data result correctly
-/// hashes up to the state commitment and false otherwise.
-/// @param {string} state_commitment - String representing the state commitment.
-/// @param {JsValue} authenticated_txn - JSON-encoded value representing the authenticated custom
-/// data result.
-/// @throws Will throw an error if the state commitment or the authenticated result fail to deserialize.
-pub unsafe extern "C" fn findora_ffi_verify_authenticated_custom_data_result(
-    state_commitment: *const c_char,
-    authenticated_res: *const types::AuthenticatedKVLookup,
-) -> bool {
-    let state_commitment = c_char_to_string(state_commitment);
-    rs_verify_authenticated_custom_data_result(state_commitment, &*authenticated_res)
-        .unwrap_or(false)
 }
 
 #[no_mangle]

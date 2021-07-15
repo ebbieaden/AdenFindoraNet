@@ -2,12 +2,15 @@
 use wasm_bindgen::prelude::*;
 
 use super::data_model::*;
-use credentials::{CredIssuerPublicKey, CredUserPublicKey};
-use ledger::data_model::{
-    AssetTypeCode, AuthenticatedKVLookup, AuthenticatedTransaction, Operation,
-    TransferType, TxOutput,
-};
 use ledger::policies::{DebtMemo, Fraction};
+use ledger::{
+    data_model::{
+        AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
+    },
+    staking::{
+        gen_random_keypair, td_addr_to_bytes, PartialUnDelegation, TendermintAddr,
+    },
+};
 use ruc::{eg, Result as RucResult};
 use serde_json::Result;
 use txn_builder::{
@@ -30,16 +33,6 @@ pub fn rs_verify_authenticated_txn(
         serde_json::from_str::<AuthenticatedTransaction>(&authenticated_txn)?;
     let state_commitment = serde_json::from_str::<HashOf<_>>(&state_commitment)?;
     Ok(authenticated_txn.is_valid(state_commitment))
-}
-
-/// Given a serialized state commitment and an authenticated custom data result, returns true if the custom data result correctly
-/// hashes up to the state commitment and false otherwise.
-pub fn rs_verify_authenticated_custom_data_result(
-    state_commitment: String,
-    authenticated_res: &AuthenticatedKVLookup,
-) -> Result<bool> {
-    let state_commitment = serde_json::from_str::<HashOf<_>>(&state_commitment)?;
-    Ok(authenticated_res.is_valid(state_commitment))
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -198,16 +191,20 @@ impl TransactionBuilder {
 }
 
 impl TransactionBuilder {
+    /// @param am: amount to pay
+    /// @param kp: owner's XfrKeyPair
     pub fn add_fee_relative_auto(
         mut self,
-        am: u64,
         kp: XfrKeyPair,
     ) -> RucResult<TransactionBuilder> {
-        self.transaction_builder.add_fee_relative_auto(am, &kp)?;
+        self.transaction_builder.add_fee_relative_auto(&kp)?;
         Ok(self)
     }
 
     /// Use this func to get the necessary infomations for generating `Relative Inputs`
+    ///
+    /// - TxoRef::Relative("Element index of the result")
+    /// - ClientAssetRecord::from_json("Element of the result")
     pub fn get_relative_outputs(&self) -> Vec<ClientAssetRecord> {
         self.transaction_builder
             .get_relative_outputs()
@@ -333,62 +330,6 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// Adds an operation to the transaction builder that appends a credential commitment to the address
-    /// identity registry.
-    pub fn add_operation_air_assign(
-        mut self,
-        key_pair: &XfrKeyPair,
-        user_public_key: &CredUserPublicKey,
-        issuer_public_key: &CredIssuerPublicKey,
-        commitment: &CredentialCommitment,
-        pok: &CredentialPoK,
-    ) -> RucResult<TransactionBuilder> {
-        self.get_builder_mut().add_operation_air_assign(
-            key_pair,
-            user_public_key.clone(),
-            commitment.get_ref().clone(),
-            issuer_public_key.clone(),
-            pok.get_ref().clone(),
-        )?;
-        Ok(self)
-    }
-
-    /// Adds an operation to the transaction builder that removes a hash from ledger's custom data
-    /// store.
-    pub fn add_operation_kv_update_no_hash(
-        mut self,
-        auth_key_pair: &XfrKeyPair,
-        key: &Key,
-        seq_num: u64,
-    ) -> RucResult<TransactionBuilder> {
-        self.get_builder_mut().add_operation_kv_update(
-            auth_key_pair,
-            key.get_ref(),
-            seq_num,
-            None,
-        )?;
-        Ok(self)
-    }
-
-    /// Adds an operation to the transaction builder that adds a hash to the ledger's custom data
-    /// store.
-    pub fn add_operation_kv_update_with_hash(
-        mut self,
-        auth_key_pair: &XfrKeyPair,
-        key: &Key,
-        seq_num: u64,
-        kv_hash: &KVHash,
-    ) -> RucResult<TransactionBuilder> {
-        let hash = kv_hash.get_hash().clone();
-        self.get_builder_mut().add_operation_kv_update(
-            auth_key_pair,
-            key.get_ref(),
-            seq_num,
-            Some(&hash),
-        )?;
-        Ok(self)
-    }
-
     /// Adds an operation to the transaction builder that adds a hash to the ledger's custom data
     /// store.
     pub fn add_operation_update_memo(
@@ -402,6 +343,69 @@ impl TransactionBuilder {
 
         self.get_builder_mut()
             .add_operation_update_memo(auth_key_pair, code, &new_memo);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_delegate(
+        mut self,
+        keypair: &XfrKeyPair,
+        validator: TendermintAddr,
+    ) -> RucResult<TransactionBuilder> {
+        self.get_builder_mut()
+            .add_operation_delegation(keypair, validator);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_undelegate(
+        mut self,
+        keypair: &XfrKeyPair,
+    ) -> RucResult<TransactionBuilder> {
+        self.get_builder_mut()
+            .add_operation_undelegation(keypair, None);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_undelegate_partially(
+        mut self,
+        keypair: &XfrKeyPair,
+        am: u64,
+        target_validator: TendermintAddr,
+    ) -> RucResult<TransactionBuilder> {
+        let middle_pk = gen_random_keypair().get_pk();
+        self.get_builder_mut().add_operation_undelegation(
+            keypair,
+            Some(PartialUnDelegation::new(
+                am,
+                middle_pk,
+                td_addr_to_bytes(&target_validator)?,
+            )),
+        );
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_claim(
+        mut self,
+        keypair: &XfrKeyPair,
+    ) -> RucResult<TransactionBuilder> {
+        self.get_builder_mut().add_operation_claim(keypair, None);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_claim_custom(
+        mut self,
+        keypair: &XfrKeyPair,
+        am: u64,
+    ) -> RucResult<TransactionBuilder> {
+        if 0 == am {
+            return Err(eg!("Amount can not be zero"));
+        }
+        self.get_builder_mut()
+            .add_operation_claim(keypair, Some(am));
         Ok(self)
     }
 

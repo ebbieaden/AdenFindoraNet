@@ -2,16 +2,6 @@ use crate::rust::types;
 use crate::rust::*;
 
 #[no_mangle]
-pub unsafe extern "C" fn findora_ffi_authenticated_kv_lookup_free(
-    ptr: *mut types::AuthenticatedKVLookup,
-) {
-    if ptr.is_null() {
-        return;
-    }
-    Box::from_raw(ptr);
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn findora_ffi_xfr_public_key_free(ptr: *mut types::XfrPublicKey) {
     if ptr.is_null() {
         return;

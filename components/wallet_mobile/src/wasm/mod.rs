@@ -4,7 +4,6 @@ use crate::rust::*;
 use credentials::{
     CredIssuerPublicKey, CredIssuerSecretKey, CredUserPublicKey, CredUserSecretKey,
 };
-use ledger::data_model::AuthenticatedKVLookup;
 use ruc::{d, err::RucResult};
 use wasm_bindgen::prelude::*;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
@@ -32,27 +31,6 @@ pub fn verify_authenticated_txn(
     authenticated_txn: String,
 ) -> Result<bool, JsValue> {
     rs_verify_authenticated_txn(state_commitment, authenticated_txn)
-        .c(d!())
-        .map_err(error_to_jsvalue)
-}
-
-#[wasm_bindgen]
-/// Given a serialized state commitment and an authenticated custom data result, returns true if the custom data result correctly
-/// hashes up to the state commitment and false otherwise.
-/// @param {string} state_commitment - String representing the state commitment.
-/// @param {JsValue} authenticated_txn - JSON-encoded value representing the authenticated custom
-/// data result.
-/// @throws Will throw an error if the state commitment or the authenticated result fail to deserialize.
-pub fn verify_authenticated_custom_data_result(
-    state_commitment: String,
-    authenticated_res: JsValue,
-) -> Result<bool, JsValue> {
-    let authenticated_res: AuthenticatedKVLookup = authenticated_res
-        .into_serde()
-        .c(d!())
-        .map_err(error_to_jsvalue)?;
-
-    rs_verify_authenticated_custom_data_result(state_commitment, &authenticated_res)
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -111,12 +89,11 @@ impl TransactionBuilder {
     /// @param kp: owner's XfrKeyPair
     pub fn add_fee_relative_auto(
         self,
-        am: u64,
         kp: XfrKeyPair,
     ) -> Result<TransactionBuilder, JsValue> {
         let builder = self
             .0
-            .add_fee_relative_auto(am, kp)
+            .add_fee_relative_auto(kp)
             .c(d!())
             .map_err(error_to_jsvalue)?;
         Ok(TransactionBuilder(builder))
@@ -269,82 +246,6 @@ impl TransactionBuilder {
             .c(d!())
             .map_err(error_to_jsvalue)?;
 
-        Ok(TransactionBuilder(builder))
-    }
-
-    /// Adds an operation to the transaction builder that appends a credential commitment to the address
-    /// identity registry.
-    /// @param {XfrKeyPair} key_pair - Ledger key that is tied to the credential.
-    /// @param {CredUserPublicKey} user_public_key - Public key of the credential user.
-    /// @param {CredIssuerPublicKey} issuer_public_key - Public key of the credential issuer.
-    /// @param {CredentialCommitment} commitment - Credential commitment to add to the address identity registry.
-    /// @param {CredPoK} pok- Proof that the credential commitment is valid.
-    /// @see {@link module:Findora-Wasm.wasm_credential_commit|wasm_credential_commit} for information about how to generate a credential
-    /// commitment.
-    pub fn add_operation_air_assign(
-        self,
-        key_pair: &XfrKeyPair,
-        user_public_key: &CredUserPublicKey,
-        issuer_public_key: &CredIssuerPublicKey,
-        commitment: &CredentialCommitment,
-        pok: &CredentialPoK,
-    ) -> Result<TransactionBuilder, JsValue> {
-        let builder = self
-            .0
-            .add_operation_air_assign(
-                key_pair,
-                user_public_key,
-                issuer_public_key,
-                commitment,
-                pok,
-            )
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
-
-        Ok(TransactionBuilder(builder))
-    }
-
-    /// Adds an operation to the transaction builder that removes a hash from ledger's custom data
-    /// store.
-    /// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to delete the hash at the
-    /// provided key.
-    /// @param {Key} key - The key of the custom data store whose value will be cleared if the
-    /// transaction validates.
-    /// @param {BigInt} seq_num - Nonce to prevent replays.
-    pub fn add_operation_kv_update_no_hash(
-        self,
-        auth_key_pair: &XfrKeyPair,
-        key: &Key,
-        seq_num: u64,
-    ) -> Result<TransactionBuilder, JsValue> {
-        let builder = self
-            .0
-            .add_operation_kv_update_no_hash(auth_key_pair, key, seq_num)
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
-        Ok(TransactionBuilder(builder))
-    }
-
-    /// Adds an operation to the transaction builder that adds a hash to the ledger's custom data
-    /// store.
-    /// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to add the hash at the
-    /// provided key.
-    /// @param {Key} key - The key of the custom data store the value will be added to if the
-    /// transaction validates.
-    /// @param {KVHash} hash - The hash to add to the custom data store.
-    /// @param {BigInt} seq_num - Nonce to prevent replays.
-    pub fn add_operation_kv_update_with_hash(
-        self,
-        auth_key_pair: &XfrKeyPair,
-        key: &Key,
-        seq_num: u64,
-        kv_hash: &KVHash,
-    ) -> Result<TransactionBuilder, JsValue> {
-        let builder = self
-            .0
-            .add_operation_kv_update_with_hash(auth_key_pair, key, seq_num, kv_hash)
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
         Ok(TransactionBuilder(builder))
     }
 

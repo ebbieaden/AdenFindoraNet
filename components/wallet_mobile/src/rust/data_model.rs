@@ -9,14 +9,12 @@ use credentials::{
     Credential as PlatformCredential,
 };
 use ledger::data_model::{
-    AssetRules as PlatformAssetRules, AssetType as PlatformAssetType,
-    AuthenticatedAIRResult as PlatformAuthenticatedAIRResult, AuthenticatedUtxo,
-    KVBlind as PlatformKVBlind, KVHash as PlatformKVHash,
+    AssetRules as PlatformAssetRules, AssetType as PlatformAssetType, AuthenticatedUtxo,
     SignatureRules as PlatformSignatureRules, TxOutput, TxoRef as PlatformTxoRef,
     TxoSID,
 };
 use rand_chacha::ChaChaRng;
-use rand_core::{RngCore, SeedableRng};
+use rand_core::SeedableRng;
 #[cfg(not(target_arch = "wasm32"))]
 use ruc::Result as RUCResult;
 use ruc::{d, err::RucResult};
@@ -472,19 +470,6 @@ impl CredentialCommitmentKey {
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-/// Authenticated address identity registry value. Contains a proof that the AIR result is stored
-/// on the ledger.
-pub struct AuthenticatedAIRResult {
-    pub(crate) result: PlatformAuthenticatedAIRResult,
-}
-
-impl AuthenticatedAIRResult {
-    pub fn get_ref(&self) -> &PlatformAuthenticatedAIRResult {
-        &self.result
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 /// Object representing an asset definition. Used to fetch tracing policies and any other
 /// information that may be required to construct a valid transfer or issuance.
 pub struct AssetType {
@@ -537,51 +522,6 @@ impl AssetType {
                 .tracing_policies
                 .clone(),
         }
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-impl AuthenticatedAIRResult {
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen]
-    /// Construct an AIRResult from the JSON-encoded value returned by the ledger.
-    /// @see {@link module:Findora-Network~Network#getAIRResult|Network.getAIRResult} for information about how to fetch a
-    /// value from the address identity registry.
-    pub fn from_json(json: &JsValue) -> Result<AuthenticatedAIRResult, JsValue> {
-        let result: PlatformAuthenticatedAIRResult =
-            json.into_serde().c(d!()).map_err(error_to_jsvalue)?;
-        Ok(AuthenticatedAIRResult { result })
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn from_json(
-        result: PlatformAuthenticatedAIRResult,
-    ) -> RUCResult<AuthenticatedAIRResult> {
-        Ok(AuthenticatedAIRResult { result })
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen]
-    /// Returns true if the authenticated AIR result proofs verify succesfully. If the proofs are
-    /// valid, the identity commitment contained in the AIR result is a valid part of the ledger.
-    /// @param {string} state_commitment - String representing the ledger state commitment.
-    pub fn is_valid(&self, state_commitment: String) -> Result<bool, JsValue> {
-        let state_commitment = serde_json::from_str::<HashOf<_>>(&state_commitment)
-            .map_err(|_e| JsValue::from_str("Could not deserialize state commitment"))?;
-        Ok(self.get_ref().is_valid(state_commitment))
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn is_valid(&self, state_commitment: String) -> RUCResult<bool> {
-        let state_commitment =
-            serde_json::from_str::<HashOf<_>>(&state_commitment).c(d!())?;
-        Ok(self.get_ref().is_valid(state_commitment))
-    }
-
-    /// Returns the underlying credential commitment of the AIR result.
-    pub fn get_commitment(&self) -> Option<CredentialCommitment> {
-        let commitment = self.get_ref().get_credential_commitment();
-        commitment.map(|comm| CredentialCommitment { commitment: comm })
     }
 }
 
@@ -907,60 +847,6 @@ impl AssetRules {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-/// Blinding factor for a custom data operation. A blinding factor adds a random value to the
-/// custom data being hashed to make the hash hiding.
-pub struct KVBlind {
-    pub(crate) blind: PlatformKVBlind,
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-impl KVBlind {
-    /// Generate a random blinding factor.
-    pub fn gen_random() -> Self {
-        let mut small_rng = ChaChaRng::from_entropy();
-        let mut buf: [u8; 16] = [0u8; 16];
-        small_rng.fill_bytes(&mut buf);
-        KVBlind {
-            blind: PlatformKVBlind(buf),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen]
-    /// Convert the key pair to a JSON-encoded value that can be used in the browser.
-    pub fn to_json(&self) -> JsValue {
-        JsValue::from_serde(&self.blind).unwrap()
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen]
-    /// Create a KVBlind from a JSON-encoded value.
-    pub fn from_json(val: &JsValue) -> Result<KVBlind, JsValue> {
-        let blind: PlatformKVBlind =
-            val.into_serde().c(d!()).map_err(error_to_jsvalue)?;
-        Ok(KVBlind { blind })
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(&self.blind).unwrap()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn from_json(val: &str) -> RUCResult<KVBlind> {
-        let blind: PlatformKVBlind = serde_json::from_str(val).c(d!())?;
-        Ok(KVBlind { blind })
-    }
-}
-
-impl KVBlind {
-    pub fn get_blind_ref(&self) -> &PlatformKVBlind {
-        &self.blind
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 /// Key for hashes in the ledger's custom data store.
 pub struct Key(SmtKey);
 
@@ -996,69 +882,5 @@ impl Key {
 impl Key {
     pub fn get_ref(&self) -> &SmtKey {
         &self.0
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-/// Hash that can be stored in the ledger's custom data store.
-pub struct KVHash {
-    pub(crate) hash: PlatformKVHash,
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-impl KVHash {
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen]
-    /// Generate a new custom data hash without a blinding factor.
-    /// @param {JsValue} data - Data to hash. Must be an array of bytes.
-    pub fn new_no_blind(data: &JsValue) -> Result<KVHash, JsValue> {
-        let data = data.into_serde().c(d!()).map_err(error_to_jsvalue)?;
-        Ok(KVHash {
-            hash: PlatformKVHash(HashOf::new(&(data, None))),
-        })
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen]
-    /// Generate a new custom data hash with a blinding factor.
-    /// @param {JsValue} data - Data to hash. Must be an array of bytes.
-    /// @param {KVBlind} kv_blind - Optional blinding factor.
-    pub fn new_with_blind(
-        data: &JsValue,
-        kv_blind: &KVBlind,
-    ) -> Result<KVHash, JsValue> {
-        let data = data.into_serde().c(d!()).map_err(error_to_jsvalue)?;
-        Ok(KVHash {
-            hash: PlatformKVHash(HashOf::new(&(
-                data,
-                Some(kv_blind.get_blind_ref().clone()),
-            ))),
-        })
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_no_blind(data: &str) -> RUCResult<KVHash> {
-        let data = serde_json::from_str(data).c(d!())?;
-        Ok(KVHash {
-            hash: PlatformKVHash(HashOf::new(&(data, None))),
-        })
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_with_blind(data: &str, kv_blind: &KVBlind) -> RUCResult<KVHash> {
-        let data = serde_json::from_str(data).c(d!())?;
-        Ok(KVHash {
-            hash: PlatformKVHash(HashOf::new(&(
-                data,
-                Some(kv_blind.get_blind_ref().clone()),
-            ))),
-        })
-    }
-}
-
-impl KVHash {
-    pub fn get_hash(&self) -> &PlatformKVHash {
-        &self.hash
     }
 }

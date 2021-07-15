@@ -75,30 +75,6 @@ pub extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedTxn(
 }
 
 #[no_mangle]
-/// Given a serialized state commitment and an authenticated custom data result, returns true if the custom data result correctly
-/// hashes up to the state commitment and false otherwise.
-/// @param {string} state_commitment - String representing the state commitment.
-/// @param {JsValue} authenticated_txn - JSON-encoded value representing the authenticated custom
-/// data result.
-/// @throws Will throw an error if the state commitment or the authenticated result fail to deserialize.
-pub unsafe extern "system" fn Java_com_findora_JniApi_verifyAuthenticatedCustomAataResult(
-    env: JNIEnv,
-    _: JClass,
-    state_commitment: JString,
-    authenticated_res_ptr: jlong,
-) -> jboolean {
-    let state_commitment: String = env
-        .get_string(state_commitment)
-        .expect("Couldn't get java string!")
-        .into();
-
-    let res = &mut *(authenticated_res_ptr as *mut types::AuthenticatedKVLookup);
-
-    rs_verify_authenticated_custom_data_result(state_commitment, &res).unwrap_or(false)
-        as jboolean
-}
-
-#[no_mangle]
 /// Generate mnemonic with custom length and language.
 /// - @param `wordslen`: acceptable value are one of [ 12, 15, 18, 21, 24 ]
 /// - @param `lang`: acceptable value are one of [ "en", "zh", "zh_traditional", "fr", "it", "ko", "sp", "jp" ]

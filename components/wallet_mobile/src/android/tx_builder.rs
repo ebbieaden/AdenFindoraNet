@@ -1,5 +1,4 @@
 use crate::rust::*;
-use credentials::{CredIssuerPublicKey, CredUserPublicKey};
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jint, jlong, jstring, JNI_TRUE};
 use jni::JNIEnv;
@@ -12,15 +11,11 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddFeeRe
     _env: JNIEnv,
     _: JClass,
     builder: jlong,
-    am: jint,
     kp: jlong,
 ) -> jlong {
     let builder = &*(builder as *mut TransactionBuilder);
     let kp = &*(kp as *mut XfrKeyPair);
-    let builder = builder
-        .clone()
-        .add_fee_relative_auto(am as u64, kp.clone())
-        .unwrap();
+    let builder = builder.clone().add_fee_relative_auto(kp.clone()).unwrap();
     Box::into_raw(Box::new(builder)) as jlong
 }
 
@@ -164,100 +159,6 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddBasic
             conf_amount == JNI_TRUE,
             zei_params,
         )
-        .unwrap();
-    Box::into_raw(Box::new(builder)) as jlong
-}
-
-#[no_mangle]
-/// Adds an operation to the transaction builder that appends a credential commitment to the address
-/// identity registry.
-/// @param {XfrKeyPair} key_pair - Ledger key that is tied to the credential.
-/// @param {CredUserPublicKey} user_public_key - Public key of the credential user.
-/// @param {CredIssuerPublicKey} issuer_public_key - Public key of the credential issuer.
-/// @param {CredentialCommitment} commitment - Credential commitment to add to the address identity registry.
-/// @param {CredPoK} pok- Proof that the credential commitment is valid.
-/// @see {@link module:Findora-Wasm.wasm_credential_commit|wasm_credential_commit} for information about how to generate a credential
-/// commitment.
-pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOperationAirAssign(
-    _env: JNIEnv,
-    _: JClass,
-    builder: jlong,
-    key_pair: jlong,
-    user_public_key: jlong,
-    issuer_public_key: jlong,
-    commitment: jlong,
-    pok: jlong,
-) -> jlong {
-    let builder = &*(builder as *mut TransactionBuilder);
-    let key_pair = &*(key_pair as *mut XfrKeyPair);
-    let user_public_key = &*(user_public_key as *mut CredUserPublicKey);
-    let issuer_public_key = &*(issuer_public_key as *mut CredIssuerPublicKey);
-    let commitment = &*(commitment as *mut CredentialCommitment);
-    let pok = &*(pok as *mut CredentialPoK);
-    let builder = builder
-        .clone()
-        .add_operation_air_assign(
-            key_pair,
-            user_public_key,
-            issuer_public_key,
-            commitment,
-            pok,
-        )
-        .unwrap();
-    Box::into_raw(Box::new(builder)) as jlong
-}
-
-#[no_mangle]
-/// Adds an operation to the transaction builder that removes a hash from ledger's custom data
-/// store.
-/// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to delete the hash at the
-/// provided key.
-/// @param {Key} key - The key of the custom data store whose value will be cleared if the
-/// transaction validates.
-/// @param {BigInt} seq_num - Nonce to prevent replays.
-pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOperationKvUpdateNoHash(
-    _env: JNIEnv,
-    _: JClass,
-    builder: jlong,
-    auth_key_pair: jlong,
-    key: jlong,
-    seq_num: u64,
-) -> jlong {
-    let builder = &*(builder as *mut TransactionBuilder);
-    let auth_key_pair = &*(auth_key_pair as *mut XfrKeyPair);
-    let key = &*(key as *mut Key);
-    let builder = builder
-        .clone()
-        .add_operation_kv_update_no_hash(auth_key_pair, key, seq_num as u64)
-        .unwrap();
-    Box::into_raw(Box::new(builder)) as jlong
-}
-
-#[no_mangle]
-/// Adds an operation to the transaction builder that adds a hash to the ledger's custom data
-/// store.
-/// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to add the hash at the
-/// provided key.
-/// @param {Key} key - The key of the custom data store the value will be added to if the
-/// transaction validates.
-/// @param {KVHash} hash - The hash to add to the custom data store.
-/// @param {BigInt} seq_num - Nonce to prevent replays.
-pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOperationKvUpdateWithHash(
-    _env: JNIEnv,
-    _: JClass,
-    builder: jlong,
-    auth_key_pair: jlong,
-    key: jlong,
-    seq_num: jint,
-    kv_hash: jlong,
-) -> jlong {
-    let builder = &*(builder as *mut TransactionBuilder);
-    let auth_key_pair = &*(auth_key_pair as *mut XfrKeyPair);
-    let key = &*(key as *mut Key);
-    let kv_hash = &*(kv_hash as *mut KVHash);
-    let builder = builder
-        .clone()
-        .add_operation_kv_update_with_hash(auth_key_pair, key, seq_num as u64, kv_hash)
         .unwrap();
     Box::into_raw(Box::new(builder)) as jlong
 }

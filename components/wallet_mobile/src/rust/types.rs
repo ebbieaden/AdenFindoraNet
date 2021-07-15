@@ -4,32 +4,9 @@ use credentials::{
     CredUserPublicKey as PlatformCredUserPublicKey,
     CredUserSecretKey as PlatformCredUserSecretKey,
 };
-use ledger::data_model::AuthenticatedKVLookup as PlatformAuthenticatedKVLookup;
 use std::ops::{Deref, DerefMut};
 use zei::xfr::sig::{XfrKeyPair as ZeiXfrKeyPair, XfrPublicKey as ZeiXfrPublicKey};
 use zei::xfr::structs::OpenAssetRecord as ZeiOpenAssetRecord;
-
-pub struct AuthenticatedKVLookup(PlatformAuthenticatedKVLookup);
-
-impl From<PlatformAuthenticatedKVLookup> for AuthenticatedKVLookup {
-    fn from(v: PlatformAuthenticatedKVLookup) -> AuthenticatedKVLookup {
-        AuthenticatedKVLookup(v)
-    }
-}
-
-impl Deref for AuthenticatedKVLookup {
-    type Target = PlatformAuthenticatedKVLookup;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for AuthenticatedKVLookup {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
