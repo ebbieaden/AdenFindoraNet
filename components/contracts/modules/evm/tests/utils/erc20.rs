@@ -1,6 +1,8 @@
 use super::solidity::*;
+use baseapp::BaseApp;
 use ethereum::TransactionAction;
 use ethereum_types::H160;
+use fp_traits::evm::FeeCalculator;
 use fp_utils::ethereum::UnsignedTransaction;
 use primitive_types::U256;
 use std::path::{Path, PathBuf};
@@ -14,6 +16,7 @@ impl From<ERC20Constructor> for ContractConstructor {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ERC20(pub DeployedContract);
 
 static DOWNLOAD_ONCE: Once = Once::new();
@@ -44,8 +47,8 @@ impl ERC20Constructor {
             .unwrap();
         UnsignedTransaction {
             nonce,
-            gas_price: Default::default(),
-            gas_limit: u32::MAX.into(),
+            gas_price: <BaseApp as module_evm::Config>::FeeCalculator::min_gas_price(),
+            gas_limit: <BaseApp as module_evm::Config>::BlockGasLimit::get(),
             action: TransactionAction::Create,
             value: Default::default(),
             input,
@@ -92,8 +95,8 @@ impl ERC20 {
             .unwrap();
         UnsignedTransaction {
             nonce,
-            gas_price: Default::default(),
-            gas_limit: u32::MAX.into(),
+            gas_price: <BaseApp as module_evm::Config>::FeeCalculator::min_gas_price(),
+            gas_limit: <BaseApp as module_evm::Config>::BlockGasLimit::get(),
             action: TransactionAction::Call(self.0.address),
             value: Default::default(),
             input,
@@ -119,8 +122,8 @@ impl ERC20 {
             .unwrap();
         UnsignedTransaction {
             nonce,
-            gas_price: Default::default(),
-            gas_limit: u32::MAX.into(),
+            gas_price: <BaseApp as module_evm::Config>::FeeCalculator::min_gas_price(),
+            gas_limit: <BaseApp as module_evm::Config>::BlockGasLimit::get(),
             action: TransactionAction::Call(self.0.address),
             value,
             input,
@@ -137,8 +140,8 @@ impl ERC20 {
             .unwrap();
         UnsignedTransaction {
             nonce,
-            gas_price: Default::default(),
-            gas_limit: u32::MAX.into(),
+            gas_price: <BaseApp as module_evm::Config>::FeeCalculator::min_gas_price(),
+            gas_limit: <BaseApp as module_evm::Config>::BlockGasLimit::get(),
             action: TransactionAction::Call(self.0.address),
             value: Default::default(),
             input,
