@@ -1,10 +1,5 @@
 /// Tests submission of transactions constructed by the txn_builder.
 /// All P2P lending-related operations and transactions are tested.
-use credentials::{
-    credential_commit, credential_issuer_key_gen, credential_sign,
-    credential_user_key_gen, Credential,
-};
-
 use ledger::data_model::errors::PlatformError;
 use ledger::data_model::{
     AssetRules, AssetTypeCode, Memo, NoReplayToken, Operation, Transaction,
@@ -36,7 +31,7 @@ pub fn apply_transaction(
     let effect = pnk!(TxnEffect::compute_effect(tx));
 
     let mut block = pnk!(ledger.start_block());
-    let temp_sid = pnk!(ledger.apply_transaction(&mut block, effect));
+    let temp_sid = pnk!(ledger.apply_transaction(&mut block, effect, false));
     pnk!(ledger.finish_block(block)).remove(&temp_sid)
 }
 
@@ -449,7 +444,7 @@ pub fn test_update_memo_orig() {
     builder.add_operation_update_memo(&adversary, code, "new memo");
     let tx = builder.transaction().clone();
     let effect = pnk!(TxnEffect::compute_effect(tx));
-    assert!(ledger.apply_transaction(&mut block, effect).is_err());
+    assert!(ledger.apply_transaction(&mut block, effect, false).is_err());
     pnk!(ledger.finish_block(block));
 
     // Cant change memo more than once in the same block
@@ -460,10 +455,14 @@ pub fn test_update_memo_orig() {
     let tx = builder.transaction();
     let effect0 = pnk!(TxnEffect::compute_effect(tx.clone()));
     let temp_sid = ledger
-        .apply_transaction(&mut block, effect0)
+        .apply_transaction(&mut block, effect0, false)
         .expect("apply transaction failed");
     let effect1 = pnk!(TxnEffect::compute_effect(tx.clone()));
-    assert!(ledger.apply_transaction(&mut block, effect1).is_err());
+    assert!(
+        ledger
+            .apply_transaction(&mut block, effect1, false)
+            .is_err()
+    );
     pnk!(ledger.finish_block(block))
         .remove(&temp_sid)
         .expect("finishing block failed");
@@ -494,11 +493,15 @@ pub fn test_update_memo_darp() {
     txn_builder.add_operation_update_memo(&creator, code, "new_memo");
     let txn = txn_builder.transaction();
     let effect0 = pnk!(TxnEffect::compute_effect(txn.clone()));
-    let temp_sid0 = pnk!(ledger.apply_transaction(&mut block, effect0));
+    let temp_sid0 = pnk!(ledger.apply_transaction(&mut block, effect0, false));
 
     // Test 1: replay the exact same txn, it should fail
     let effect1 = pnk!(TxnEffect::compute_effect(txn.clone()));
-    assert!(ledger.apply_transaction(&mut block, effect1).is_err());
+    assert!(
+        ledger
+            .apply_transaction(&mut block, effect1, false)
+            .is_err()
+    );
     ledger
         .finish_block(block)
         .unwrap()
@@ -511,7 +514,7 @@ pub fn test_update_memo_darp() {
     let txn = txn_builder.transaction();
     let effect = pnk!(TxnEffect::compute_effect(txn.clone()));
 
-    assert!(ledger.apply_transaction(&mut block, effect).is_err());
+    assert!(ledger.apply_transaction(&mut block, effect, false).is_err());
 
     pnk!(ledger.finish_block(block));
 
@@ -533,80 +536,4 @@ pub fn test_update_memo_darp() {
         }
     }
     assert!(TxnEffect::compute_effect(tx_bad).is_err());
-}
-
-#[test]
-/// Tests that a valid AIR credential can be appended to the AIR with the air_assign operation.
-pub fn test_air_assign_operation() {
-    let mut ledger = LedgerState::test_ledger();
-    let dl = String::from("dl");
-    let cred_issuer_key =
-        credential_issuer_key_gen(&mut ledger.get_prng(), &[(dl.clone(), 8)]);
-    let cred_user_key =
-        credential_user_key_gen(&mut ledger.get_prng(), &cred_issuer_key.0);
-    let user_kp = XfrKeyPair::generate(&mut ledger.get_prng());
-
-    // Construct credential
-    let dl_attr = b"A1903479";
-    let attr_map = vec![(dl.clone(), dl_attr.to_vec())];
-    let attributes = [(dl, &dl_attr[..])];
-    let signature = pnk!(credential_sign(
-        &mut ledger.get_prng(),
-        &cred_issuer_key.1,
-        &cred_user_key.0,
-        &attributes,
-    ));
-    let credential = Credential {
-        signature,
-        attributes: attr_map,
-        issuer_pub_key: cred_issuer_key.0.clone(),
-    };
-    let (commitment, pok, _key) = pnk!(credential_commit(
-        &mut ledger.get_prng(),
-        &cred_user_key.1,
-        &credential,
-        user_kp.get_pk_ref().as_bytes(),
-    ));
-
-    let mut block = pnk!(ledger.start_block());
-    let seq_id = ledger.get_block_commit_count();
-    let mut txn_builder = TransactionBuilder::from_seq_id(seq_id);
-    pnk!(txn_builder.add_operation_air_assign(
-        &user_kp,
-        cred_user_key.0,
-        commitment,
-        cred_issuer_key.0,
-        pok,
-    ));
-    let tx = txn_builder.transaction();
-    let effect0 = pnk!(TxnEffect::compute_effect(tx.clone()));
-    let temp_sid0 = pnk!(ledger.apply_transaction(&mut block, effect0));
-
-    // Test 1: replay the exact same txn, it should fail
-    let effect1 = pnk!(TxnEffect::compute_effect(tx.clone()));
-    assert!(ledger.apply_transaction(&mut block, effect1).is_err());
-
-    pnk!(ledger.finish_block(block))
-        .remove(&temp_sid0)
-        .expect("finishing block failed");
-
-    /*
-      // apply_transaction(&mut ledger, tx.clone());
-
-      // Immediately replaying should fail
-      let air_assign_op2 = air_assign_op.clone();
-      let tx2 = Transaction::from_operation(Operation::AIRAssign(air_assign_op2), seq_id);
-      let effect = TxnEffect::compute_effect(tx2).c(d!())?;
-      assert!(ledger.status.check_txn_effects(effect).is_err());
-
-      // If we reset the key it should fail
-      let mut adversarial_op = air_assign_op.clone();
-      adversarial_op.pubkey = XfrKeyPair::generate(&mut ledger.get_prng()).get_pk();
-      let tx = Transaction::from_operation(Operation::AIRAssign(adversarial_op), seq_id);
-      let effect = TxnEffect::compute_effect(tx);
-      assert!(effect.is_err());
-      let authenticated_air_res =
-        ledger.get_air_data(&serde_json::to_string(&cred_user_key.0).c(d!())?);
-      assert!(authenticated_air_res.is_valid(ledger.get_state_commitment().0));
-    */
 }

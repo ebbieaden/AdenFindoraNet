@@ -1,8 +1,7 @@
 [workspace]
 members = [
     "components/cli2",
-    "components/abci_validator_node",
-    "components/ledger_standalone",
+    "components/abciapp",
     "components/ledger_api_service",
     "components/query_api",
     "components/query_server",
@@ -12,14 +11,7 @@ members = [
     "components/wasm",
     "components/wallet",
     "components/wallet_mobile",
-    "components/account_simulator",
-    # "components/trash/auditor",
-    # "components/trash/xfrnote",
-    # "components/trash/check_merkle",
-    # "components/trash/http_tester",
-    # "components/trash/txn_cli",
-    # "components/trash/address_identity_registry",
-    # "components/trash/log_tester",
+    "components/fintools",
     "ledger",
     "libs/ads/air",
     "libs/ads/merkle_tree",
@@ -28,15 +20,7 @@ members = [
     "libs/cryptohash",
     "libs/credentials",
     "libs/sliding_set",
-    "libs/network",
     "libs/utils",
-
-    # "components/trash/solvency",
-    # "components/trash/solvency_cli",
-    # "components/trash/whitelist_cli",
-    # "components/trash/whitelist",
-    # "components/trash/ledger_client",
-    # "components/trash/ledger_mirror",
 ]
 
 [profile.dev]
@@ -44,7 +28,6 @@ incremental = false
 overflow-checks = true
 
 [profile.release]
-codegen-units = 1
 incremental = false
 overflow-checks = false
 

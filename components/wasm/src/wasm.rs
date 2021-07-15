@@ -12,11 +12,17 @@ use credentials::{
     CredUserPublicKey, CredUserSecretKey, Credential as PlatformCredential,
 };
 use cryptohash::sha256;
-use ledger::data_model::{
-    AssetTypeCode, AuthenticatedKVLookup, AuthenticatedTransaction, Operation,
-    TransferType, TxOutput, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
+use ledger::{
+    data_model::{
+        AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
+        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
+    },
+    policies::{DebtMemo, Fraction},
+    staking::{
+        gen_random_keypair, td_addr_to_bytes, PartialUnDelegation, TendermintAddr,
+        MAX_DELEGATION_AMOUNT, MIN_DELEGATION_AMOUNT,
+    },
 };
-use ledger::policies::{DebtMemo, Fraction};
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::{d, err::RucResult};
@@ -100,32 +106,6 @@ pub fn verify_authenticated_txn(
             JsValue::from_str(&format!("Could not deserialize state commitment: {}", e))
         })?;
     Ok(authenticated_txn.is_valid(state_commitment))
-}
-
-#[wasm_bindgen]
-/// Given a serialized state commitment and an authenticated custom data result, returns true if the custom data result correctly
-/// hashes up to the state commitment and false otherwise.
-/// @param {string} state_commitment - String representing the state commitment.
-/// @param {JsValue} authenticated_txn - JSON-encoded value representing the authenticated custom
-/// data result.
-/// @throws Will throw an error if the state commitment or the authenticated result fail to deserialize.
-pub fn verify_authenticated_custom_data_result(
-    state_commitment: String,
-    authenticated_res: JsValue,
-) -> Result<bool, JsValue> {
-    let authenticated_res: AuthenticatedKVLookup =
-        authenticated_res.into_serde().c(d!()).map_err(|e| {
-            JsValue::from_str(&format!(
-                "couldn't deserialize the authenticated custom data lookup: {}",
-                e
-            ))
-        })?;
-    let state_commitment = serde_json::from_str::<HashOf<_>>(&state_commitment)
-        .c(d!())
-        .map_err(|e| {
-            JsValue::from_str(&format!("Could not deserialize state commitment: {}", e))
-        })?;
-    Ok(authenticated_res.is_valid(state_commitment))
 }
 
 #[wasm_bindgen]
@@ -316,11 +296,10 @@ impl TransactionBuilder {
     /// @param kp: owner's XfrKeyPair
     pub fn add_fee_relative_auto(
         mut self,
-        am: u64,
         kp: XfrKeyPair,
     ) -> Result<TransactionBuilder, JsValue> {
         self.transaction_builder
-            .add_fee_relative_auto(am, &kp)
+            .add_fee_relative_auto(&kp)
             .c(d!())
             .map_err(error_to_jsvalue)?;
         Ok(self)
@@ -499,79 +478,6 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// Adds an operation to the transaction builder that appends a credential commitment to the address
-    /// identity registry.
-    /// @param {XfrKeyPair} key_pair - Ledger key that is tied to the credential.
-    /// @param {CredUserPublicKey} user_public_key - Public key of the credential user.
-    /// @param {CredIssuerPublicKey} issuer_public_key - Public key of the credential issuer.
-    /// @param {CredentialCommitment} commitment - Credential commitment to add to the address identity registry.
-    /// @param {CredPoK} pok- Proof that the credential commitment is valid.
-    /// @see {@link module:Findora-Wasm.wasm_credential_commit|wasm_credential_commit} for information about how to generate a credential
-    /// commitment.
-    pub fn add_operation_air_assign(
-        mut self,
-        key_pair: &XfrKeyPair,
-        user_public_key: &CredUserPublicKey,
-        issuer_public_key: &CredIssuerPublicKey,
-        commitment: &CredentialCommitment,
-        pok: &CredentialPoK,
-    ) -> Result<TransactionBuilder, JsValue> {
-        self.get_builder_mut()
-            .add_operation_air_assign(
-                key_pair,
-                user_public_key.clone(),
-                commitment.get_ref().clone(),
-                issuer_public_key.clone(),
-                pok.get_ref().clone(),
-            )
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
-        Ok(self)
-    }
-
-    /// Adds an operation to the transaction builder that removes a hash from ledger's custom data
-    /// store.
-    /// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to delete the hash at the
-    /// provided key.
-    /// @param {Key} key - The key of the custom data store whose value will be cleared if the
-    /// transaction validates.
-    /// @param {BigInt} seq_num - Nonce to prevent replays.
-    pub fn add_operation_kv_update_no_hash(
-        mut self,
-        auth_key_pair: &XfrKeyPair,
-        key: &Key,
-        seq_num: u64,
-    ) -> Result<TransactionBuilder, JsValue> {
-        self.get_builder_mut()
-            .add_operation_kv_update(auth_key_pair, key.get_ref(), seq_num, None)
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
-        Ok(self)
-    }
-
-    /// Adds an operation to the transaction builder that adds a hash to the ledger's custom data
-    /// store.
-    /// @param {XfrKeyPair} auth_key_pair - Key pair that is authorized to add the hash at the
-    /// provided key.
-    /// @param {Key} key - The key of the custom data store the value will be added to if the
-    /// transaction validates.
-    /// @param {KVHash} hash - The hash to add to the custom data store.
-    /// @param {BigInt} seq_num - Nonce to prevent replays.
-    pub fn add_operation_kv_update_with_hash(
-        mut self,
-        auth_key_pair: &XfrKeyPair,
-        key: &Key,
-        seq_num: u64,
-        kv_hash: &KVHash,
-    ) -> Result<TransactionBuilder, JsValue> {
-        let hash = kv_hash.get_hash().clone();
-        self.get_builder_mut()
-            .add_operation_kv_update(auth_key_pair, key.get_ref(), seq_num, Some(&hash))
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
-        Ok(self)
-    }
-
     /// Adds an operation to the transaction builder that adds a hash to the ledger's custom data
     /// store.
     /// @param {XfrKeyPair} auth_key_pair - Asset creator key pair.
@@ -593,6 +499,69 @@ impl TransactionBuilder {
 
         self.get_builder_mut()
             .add_operation_update_memo(auth_key_pair, code, &new_memo);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_delegate(
+        mut self,
+        keypair: &XfrKeyPair,
+        validator: TendermintAddr,
+    ) -> Result<TransactionBuilder, JsValue> {
+        self.get_builder_mut()
+            .add_operation_delegation(keypair, validator);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_undelegate(
+        mut self,
+        keypair: &XfrKeyPair,
+    ) -> Result<TransactionBuilder, JsValue> {
+        self.get_builder_mut()
+            .add_operation_undelegation(keypair, None);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_undelegate_partially(
+        mut self,
+        keypair: &XfrKeyPair,
+        am: u64,
+        target_validator: TendermintAddr,
+    ) -> Result<TransactionBuilder, JsValue> {
+        let middle_pk = gen_random_keypair().get_pk();
+        self.get_builder_mut().add_operation_undelegation(
+            keypair,
+            Some(PartialUnDelegation::new(
+                am,
+                middle_pk,
+                td_addr_to_bytes(&target_validator).map_err(error_to_jsvalue)?,
+            )),
+        );
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_claim(
+        mut self,
+        keypair: &XfrKeyPair,
+    ) -> Result<TransactionBuilder, JsValue> {
+        self.get_builder_mut().add_operation_claim(keypair, None);
+        Ok(self)
+    }
+
+    #[allow(missing_docs)]
+    pub fn add_operation_claim_custom(
+        mut self,
+        keypair: &XfrKeyPair,
+        am: u64,
+    ) -> Result<TransactionBuilder, JsValue> {
+        if 0 == am {
+            return Err(error_to_jsvalue("Amount can not be zero"));
+        }
+        self.get_builder_mut()
+            .add_operation_claim(keypair, Some(am));
         Ok(self)
     }
 
@@ -958,8 +927,7 @@ pub fn get_priv_key_str(key_pair: &XfrKeyPair) -> String {
 #[wasm_bindgen]
 /// Creates a new transfer key pair.
 pub fn new_keypair() -> XfrKeyPair {
-    let mut small_rng = rand::thread_rng();
-    XfrKeyPair::generate(&mut small_rng)
+    gen_random_keypair()
 }
 
 #[wasm_bindgen]
@@ -1477,6 +1445,36 @@ pub fn fra_get_minimal_fee() -> u64 {
 #[wasm_bindgen]
 pub fn fra_get_dest_pubkey() -> XfrPublicKey {
     *BLACK_HOLE_PUBKEY
+}
+
+/// The system address used to reveive delegation principals.
+#[wasm_bindgen]
+pub fn get_delegation_target_address() -> String {
+    get_coinbase_principal_address()
+}
+
+#[wasm_bindgen]
+#[allow(missing_docs)]
+pub fn get_coinbase_address() -> String {
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
+}
+
+#[wasm_bindgen]
+#[allow(missing_docs)]
+pub fn get_coinbase_principal_address() -> String {
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
+}
+
+#[wasm_bindgen]
+#[allow(missing_docs)]
+pub fn get_delegation_min_amount() -> u64 {
+    MIN_DELEGATION_AMOUNT
+}
+
+#[wasm_bindgen]
+#[allow(missing_docs)]
+pub fn get_delegation_max_amount() -> u64 {
+    MAX_DELEGATION_AMOUNT
 }
 
 #[cfg(test)]

@@ -3,14 +3,25 @@
 extern crate unicode_normalization;
 
 use super::errors;
-use crate::policy_script::{Policy, PolicyGlobals, TxnPolicyData};
-use crate::{des_fail, ser_fail, zei_fail};
-use air::{check_merkle_proof as air_check_merkle_proof, AIRResult};
+use crate::{
+    des_fail,
+    policy_script::{Policy, PolicyGlobals, TxnPolicyData},
+    ser_fail,
+    staking::{
+        is_coinbase_tx,
+        ops::{
+            claim::ClaimOps, delegation::DelegationOps,
+            fra_distribution::FraDistributionOps, governance::GovernanceOps,
+            mint_fra::MintFraOps, undelegation::UnDelegationOps,
+            update_validator::UpdateValidatorOps,
+        },
+        Staking, TendermintAddr, MAX_POWER_PERCENT_PER_VALIDATOR,
+    },
+};
+
 use bitmap::SparseMap;
 use chrono::prelude::*;
-use credentials::{CredCommitment, CredIssuerPublicKey, CredPoK, CredUserPublicKey};
 use cryptohash::sha256::Digest as BitDigest;
-use cryptohash::sha256::DIGESTBYTES;
 use cryptohash::HashValue;
 use errors::PlatformError;
 use lazy_static::lazy_static;
@@ -19,13 +30,12 @@ use rand_chacha::rand_core;
 use rand_chacha::ChaChaRng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use sparse_merkle_tree::{check_merkle_proof, Key, MerkleProof};
 use std::boxed::Box;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 use std::result::Result as StdResult;
-use std::{env, mem};
+use std::{env, fmt, mem};
 use time::OffsetDateTime;
 use unicode_normalization::UnicodeNormalization;
 use utils::{HashOf, ProofOf, Serialized, SignatureOf};
@@ -33,17 +43,13 @@ use zei::serialization::ZeiFromToBytes;
 use zei::xfr::lib::{gen_xfr_body, XfrNotePolicies};
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 use zei::xfr::structs::{
-    AssetRecord, AssetRecordTemplate, AssetType as ZeiAssetType, BlindAssetRecord,
-    OwnerMemo, TracingPolicies, TracingPolicy, XfrAmount, XfrAssetType, XfrBody,
-    ASSET_TYPE_LENGTH,
+    AssetRecord, AssetType as ZeiAssetType, BlindAssetRecord, OwnerMemo,
+    TracingPolicies, TracingPolicy, XfrAmount, XfrAssetType, XfrBody, ASSET_TYPE_LENGTH,
 };
 
 use super::effects::*;
-use itertools::Itertools;
 use ruc::*;
-use std::fmt;
 use std::ops::Deref;
-use std::str::FromStr;
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -62,24 +68,15 @@ pub struct Code {
     pub val: [u8; 16],
 }
 
-const ZERO_256: [u8; DIGESTBYTES] = [0; DIGESTBYTES];
-const ZERO_DIGEST: BitDigest = BitDigest { 0: ZERO_256 };
-
-fn default_digest() -> BitDigest {
-    ZERO_DIGEST
-}
-
-fn is_default_digest(x: &BitDigest) -> bool {
-    x == &ZERO_DIGEST
-}
-
 fn is_default<T: Default + PartialEq>(x: &T) -> bool {
     x == &T::default()
 }
 
 const UTF8_ASSET_TYPES_WORK: bool = false;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Ord, PartialOrd, Serialize,
+)]
 pub struct AssetTypeCode {
     pub val: ZeiAssetType,
 }
@@ -158,7 +155,7 @@ impl AssetTypeCode {
     /// Converts the asset type code to an utf8 string.
     ///
     /// Used to display the asset type code.
-    pub fn to_utf8(&self) -> Result<String> {
+    pub fn to_utf8(self) -> Result<String> {
         debug_assert!(UTF8_ASSET_TYPES_WORK);
         let mut code = self.val.0.to_vec();
         let len = code.len();
@@ -205,7 +202,7 @@ impl AssetTypeCode {
             )))),
         }
     }
-    pub fn to_base64(&self) -> String {
+    pub fn to_base64(self) -> String {
         b64enc(&self.val.0)
     }
 }
@@ -239,7 +236,7 @@ impl Code {
             Err(eg!(des_fail!()))
         }
     }
-    pub fn to_base64(&self) -> String {
+    pub fn to_base64(self) -> String {
         b64enc(&self.val)
     }
 }
@@ -327,7 +324,9 @@ impl Hash for XfrAddress {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize,
+)]
 pub struct IssuerPublicKey {
     pub key: XfrPublicKey,
 }
@@ -551,47 +550,35 @@ pub struct CredentialProof {
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct SmartContract;
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Deserialize,
+    Eq,
+    Hash,
+    PartialEq,
+    Serialize,
+    Ord,
+    PartialOrd,
+)]
 pub struct TxoSID(pub u64);
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct TxoSIDList(pub Vec<TxoSID>);
-
-impl FromStr for TxoSIDList {
-    type Err = Box<(dyn ruc::RucError + 'static)>;
-
-    fn from_str(s: &str) -> Result<Self> {
-        let s_string = s.to_string();
-        let list_of_txostr = s_string.split(',').collect_vec();
-        let mut txolist: Vec<TxoSID> = Vec::new();
-        for (_, str_txo) in list_of_txostr.iter().enumerate() {
-            if let Ok(txu) = str_txo.parse::<u64>() {
-                txolist.push(TxoSID(txu));
-            }
-        }
-        Ok(TxoSIDList(txolist))
-    }
-}
-impl fmt::Display for TxoSID {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-impl fmt::Display for TxoSIDList {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Values:")?;
-        for v in &self.0 {
-            write!(f, "\t{}", v.0)?;
-        }
-        Ok(())
-    }
-}
+#[allow(missing_docs)]
+pub type TxoSIDList = Vec<TxoSID>;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct OutputPosition(pub usize);
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct TxnSID(pub usize);
+
+impl fmt::Display for TxoSID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct BlockSID(pub usize);
@@ -642,7 +629,7 @@ impl NoReplayToken {
         NoReplayToken(prng.next_u64().to_be_bytes(), seq_id)
     }
 
-    pub fn testonly_new(rand: u64, seq_id: u64) -> Self {
+    pub fn unsafe_new(rand: u64, seq_id: u64) -> Self {
         NoReplayToken(rand.to_be_bytes(), seq_id)
     }
 
@@ -830,33 +817,6 @@ pub struct UpdateMemoBody {
     pub no_replay_token: NoReplayToken,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct AIRAssignBody {
-    pub addr: CredUserPublicKey,
-    pub data: CredCommitment,
-    pub issuer_pk: CredIssuerPublicKey,
-    pub pok: CredPoK,
-    pub no_replay_token: NoReplayToken,
-}
-
-impl AIRAssignBody {
-    pub fn new(
-        addr: CredUserPublicKey,
-        data: CredCommitment,
-        issuer_pk: CredIssuerPublicKey,
-        pok: CredPoK,
-        no_replay_token: NoReplayToken,
-    ) -> Result<AIRAssignBody> {
-        Ok(AIRAssignBody {
-            addr,
-            data,
-            issuer_pk,
-            pok,
-            no_replay_token,
-        })
-    }
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum TransferType {
     Standard,
@@ -1020,290 +980,42 @@ impl UpdateMemo {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct AIRAssign {
-    pub body: Box<AIRAssignBody>,
-    pub pubkey: XfrPublicKey,
-    pub signature: SignatureOf<AIRAssignBody>,
-}
-
-impl AIRAssign {
-    pub fn new(creation_body: AIRAssignBody, keypair: &XfrKeyPair) -> Result<AIRAssign> {
-        let signature = SignatureOf::new(keypair, &creation_body);
-        Ok(AIRAssign {
-            body: Box::new(creation_body),
-            pubkey: *keypair.get_pk_ref(),
-            signature,
-        })
-    }
-}
-
-// pub const KV_BLOCK_SIZE: usize = 4*(1<<10);
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct KVHash(pub HashOf<(Vec<u8>, Option<KVBlind>)>);
-
-impl KVHash {
-    pub fn new(data: &dyn AsRef<[u8]>, blind: Option<&KVBlind>) -> Self {
-        KVHash(HashOf::new(&(data.as_ref().to_vec(), blind.cloned())))
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct KVBlind(pub [u8; 16]);
-
-impl KVBlind {
-    pub fn gen_random() -> Self {
-        let mut small_rng = ChaChaRng::from_entropy();
-        let mut buf: [u8; 16] = [0u8; 16];
-        small_rng.fill_bytes(&mut buf);
-        Self(buf)
-    }
-
-    pub fn to_base64(&self) -> String {
-        b64enc(&self.0)
-    }
-
-    pub fn from_base64(b64: &str) -> Result<Self> {
-        if let Ok(mut bin) = b64dec(b64) {
-            bin.resize(16, 0u8);
-            let buf = <[u8; 16]>::try_from(bin.as_slice()).c(d!())?;
-            Ok(Self(buf))
-        } else {
-            Err(eg!(des_fail!()))
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct KVEntry(pub XfrPublicKey, pub KVHash);
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct KVUpdate {
-    pub body: (Key, u64, Option<KVEntry>),
-    pub signature: SignatureOf<(Key, u64, Option<KVEntry>)>,
-}
-
-pub type KVEntrySignature = SignatureOf<(Key, u64, Option<KVEntry>)>;
-
-impl KVUpdate {
-    pub fn new(
-        creation_body: (Key, Option<KVHash>),
-        seq_num: u64,
-        keypair: &XfrKeyPair,
-    ) -> KVUpdate {
-        let creation_body = match creation_body {
-            (k, None) => (k, seq_num, None),
-            (k, Some(data)) => (k, seq_num, Some(KVEntry(*keypair.get_pk_ref(), data))),
-        };
-        let signature = SignatureOf::new(&keypair, &creation_body);
-        KVUpdate {
-            body: creation_body,
-            signature,
-        }
-    }
-
-    pub fn get_entry(&self) -> &Option<KVEntry> {
-        &self.body.2
-    }
-
-    pub fn check_signature(&self, public_key: &XfrPublicKey) -> Result<()> {
-        self.signature
-            .verify(public_key, &self.body)
-            .c(d!(zei_fail!()))
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct BindAssetsBody {
-    pub contract: TxoRef,    // UTXO representing the lien contract
-    pub inputs: Vec<TxoRef>, // the assets being held
-    #[serde(default)]
-    #[serde(skip_serializing_if = "is_default")]
-    // (inp_idx,hash) pairs signifying that there is a lien `hash` on the
-    // input `inp_idx`
-    // NOTE: `inp_idx` is relative to `inputs`, not `[contract] + inputs`
-    pub input_liens: Vec<(usize, HashOf<Vec<TxOutput>>)>,
-    // Note transferring the contract record & the inputs -- though with
-    // only one output, which must be for the `contract`.
-    pub transfer: Box<XfrBody>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct BindAssets {
-    pub body: BindAssetsBody,
-    // Signatures authorizing each of the inputs
-    pub body_signatures: Vec<IndexedSignature<BindAssetsBody>>,
-}
-
-impl BindAssetsBody {
-    pub fn new<R: CryptoRng + RngCore>(
-        prng: &mut R,
-        contract_ref: TxoRef,
-        input_refs: Vec<(TxoRef, Option<HashOf<Vec<TxOutput>>>)>,
-        input_records: &[AssetRecord],
-        output_record: &AssetRecord,
-    ) -> Result<BindAssetsBody> {
-        if input_records.is_empty() {
-            return Err(eg!(PlatformError::InputsError(None)));
-        }
-
-        if 1 + input_refs.len() != input_records.len() {
-            return Err(eg!(PlatformError::InputsError(None)));
-        }
-
-        let out_pubkey = &output_record
-            .open_asset_record
-            .blind_asset_record
-            .public_key;
-        let mut out_records = vec![output_record.clone()];
-        for i in input_records[1..].iter() {
-            let open_rec = i.open_asset_record.clone();
-
-            let amt = *open_rec.get_amount();
-            let unit_code = *open_rec.get_asset_type();
-
-            let art = open_rec.get_record_type();
-            let ar = AssetRecordTemplate::with_no_asset_tracing(
-                amt,
-                unit_code,
-                art,
-                *out_pubkey,
-            );
-            let ar =
-                AssetRecord::from_template_no_identity_tracing(prng, &ar).c(d!())?;
-            out_records.push(ar);
-        }
-
-        let transfer = Box::new(
-            gen_xfr_body(prng, input_records, &out_records)
-                .c(d!(PlatformError::ZeiError(None)))?,
-        );
-        let input_liens = input_refs
-            .iter()
-            .map(|(_l, r)| r)
-            .enumerate()
-            .filter_map(|(l, x)| x.clone().map(|x| (l, x)))
-            .collect::<Vec<_>>();
-        let input_refs = input_refs.iter().map(|(l, _r)| l).cloned().collect();
-        Ok(BindAssetsBody {
-            contract: contract_ref,
-            inputs: input_refs,
-            input_liens,
-            transfer,
-        })
-    }
-
-    /// Computes a body signature. A body signature represents consent to some part of the asset transfer. If an
-    /// input_idx is specified, the signature is a co-signature.
-    pub fn compute_body_signature(
-        &self,
-        keypair: &XfrKeyPair,
-        input_idx: Option<usize>,
-    ) -> IndexedSignature<BindAssetsBody> {
-        let public_key = keypair.get_pk_ref();
-        IndexedSignature {
-            signature: SignatureOf::new(keypair, &(self.clone(), input_idx)),
-            address: XfrAddress { key: *public_key },
-            input_idx,
-        }
-    }
-
-    /// Verifies a body signature
-    pub fn verify_body_signature(
-        &self,
-        signature: &IndexedSignature<BindAssetsBody>,
-    ) -> bool {
-        signature.verify(&self)
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ReleaseAssetsBody {
-    pub contract: TxoRef, // UTXO representing the lien contract
-    pub lien: HashOf<Vec<TxOutput>>, // which lien?
-    pub num_outputs: usize, // how many UTXOs?
-    #[serde(default)]
-    #[serde(skip_serializing_if = "is_default")]
-    // (inp_idx,out_idx,hash) triples signifying that the lien `hash` on
-    // the input `inp_idx` gets assigned to the output `out_idx`
-    // (an inp_idx of 0 is invalid)
-    pub lien_assignments: Vec<(usize, usize, HashOf<Vec<TxOutput>>)>,
-    pub transfer: Box<XfrBody>, // Note transferrring the contract & the held assets
-}
-
-impl ReleaseAssetsBody {
-    pub fn new<R: CryptoRng + RngCore>(
-        prng: &mut R,
-        input_ref: TxoRef,
-        lien: HashOf<Vec<TxOutput>>,
-        lien_assignments: Vec<(usize, usize, HashOf<Vec<TxOutput>>)>,
-        input_records: &[AssetRecord],
-        output_records: &[AssetRecord],
-    ) -> Result<ReleaseAssetsBody> {
-        if input_records.is_empty() {
-            return Err(eg!(PlatformError::InputsError(None)));
-        }
-        let transfer = Box::new(
-            gen_xfr_body(prng, input_records, output_records)
-                .c(d!(PlatformError::ZeiError(None)))?,
-        );
-        Ok(ReleaseAssetsBody {
-            contract: input_ref,
-            lien,
-            num_outputs: output_records.len(),
-            lien_assignments,
-            transfer,
-        })
-    }
-
-    /// Computes a body signature. A body signature represents consent to some part of the asset transfer. If an
-    /// input_idx is specified, the signature is a co-signature.
-    pub fn compute_body_signature(
-        &self,
-        keypair: &XfrKeyPair,
-        input_idx: Option<usize>,
-    ) -> IndexedSignature<ReleaseAssetsBody> {
-        let public_key = keypair.get_pk_ref();
-        IndexedSignature {
-            signature: SignatureOf::new(keypair, &(self.clone(), input_idx)),
-            address: XfrAddress { key: *public_key },
-            input_idx,
-        }
-    }
-
-    /// Verifies a body signature
-    pub fn verify_body_signature(
-        &self,
-        signature: &IndexedSignature<ReleaseAssetsBody>,
-    ) -> bool {
-        signature.verify(&self)
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ReleaseAssets {
-    pub body: ReleaseAssetsBody,
-    pub body_signatures: Vec<IndexedSignature<ReleaseAssetsBody>>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Operation {
     TransferAsset(TransferAsset),
     IssueAsset(IssueAsset),
     DefineAsset(DefineAsset),
     UpdateMemo(UpdateMemo),
-    AIRAssign(AIRAssign),
-    KVStoreUpdate(KVUpdate),
-    BindAssets(BindAssets),
-    ReleaseAssets(ReleaseAssets),
-    // ... etc...
+    Delegation(DelegationOps),
+    UnDelegation(Box<UnDelegationOps>),
+    Claim(ClaimOps),
+    UpdateValidator(UpdateValidatorOps),
+    Governance(GovernanceOps),
+    FraDistribution(FraDistributionOps),
+    MintFra(MintFraOps),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
     match op {
-        Operation::UpdateMemo(um) => um.body.no_replay_token = no_replay_token,
-        Operation::AIRAssign(aa) => aa.body.no_replay_token = no_replay_token,
-        _ => (),
+        Operation::Delegation(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::UnDelegation(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::Claim(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::FraDistribution(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::UpdateValidator(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::Governance(i) => {
+            i.set_nonce(no_replay_token);
+        }
+        Operation::UpdateMemo(i) => i.body.no_replay_token = no_replay_token,
+        _ => {}
     }
 }
 
@@ -1353,62 +1065,132 @@ pub struct FinalizedTransaction {
     pub merkle_id: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct AuthenticatedAIRResult {
-    pub state_commitment_data: Option<StateCommitmentData>,
-    pub state_commitment: HashOf<Option<StateCommitmentData>>,
-    pub air_result: AIRResult,
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ValidatorList {
+    validators: Vec<Validator>,
+    threshold: [u128; 2],
 }
 
-impl AuthenticatedAIRResult {
-    // An authenticated air result is valid if
-    // 1) State commitment data hashes to the provided state commitment
-    // 2) The air root matches the root in state commitment data.
-    // 3) The air proof is valid.
-    pub fn is_valid(
-        &self,
-        state_commitment: HashOf<Option<StateCommitmentData>>,
-    ) -> bool {
-        let root = self.air_result.merkle_root;
-        match &self.state_commitment_data {
-            None => {
-                if self.air_result.value.is_some() {
-                    return false;
-                }
-                if state_commitment != HashOf::new(&None) {
-                    return false;
-                }
-                if root != ZERO_DIGEST {
-                    return false;
-                }
-            }
-            Some(comm_data) => {
-                if self.state_commitment != comm_data.compute_commitment() {
-                    return false;
-                }
-
-                if comm_data.air_commitment != root {
-                    return false;
-                }
-            }
+impl ValidatorList {
+    pub fn new(validators: Vec<Validator>) -> Self {
+        ValidatorList {
+            validators,
+            threshold: MAX_POWER_PERCENT_PER_VALIDATOR,
         }
-        if state_commitment != self.state_commitment {
-            return false;
-        }
-        let key = &self.air_result.key;
-        let value = self.air_result.value.as_ref();
-        let proof = &self.air_result.merkle_proof;
+    }
+}
 
-        air_check_merkle_proof(&root, key, value, proof)
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Validator {
+    addr: TendermintAddr,
+    power: u64,
+    commission_rate: [u64; 2],
+    accept_delegation: bool,
+}
+
+impl Validator {
+    #[inline(always)]
+    #[allow(missing_docs)]
+    pub fn new(
+        addr: TendermintAddr,
+        power: u64,
+        commission_rate: [u64; 2],
+        accept_delegation: bool,
+    ) -> Self {
+        Validator {
+            addr,
+            power,
+            commission_rate,
+            accept_delegation,
+        }
+    }
+}
+
+#[allow(missing_docs)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ValidatorDetail {
+    pub addr: TendermintAddr,
+    pub kind: String,
+    pub is_online: bool,
+    pub voting_power: u64,
+    pub voting_power_rank: usize,
+    pub commission_rate: [u64; 2],
+    pub self_staking: u64,
+    pub fra_rewards: u64,
+    pub memo: String,
+    pub start_height: u64,
+    pub cur_height: u64,
+    pub block_signed_cnt: u64,
+    pub block_proposed_cnt: u64,
+    pub expected_annualization: [u128; 2],
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DelegatorInfo {
+    pub addr: String,
+    pub amount: u64,
+}
+
+impl DelegatorInfo {
+    pub fn new(addr: String, amount: u64) -> Self {
+        DelegatorInfo { addr, amount }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DelegatorList {
+    delegators: Vec<DelegatorInfo>,
+}
+
+impl DelegatorList {
+    pub fn new(delegators: Vec<DelegatorInfo>) -> Self {
+        DelegatorList { delegators }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DelegationInfo {
+    pub bond: u64,
+    pub bond_entries: Vec<(String, u64)>,
+    pub unbond: u64,
+    pub rewards: u64,
+    pub return_rate: [u128; 2],
+    pub global_delegation: u64,
+    pub global_staking: u64,
+    pub start_height: u64,
+    pub end_height: u64,
+    pub current_height: u64,
+    pub delegation_rwd_cnt: u64,
+    pub proposer_rwd_cnt: u64,
+}
+
+impl DelegationInfo {
+    fn default_x() -> Self {
+        Self {
+            return_rate: [0, 100],
+            ..Self::default()
+        }
     }
 
-    // Extract the credential commitment stored in this AIRResult
-    pub fn get_credential_commitment(&self) -> Option<CredCommitment> {
-        // This unwrap is safe because by design, AIR values can only be credential commitments
-        self.air_result
-            .value
-            .as_ref()
-            .map(|cred_str| serde_json::from_str(&cred_str).unwrap())
+    pub fn new(
+        bond: u64,
+        bond_entries: Vec<(String, u64)>,
+        unbond: u64,
+        rewards: u64,
+        return_rate: [u128; 2],
+        global_delegation: u64,
+        global_staking: u64,
+    ) -> Self {
+        Self {
+            bond,
+            bond_entries,
+            unbond,
+            rewards,
+            return_rate,
+            global_delegation,
+            global_staking,
+            ..Self::default_x()
+        }
     }
 }
 
@@ -1561,59 +1343,6 @@ impl AuthenticatedBlock {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct AuthenticatedKVLookup {
-    pub key: Key,
-    pub result: Option<Serialized<(u64, Option<KVEntry>)>>,
-    pub state_commitment_data: Option<StateCommitmentData>,
-    pub merkle_root: BitDigest,
-    pub merkle_proof: MerkleProof,
-    pub state_commitment: HashOf<Option<StateCommitmentData>>,
-}
-
-impl AuthenticatedKVLookup {
-    pub fn is_valid(
-        &self,
-        state_commitment: HashOf<Option<StateCommitmentData>>,
-    ) -> bool {
-        match &self.state_commitment_data {
-            None => {
-                if self.result.is_some() {
-                    return false;
-                }
-                if state_commitment != HashOf::new(&None) {
-                    return false;
-                }
-                if self.merkle_root
-                    != (BitDigest {
-                        0: [0_u8; DIGESTBYTES],
-                    })
-                {
-                    return false;
-                }
-            }
-            Some(comm_data) => {
-                if self.state_commitment != comm_data.compute_commitment() {
-                    return false;
-                }
-
-                if comm_data.kv_store != self.merkle_root {
-                    return false;
-                }
-            }
-        }
-        if state_commitment != self.state_commitment {
-            return false;
-        }
-        check_merkle_proof(
-            &self.merkle_root,
-            &self.key,
-            self.result.as_ref(),
-            &self.merkle_proof,
-        )
-    }
-}
-
 pub type SparseMapBytes = Vec<u8>;
 
 #[derive(Serialize, Clone, Deserialize)]
@@ -1682,46 +1411,26 @@ impl FinalizedTransaction {
     }
 
     pub fn set_txo_id(&mut self) {
-        enum SS<'a> {
-            Output(&'a mut TxOutput),
-            Raw,
-        }
-
-        macro_rules! seek {
-            ($d: expr) => {
-                $d.body.transfer.outputs.iter().map(|_| SS::Raw).collect()
-            };
-        }
-
         let ids = mem::take(&mut self.txo_ids);
+
         self.txn
             .body
             .operations
             .iter_mut()
             .map(|new| match new {
-                Operation::TransferAsset(d) => {
-                    d.body.outputs.iter_mut().map(|o| SS::Output(o)).collect()
+                Operation::TransferAsset(d) => d.body.outputs.iter_mut().collect(),
+                Operation::MintFra(d) => {
+                    d.entries.iter_mut().map(|et| &mut et.utxo).collect()
                 }
-                Operation::IssueAsset(d) => d
-                    .body
-                    .records
-                    .iter_mut()
-                    .map(|(o, _)| SS::Output(o))
-                    .collect(),
-                Operation::BindAssets(d) => {
-                    seek!(d)
-                }
-                Operation::ReleaseAssets(d) => {
-                    seek!(d)
+                Operation::IssueAsset(d) => {
+                    d.body.records.iter_mut().map(|(o, _)| o).collect()
                 }
                 _ => Vec::new(),
             })
             .flatten()
             .zip(ids.iter())
-            .for_each(|(ss, id)| {
-                if let SS::Output(o) = ss {
-                    o.id = Some(*id);
-                }
+            .for_each(|(o, id)| {
+                o.id = Some(*id);
             });
 
         self.txo_ids = ids;
@@ -1738,135 +1447,72 @@ pub const FRA_DECIMALS: u8 = 6;
 lazy_static! {
     /// The destination of Fee is an black hole,
     /// all token transfered to it will be burned.
-    pub static ref BLACK_HOLE_PUBKEY: XfrPublicKey =
-        pnk!(XfrPublicKey::zei_from_bytes(&[0; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
+    pub static ref BLACK_HOLE_PUBKEY: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[0; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
+    /// BlackHole of Staking
+    pub static ref BLACK_HOLE_PUBKEY_STAKING: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[1; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
 }
 
 /// see [**mainnet-v1.0 defination**](https://www.notion.so/findora/Transaction-Fees-Analysis-d657247b70f44a699d50e1b01b8a2287)
-pub const TX_FEE_MIN: u64 = 10_000;
+pub const TX_FEE_MIN: u64 = 1_0000;
 
 impl Transaction {
+    /// All-in-one checker
+    pub fn is_basic_valid(&self, td_height: i64) -> bool {
+        !self.in_blk_list()
+            && self.check_fee()
+            && self.fra_no_illegal_issuance(td_height)
+    }
+
     /// A simple fee checker for mainnet v1.0.
     ///
     /// The check logic is as follows:
     /// - Only `NonConfidential Operation` can be used as fee
     /// - FRA code == [0; ASSET_TYPE_LENGTH]
-    /// - Fee destination == [0; ed25519_dalek::PUBLIC_KEY_LENGTH]
+    /// - Fee destination == BLACK_HOLE_PUBKEY
     /// - A transaction with an `Operation` of defining/issuing FRA need NOT fee
-    ///
-    /// > Is this function compatible with the process of
-    /// > defining and issuing FRA in the genesis block ?
-    /// >
-    /// > Yes, I think so. But please note:
-    /// >
-    /// > - Your should put all Operations related to
-    /// > the defination and issuing of FRA into a same transaction.
-    /// > Because the basic unit of `check_fee` is a whole transaction, and
-    /// > there can be many Operations inside this transaction, such as:
-    /// > defining assets, issuing assets, etc.
-    /// > as long as the order of these operations is correct.
-    /// > - `TransferAsset` operations of FRA can NOT be placed
-    /// > in the same transaction with its defination and issuing,
-    /// > or the transaction can NOT pass the check of `apply_transaction(...)`
+    /// - A transaction with all addresses of inputs equal to BLACK_HOLE_PUBKEY need NOT fee
     pub fn check_fee(&self) -> bool {
-        // Basic stateless validations for checkTx
-        if !self.validate_basic() {
-            return false;
-        }
-
         // This method can not completely solve the DOS risk,
         // we should further limit the number of txo[s] in every operation.
         //
         // But it seems enough for v1.0 when we combined it with limiting
         // the payload size of submission-server's http-requests.
-        self.body.operations.iter().any(|o| {
-            if let Operation::TransferAsset(ref x) = o {
-                return x.body.outputs.iter().any(|o| {
-                    if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                        if ty == ASSET_TYPE_FRA
-                            && *BLACK_HOLE_PUBKEY == o.record.public_key
-                        {
-                            if let XfrAmount::NonConfidential(am) = o.record.amount {
-                                if am > (TX_FEE_MIN - 1) {
-                                    return true;
+        is_coinbase_tx(self)
+            || self.body.operations.iter().any(|ops| {
+                if let Operation::TransferAsset(ref x) = ops {
+                    return x.body.outputs.iter().any(|o| {
+                        if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
+                            if ty == ASSET_TYPE_FRA
+                                && *BLACK_HOLE_PUBKEY == o.record.public_key
+                            {
+                                if let XfrAmount::NonConfidential(am) = o.record.amount {
+                                    if am > (TX_FEE_MIN - 1) {
+                                        return true;
+                                    }
                                 }
                             }
                         }
+                        false
+                    });
+                } else if let Operation::DefineAsset(ref x) = ops {
+                    if x.body.asset.code.val == ASSET_TYPE_FRA {
+                        return true;
                     }
-                    false
-                });
-            } else if let Operation::DefineAsset(ref x) = o {
-                if x.body.asset.code.val == ASSET_TYPE_FRA {
-                    return true;
+                } else if let Operation::IssueAsset(ref x) = ops {
+                    if x.body.code.val == ASSET_TYPE_FRA {
+                        return true;
+                    }
                 }
-            } else if let Operation::IssueAsset(ref x) = o {
-                if x.body.code.val == ASSET_TYPE_FRA {
-                    return true;
-                }
-            }
-            false
-        })
-    }
-
-    pub fn validate_basic(&self) -> bool {
-        lazy_static! {
-            static ref MAX_OPS_PER_TX: usize = env::var("MAX_OPS_PER_TX")
-                .map(|n| pnk!(n.parse::<usize>()))
-                .unwrap_or(10);
-            static ref MAX_INPUTS_PER_OP: usize = env::var("MAX_INPUTS_PER_OP")
-                .map(|n| pnk!(n.parse::<usize>()))
-                .unwrap_or(25);
-            static ref MAX_OUTPUTS_PER_OP: usize = env::var("MAX_OUTPUTS_PER_OP")
-                .map(|n| pnk!(n.parse::<usize>()))
-                .unwrap_or(25);
-            static ref MAX_MEMO_LEN: usize = env::var("MAX_MEMO_LEN")
-                .map(|n| pnk!(n.parse::<usize>()))
-                .unwrap_or(64);
-        }
-
-        if self.body.operations.len() > *MAX_OPS_PER_TX {
-            return false;
-        }
-        // Currently allow only four types of operations  TransferAsset,DefineAsset,UpdateMemo,IssueAsset
-        // Reject any other operations . This is a a quick fix for main-net 1.0
-        // In case the transaction contains an invalid operation the whole tx is rejected and not just the specific operations
-        for o in self.body.operations.iter() {
-            if let Operation::TransferAsset(ref x) = o {
-                if x.body.outputs.len() > *MAX_OUTPUTS_PER_OP {
-                    return false;
-                }
-                if x.body.inputs.len() > *MAX_INPUTS_PER_OP {
-                    return false;
-                }
-                continue;
-            } else if let Operation::DefineAsset(ref x) = o {
-                if x.body.asset.memo.0.len() > *MAX_MEMO_LEN {
-                    return false;
-                }
-                continue;
-            } else if let Operation::UpdateMemo(ref x) = o {
-                if x.body.new_memo.0.len() > *MAX_MEMO_LEN {
-                    return false;
-                }
-                continue;
-            } else if let Operation::IssueAsset(ref _x) = o {
-                continue;
-            } else {
-                return false; // If the transaction contains any other operation just reject the transaction for now
-            }
-        }
-        true
+                false
+            })
     }
 
     /// Issuing FRA is denied except in the genesis block.
-    pub fn check_fra_no_illegal_issuance(&self, tendermint_block_height: i64) -> bool {
-        #[cfg(feature = "debugenv")]
-        const HEIGHT_LIMIT: i64 = 2000;
+    pub fn fra_no_illegal_issuance(&self, tendermint_block_height: i64) -> bool {
+        // block height of mainnet has been higher than this value
+        const HEIGHT_LIMIT: i64 = i64::MAX;
 
-        #[cfg(not(feature = "debugenv"))]
-        const HEIGHT_LIMIT: i64 = 2;
-
-        // **mainnet v1.0**:
+        // **mainnet v0.1**:
         // FRA is defined and issued in genesis block.
         if HEIGHT_LIMIT > tendermint_block_height {
             return true;
@@ -1956,10 +1602,21 @@ impl Transaction {
         tx
     }
 
-    pub fn add_operation(&mut self, op: Operation) {
-        let mut mutable_op = op;
-        set_no_replay_token(&mut mutable_op, self.body.no_replay_token);
-        self.body.operations.push(mutable_op);
+    pub fn from_operation_coinbase_mint(op: Operation, seq_id: u64) -> Self {
+        let mut tx = Transaction {
+            body: TransactionBody::from_token(NoReplayToken::unsafe_new(
+                seq_id.saturating_add(1357).saturating_mul(89),
+                seq_id,
+            )),
+            signatures: Vec::new(),
+        };
+        tx.add_operation(op);
+        tx
+    }
+
+    pub fn add_operation(&mut self, mut op: Operation) {
+        set_no_replay_token(&mut op, self.body.no_replay_token);
+        self.body.operations.push(op);
     }
 
     pub fn testonly_add_operation(&mut self, op: Operation) {
@@ -1980,11 +1637,14 @@ impl Transaction {
     }
 
     pub fn get_owner_memos_ref(&self) -> Vec<Option<&OwnerMemo>> {
-        let mut memos = vec![];
+        let mut memos = Vec::new();
         for op in self.body.operations.iter() {
             match op {
                 Operation::TransferAsset(xfr_asset) => {
                     memos.append(&mut xfr_asset.get_owner_memos_ref());
+                }
+                Operation::MintFra(mint_asset) => {
+                    memos.append(&mut mint_asset.get_owner_memos_ref());
                 }
                 Operation::IssueAsset(issue_asset) => {
                     memos.append(&mut issue_asset.get_owner_memos_ref());
@@ -2003,7 +1663,7 @@ impl Transaction {
             eff.txos.into_iter().flatten().collect()
         } else {
             let mut spent = eff.internally_spent_txos.into_iter();
-            let mut ret = vec![];
+            let mut ret = Vec::new();
             for txo in eff.txos.into_iter() {
                 if let Some(txo) = txo {
                     ret.push(txo);
@@ -2014,8 +1674,8 @@ impl Transaction {
             ret
         }
 
-        // let mut outputs = vec![];
-        // let mut spent_indices = vec![];
+        // let mut outputs = Vec::new();
+        // let mut spent_indices = Vec::new();
         // for op in self.body.operations.iter() {
         //   match op {
         //     Operation::TransferAsset(xfr_asset) => {
@@ -2071,14 +1731,11 @@ pub struct StateCommitmentData {
     pub txns_in_block_hash: HashOf<Vec<Transaction>>, // The hash of the transactions in the block
     pub previous_state_commitment: HashOf<Option<StateCommitmentData>>, // The prior global block hash
     pub transaction_merkle_commitment: HashValue, // The root hash of the transaction Merkle tree
-    pub air_commitment: BitDigest, // The root hash of the AIR sparse Merkle tree
+    pub air_commitment: BitDigest, // for compatible with old data of mainnet
     pub txo_count: u64, // Number of transaction outputs. Used to provide proof that a utxo does not exist
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub pulse_count: u64, // a consensus-specific counter; should be 0 unless consensus needs it.
-    #[serde(default = "default_digest")]
-    #[serde(skip_serializing_if = "is_default_digest")]
-    pub kv_store: BitDigest, // The root hash of the KV Store SMT
 }
 
 impl StateCommitmentData {
@@ -2097,6 +1754,10 @@ pub struct Account {
     pub id: AccountID,
     pub access_control_list: Vec<AccountAddress>,
     pub key_value: HashMap<String, String>, //key value storage...
+}
+
+pub trait StakingUpdate {
+    fn get_staking_simulator_mut(&mut self) -> &mut Staking;
 }
 
 #[cfg(test)]
@@ -2167,7 +1828,7 @@ mod tests {
         if UTF8_ASSET_TYPES_WORK {
             let customized_code = "❤️💰 My 资产 $";
             let code = AssetTypeCode::new_from_utf8_truncate(customized_code);
-            let utf8 = AssetTypeCode::to_utf8(&code).unwrap();
+            let utf8 = AssetTypeCode::to_utf8(code).unwrap();
             assert_eq!(utf8, customized_code);
         }
     }
@@ -2190,7 +1851,7 @@ mod tests {
             assert_ne!(code_short, code_32_bytes);
             assert_eq!(code_32_bytes, code_to_truncate);
 
-            let utf8 = AssetTypeCode::to_utf8(&code_32_bytes).unwrap();
+            let utf8 = AssetTypeCode::to_utf8(code_32_bytes).unwrap();
             assert_eq!(utf8, customized_code_32_bytes);
         }
     }
@@ -2295,8 +1956,8 @@ mod tests {
                 asset_type_and_amount_proof: AssetTypeAndAmountProof::NoProof,
                 asset_tracing_proof: Default::default(),
             },
-            asset_tracing_memos: vec![],
-            owners_memos: vec![],
+            asset_tracing_memos: Vec::new(),
+            owners_memos: Vec::new(),
         };
 
         let no_policies = TracingPolicies::new();
@@ -2313,7 +1974,7 @@ mod tests {
             outputs: Vec::new(),
             policies,
             transfer: Box::new(xfr_note),
-            lien_assignments: vec![],
+            lien_assignments: Vec::new(),
             transfer_type: TransferType::Standard,
         };
 

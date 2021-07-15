@@ -68,7 +68,7 @@ impl Key {
     }
 
     // Method to convert the Key to a base64-encoded string
-    pub fn to_base64(&self) -> String {
+    pub fn to_base64(self) -> String {
         base64::encode_config(&self.0, base64::URL_SAFE)
     }
 
