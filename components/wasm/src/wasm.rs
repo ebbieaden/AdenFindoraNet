@@ -43,6 +43,8 @@ use zei::xfr::structs::{
     AssetRecordTemplate, AssetType as ZeiAssetType, XfrBody, ASSET_TYPE_LENGTH,
 };
 
+use ledger::address::SmartAddress;
+
 mod util;
 mod wasm_data_model;
 
@@ -499,6 +501,21 @@ impl TransactionBuilder {
 
         self.get_builder_mut()
             .add_operation_update_memo(auth_key_pair, code, &new_memo);
+        Ok(self)
+    }
+
+    pub fn add_operation_convert_account(
+        mut self,
+        keypair: &XfrKeyPair,
+        s: String,
+    ) -> Result<TransactionBuilder, JsValue> {
+        let sa = SmartAddress::from_string(s)
+            .c(d!())
+            .map_err(error_to_jsvalue)?;
+        self.get_builder_mut()
+            .add_operation_convert_account(keypair, sa)
+            .c(d!())
+            .map_err(error_to_jsvalue)?;
         Ok(self)
     }
 
