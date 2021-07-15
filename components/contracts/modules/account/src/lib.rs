@@ -4,9 +4,13 @@ mod genesis;
 mod impls;
 
 use fp_core::{
-    context::Context, crypto::Address, module::AppModule, transaction::Executable,
+    context::Context,
+    crypto::Address,
+    module::AppModule,
+    transaction::{Executable, ValidateUnsigned},
 };
 use fp_traits::account::AccountAsset;
+use ledger::data_model;
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -16,6 +20,7 @@ pub trait Config {}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
     Transfer((Address, u128)),
+    TransferToUTXO(data_model::Transaction),
 }
 
 mod storage {
@@ -65,6 +70,22 @@ impl<C: Config> Executable for App<C> {
                     Err(eg!("invalid transaction origin"))
                 }
             }
+            Action::TransferToUTXO(_tx) => {
+                todo!()
+            }
+        }
+    }
+}
+
+impl<C: Config> ValidateUnsigned for App<C> {
+    type Call = Action;
+
+    fn validate_unsigned(call: &Self::Call, _ctx: &Context) -> Result<()> {
+        match call {
+            Action::TransferToUTXO(_transaction) => {
+                todo!()
+            }
+            _ => Err(eg!("invalid unsigned transaction")),
         }
     }
 }
