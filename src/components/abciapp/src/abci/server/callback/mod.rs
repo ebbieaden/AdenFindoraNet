@@ -1,6 +1,6 @@
 use crate::abci::{server::ABCISubmissionServer, staking};
 use abci::*;
-//use fp_storage::hash::StorageHasher;
+use fp_storage::hash::StorageHasher;
 use lazy_static::lazy_static;
 use ledger::address::operation::is_convert_tx;
 use ledger::{
@@ -29,8 +29,9 @@ lazy_static! {
         Arc::new(Mutex::new(RequestBeginBlock::new()));
 }
 
-pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
+pub fn info(s: &mut ABCISubmissionServer, req: &RequestInfo) -> ResponseInfo {
     let mut resp = ResponseInfo::new();
+    let mut resp_app = s.account_base_app.write().info(req);
 
     let mut la = s.la.write();
 
@@ -38,8 +39,10 @@ pub fn info(s: &mut ABCISubmissionServer, _req: &RequestInfo) -> ResponseInfo {
     let commitment = state.get_state_commitment();
     if commitment.1 > 0 {
         let tendermint_height = commitment.1 + state.get_pulse_count();
+        let la_hash = commitment.0.as_ref().to_vec();
+        let cs_hash = resp_app.take_last_block_app_hash();
         resp.set_last_block_height(tendermint_height as i64);
-        resp.set_last_block_app_hash(commitment.0.as_ref().to_vec());
+        resp.set_last_block_app_hash(root_hash(la_hash, cs_hash));
     }
 
     if let Ok(h) = ruc::info!(pulse_cache::read_height()) {
@@ -212,14 +215,8 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
     let mut r = ResponseCommit::new();
     let la = s.la.read();
 
-    // la.begin_commit();
-
     let state = la.get_committed_state().read();
     let commitment = state.get_state_commitment();
-
-    // la.end_commit();
-
-    // r.set_data(commitment.0.as_ref().to_vec());
 
     pnk!(pulse_cache::write_height(
         TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)
@@ -229,12 +226,16 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
 
     pnk!(pulse_cache::write_block_pulse(la.block_pulse_count()));
 
-    //TODO node restart tx replay, consider add a initial height for chain state?
-    r.set_data(commitment.0.as_ref().to_vec());
-    // let mut la_hash = commitment.0.as_ref().to_vec();
-     let mut _cs_hash = s.account_base_app.write().commit(req).data;
-    // la_hash.append(&mut cs_hash);
-    // r.set_data(fp_storage::hash::Sha256::hash(la_hash.as_slice()).to_vec());
+    // set root hash
+    let la_hash = commitment.0.as_ref().to_vec();
+    let cs_hash = s.account_base_app.write().commit(req).data;
+    r.set_data(root_hash(la_hash, cs_hash));
 
     r
+}
+
+/// Combines ledger state hash and chain state hash
+fn root_hash(mut la_hash: Vec<u8>, mut cs_hash: Vec<u8>) -> Vec<u8> {
+    la_hash.append(&mut cs_hash);
+    fp_storage::hash::Sha256::hash(la_hash.as_slice()).to_vec()
 }

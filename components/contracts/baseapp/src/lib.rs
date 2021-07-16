@@ -17,6 +17,7 @@ use parking_lot::RwLock;
 use primitive_types::{H160, U256};
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
@@ -77,8 +78,15 @@ impl module_evm::Config for BaseApp {
 }
 
 impl BaseApp {
-    pub fn new(base_dir: &Path) -> Result<Self> {
-        let fdb = FinDB::open(base_dir)?;
+    pub fn new(db_path: &Path) -> Result<Self> {
+        // Before we can completely avoid replaying transactions
+        // we need to clean db when restarting a node.
+        if Path::exists(db_path) {
+            fs::remove_dir_all(db_path).map_err(|_| eg!("Failed to remove db"))?;
+        }
+
+        // Creates a fresh chain state db
+        let fdb = FinDB::open(db_path)?;
         let chain_state =
             Arc::new(RwLock::new(ChainState::new(fdb, APP_DB_NAME.to_string())));
 

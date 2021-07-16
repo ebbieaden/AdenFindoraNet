@@ -4,18 +4,19 @@ use fp_core::context::Context;
 use ruc::{pnk, RucResult};
 
 impl Application for crate::BaseApp {
-    // ignore
     /// info implements the ABCI interface.
+    /// - Returns chain info (las height and hash where the node left off)
+    /// - Tendermint uses info to decide from which height/hash to continue
     fn info(&mut self, _req: &RequestInfo) -> ResponseInfo {
         let mut info = ResponseInfo::new();
         info.set_data(self.name.clone());
         info.set_version(self.version.clone());
         info.set_app_version(self.app_version);
-        let _ = self
-            .chain_state
-            .read()
-            .height()
-            .map(|h| info.set_last_block_height(h as i64));
+
+        let height = self.chain_state.read().height().unwrap();
+        let hash = self.chain_state.read().root_hash();
+        info.set_last_block_height(height as i64);
+        info.set_last_block_app_hash(hash);
 
         info
     }
@@ -154,19 +155,25 @@ impl Application for crate::BaseApp {
         // Write the DeliverTx state into branched storage and commit the Store.
         // The write to the DeliverTx state writes all state transitions to the root
         // Store so when commit() is called is persists those values.
-        let _ = self
+        let (root_hash, _) = self
             .deliver_state
             .store
             .write()
-            .commit(header.height as u64);
+            .commit(header.height as u64)
+            .expect(&format!(
+                "Failed to commit chain state at height: {}",
+                header.height
+            ));
 
         // Reset the Check state to the latest committed.
         self.set_check_state(header, header_hash);
+
         // Reset the deliver state
         self.deliver_state = Context::new(self.chain_state.clone());
 
+        // Set root hash
         let mut res = ResponseCommit::new();
-        res.set_data(self.chain_state.read().root_hash());
+        res.set_data(root_hash);
         res
     }
 }

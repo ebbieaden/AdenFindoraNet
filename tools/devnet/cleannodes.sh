@@ -15,6 +15,7 @@ do
 
 echo -en "$node "
 # abcis
+rm -rf $DEVNET/$node/abci/*.db
 rm -rf $DEVNET/$node/abci/utxo_map
 rm -rf $DEVNET/$node/abci/txn_merkle
 rm -rf $DEVNET/$node/abci/txn_log

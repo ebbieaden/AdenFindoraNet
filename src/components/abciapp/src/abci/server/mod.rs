@@ -31,8 +31,14 @@ impl ABCISubmissionServer {
         };
 
         let account_base_app = match base_dir {
-            None => pnk!(AccountBaseAPP::new(tempfile::tempdir().unwrap().path())),
-            Some(base_dir) => pnk!(AccountBaseAPP::new(base_dir)),
+            None => {
+                pnk!(AccountBaseAPP::new(tempfile::tempdir().unwrap().path()))
+            }
+            Some(base_dir) => {
+                pnk!(AccountBaseAPP::new(
+                    base_dir.clone().join("chain.db").as_path()
+                ))
+            }
         };
 
         let prng = rand_chacha::ChaChaRng::from_entropy();
