@@ -116,7 +116,14 @@ impl Application for crate::BaseApp {
 
             let ret = self.modules.process_tx(ctx, RunTxMode::Deliver, tx);
             match ret {
-                Ok(_) => resp,
+                Ok(ar) => {
+                    resp.set_data(ar.data);
+                    resp.set_log(ar.log);
+                    resp.set_gas_wanted(ar.gas_wanted as i64);
+                    resp.set_gas_used(ar.gas_used as i64);
+                    resp.set_events(protobuf::RepeatedField::from_vec(ar.events));
+                    resp
+                }
                 Err(e) => {
                     resp.set_code(1);
                     resp.set_log(format!("Failed to deliver transaction: {}!", e));
@@ -140,6 +147,9 @@ impl Application for crate::BaseApp {
     fn commit(&mut self, _req: &RequestCommit) -> ResponseCommit {
         let header = self.deliver_state.block_header();
         let header_hash = self.deliver_state.header_hash();
+
+        // TODO not clear cache
+        self.check_state.store = self.deliver_state.store.clone();
 
         // Write the DeliverTx state into branched storage and commit the Store.
         // The write to the DeliverTx state writes all state transitions to the root

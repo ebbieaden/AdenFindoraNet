@@ -6,6 +6,7 @@ use fp_utils::db::create_temp_db_path;
 use lazy_static::lazy_static;
 use module_template::ValueStore;
 use rand_chacha::{rand_core::SeedableRng, ChaChaRng};
+use std::convert::TryInto;
 use std::sync::Mutex;
 use zei::xfr::sig::XfrKeyPair;
 
@@ -93,6 +94,8 @@ fn test_abci_deliver_tx() {
         "deliver tx failed, code: {}, log: {}",
         resp.code, resp.log
     );
+
+    assert_eq!(u64::from_be_bytes(resp.data.try_into().unwrap()), 10);
 
     assert_eq!(
         ValueStore::get(BASE_APP.lock().unwrap().deliver_state.store.clone()),

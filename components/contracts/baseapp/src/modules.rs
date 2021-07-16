@@ -4,7 +4,7 @@ use fp_core::{
     context::Context,
     crypto::Address,
     module::{AppModule, AppModuleBasic},
-    transaction::{Applyable, Executable, ValidateUnsigned},
+    transaction::{ActionResult, Applyable, Executable, ValidateUnsigned},
 };
 use ledger::address::operation::check_convert_tx;
 use ledger::data_model::Transaction as FindoraTransaction;
@@ -89,7 +89,7 @@ impl ModuleManager {
         mut ctx: Context,
         mode: RunTxMode,
         tx: UncheckedTransaction,
-    ) -> Result<()> {
+    ) -> Result<ActionResult> {
         // TODO check gas if deliver_tx
 
         let checked = tx.clone().check()?;
@@ -144,7 +144,7 @@ impl ModuleManager {
         mode: RunTxMode,
         action: Call,
         tx: CheckedTransaction,
-    ) -> Result<()>
+    ) -> Result<ActionResult>
     where
         Module: ValidateUnsigned<Call = Call>,
         Module: Executable<Origin = Address, Call = Call>,
@@ -154,10 +154,11 @@ impl ModuleManager {
         origin_tx.validate::<Module>(ctx)?;
 
         if mode == RunTxMode::Deliver {
-            origin_tx.apply::<Module>(ctx)?;
-
+            let ret = origin_tx.apply::<Module>(ctx)?;
             ctx.store.write().commit_session();
+            Ok(ret)
+        } else {
+            Ok(ActionResult::default())
         }
-        Ok(())
     }
 }

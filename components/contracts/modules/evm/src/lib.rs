@@ -6,8 +6,11 @@ pub mod runtime;
 
 use evm::Config as EvmConfig;
 use fp_core::{
-    context::Context, crypto::Address, macros::Get, module::AppModule,
-    transaction::Executable,
+    context::Context,
+    crypto::Address,
+    macros::Get,
+    module::AppModule,
+    transaction::{ActionResult, Executable},
 };
 use fp_evm::PrecompileSet;
 use fp_traits::{
@@ -92,7 +95,7 @@ impl<C: Config> Executable for App<C> {
         _origin: Option<Self::Origin>,
         _call: Self::Call,
         _ctx: &Context,
-    ) -> Result<()> {
+    ) -> Result<ActionResult> {
         todo!()
     }
 }

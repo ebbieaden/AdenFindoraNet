@@ -7,7 +7,7 @@ use fp_core::{
     context::Context,
     crypto::Address,
     module::AppModule,
-    transaction::{Executable, ValidateUnsigned},
+    transaction::{ActionResult, Executable, ValidateUnsigned},
 };
 use fp_traits::account::AccountAsset;
 use ledger::data_model;
@@ -61,11 +61,12 @@ impl<C: Config> Executable for App<C> {
         origin: Option<Self::Origin>,
         call: Self::Call,
         ctx: &Context,
-    ) -> Result<()> {
+    ) -> Result<ActionResult> {
         match call {
             Action::Transfer((dest, balance)) => {
                 if let Some(sender) = origin {
-                    Self::transfer(ctx, &sender, &dest, balance)
+                    Self::transfer(ctx, &sender, &dest, balance)?;
+                    Ok(ActionResult::default())
                 } else {
                     Err(eg!("invalid transaction origin"))
                 }
