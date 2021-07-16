@@ -21,6 +21,33 @@ impl AddressMapping for EthereumAddressMapping {
     }
 }
 
+pub trait DecimalsMapping {
+    fn from_native_token(balance: U256) -> Option<U256>;
+
+    fn into_native_token(balance: U256) -> U256;
+}
+
+/// FRA decimals
+const FRA_DECIMALS: u32 = 6;
+
+/// ETH decimals
+const ETH_DECIMALS: u32 = 18;
+
+/// Ethereum decimals mapping.
+pub struct EthereumDecimalsMapping;
+
+impl DecimalsMapping for EthereumDecimalsMapping {
+    fn from_native_token(balance: U256) -> Option<U256> {
+        balance.checked_mul(U256::from(10_u64.pow(ETH_DECIMALS - FRA_DECIMALS)))
+    }
+
+    fn into_native_token(balance: U256) -> U256 {
+        balance
+            .checked_div(U256::from(10_u64.pow(ETH_DECIMALS - FRA_DECIMALS)))
+            .unwrap_or(U256::zero())
+    }
+}
+
 /// Trait that outputs the current transaction gas price.
 pub trait FeeCalculator {
     /// Return the minimal required gas price.
@@ -29,7 +56,8 @@ pub trait FeeCalculator {
 
 impl FeeCalculator for () {
     fn min_gas_price() -> U256 {
-        U256::zero()
+        // 1000 GWEI
+        U256::from(1_0000_0000_0000_u64)
     }
 }
 

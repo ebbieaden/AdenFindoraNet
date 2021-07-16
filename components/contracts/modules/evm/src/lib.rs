@@ -15,7 +15,7 @@ use fp_core::{
 use fp_evm::PrecompileSet;
 use fp_traits::{
     account::AccountAsset,
-    evm::{AddressMapping, FeeCalculator, OnChargeEVMTransaction},
+    evm::{AddressMapping, DecimalsMapping, FeeCalculator, OnChargeEVMTransaction},
 };
 use primitive_types::U256;
 use ruc::Result;
@@ -34,6 +34,8 @@ pub trait Config {
     type BlockGasLimit: Get<U256>;
     /// Chain ID of EVM.
     type ChainId: Get<u64>;
+    /// Mapping from eth decimals to native token decimals.
+    type DecimalsMapping: DecimalsMapping;
     /// Calculator for current gas price.
     type FeeCalculator: FeeCalculator;
     /// To handle fee deduction for EVM transactions.

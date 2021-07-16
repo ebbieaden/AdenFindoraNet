@@ -12,7 +12,7 @@ use fp_core::{
     module::AppModule,
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
-use fp_traits::evm::FeeCalculator;
+use fp_traits::evm::{DecimalsMapping, FeeCalculator};
 use primitive_types::U256;
 use ruc::{eg, Result, RucResult};
 use serde::{Deserialize, Serialize};
@@ -116,6 +116,10 @@ impl<C: Config> ValidateUnsigned for App<C> {
             return Err(eg!("TransactionValidationError: InvalidGasLimit"));
         }
 
+        if transaction.gas_price < C::FeeCalculator::min_gas_price() {
+            return Err(eg!("InvalidTransaction: Payment"));
+        }
+
         let account_data = module_evm::App::<C>::account_basic(ctx, &origin);
 
         if transaction.nonce < account_data.nonce {
@@ -124,17 +128,12 @@ impl<C: Config> ValidateUnsigned for App<C> {
 
         let fee = transaction.gas_price.saturating_mul(transaction.gas_limit);
         let total_payment = transaction.value.saturating_add(fee);
+        let total_payment = C::DecimalsMapping::into_native_token(total_payment);
         if account_data.balance < total_payment {
             return Err(eg!(format!(
-                "InvalidTransaction: InsufficientBalance, actual:{}, expected:{}",
-                account_data.balance, total_payment
+                "InvalidTransaction: InsufficientBalance, expected:{}, actual:{}",
+                total_payment, account_data.balance
             )));
-        }
-
-        let min_gas_price = C::FeeCalculator::min_gas_price();
-
-        if transaction.gas_price < min_gas_price {
-            return Err(eg!("InvalidTransaction: Payment"));
         }
 
         Ok(())

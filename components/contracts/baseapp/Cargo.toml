@@ -25,6 +25,7 @@ zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
 
 # primitives
 fp-core = { path = "../primitives/core" }
+fp-evm = { path = "../primitives/evm" }
 fp-traits = { path = "../primitives/traits" }
 
 # modules
