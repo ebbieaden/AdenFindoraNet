@@ -3,9 +3,11 @@
 use abci::*;
 use baseapp::{Action, BaseApp, ChainId, UncheckedTransaction};
 use fp_core::crypto::Address;
-use fp_traits::account::AccountAsset;
-use fp_utils::db::create_temp_db_path;
-use fp_utils::ethereum::*;
+use fp_traits::{
+    account::AccountAsset,
+    evm::{DecimalsMapping, FeeCalculator},
+};
+use fp_utils::{db::create_temp_db_path, ethereum::*};
 use lazy_static::lazy_static;
 use ledger::data_model::ASSET_TYPE_FRA;
 use primitive_types::{H160, U256};
@@ -31,7 +33,7 @@ fn run_all_tests() {
 fn build_transfer_transaction(to: H160, balance: u128) -> UncheckedTransaction {
     let tx = UnsignedTransaction {
         nonce: U256::zero(),
-        gas_price: U256::from(1),
+        gas_price: <BaseApp as module_evm::Config>::FeeCalculator::min_gas_price(),
         gas_limit: U256::from(0x100000),
         action: ethereum::TransactionAction::Call(to),
         value: U256::from(balance),
@@ -45,10 +47,17 @@ fn build_transfer_transaction(to: H160, balance: u128) -> UncheckedTransaction {
 
 fn test_abci_check_tx() {
     let mut req = RequestCheckTx::new();
-    req.tx = serde_json::to_vec(&build_transfer_transaction(BOB.address, 10)).unwrap();
+    let value =
+        <BaseApp as module_evm::Config>::DecimalsMapping::from_native_token(10.into())
+            .unwrap();
+    req.tx =
+        serde_json::to_vec(&build_transfer_transaction(BOB.address, value.as_u128()))
+            .unwrap();
     let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert!(
-        resp.code == 1 && resp.log.contains("InvalidTransaction: InsufficientBalance")
+        resp.code == 1 && resp.log.contains("InvalidTransaction: InsufficientBalance"),
+        "resp log: {}",
+        resp.log
     );
 
     test_mint_balance(&ALICE.account_id, 2000000, 2);
@@ -72,13 +81,20 @@ fn test_abci_begin_block() {
 
 fn test_abci_deliver_tx() {
     let mut req = RequestDeliverTx::new();
-    req.tx = serde_json::to_vec(&build_transfer_transaction(BOB.address, 10)).unwrap();
+    let value =
+        <BaseApp as module_evm::Config>::DecimalsMapping::from_native_token(10.into())
+            .unwrap();
+    req.tx =
+        serde_json::to_vec(&build_transfer_transaction(BOB.address, value.as_u128()))
+            .unwrap();
     let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
     assert_eq!(
         resp.code, 0,
         "deliver tx failed, code: {}, log: {}",
         resp.code, resp.log
     );
+
+    println!("transfer resp: {:?}", resp);
 
     // initial balance = 2000000, gas fee = 21000, transfer balance = 10
     assert_eq!(

@@ -77,8 +77,8 @@ fn build_erc20_balance_of_transaction(
 
 #[test]
 fn erc20_works() {
-    test_mint_balance(&ALICE.account_id, 10000000, 1);
-    test_mint_balance(&BOB.account_id, 10000000, 1);
+    test_mint_balance(&ALICE.account_id, 100_0000_0000, 1);
+    test_mint_balance(&BOB.account_id, 100_0000_0000, 1);
 
     // erc20 initialize
     test_deploy_check_tx();
@@ -317,6 +317,8 @@ fn test_balance_of_with_eth_call(contract: ERC20, who: H160) -> U256 {
         <BaseApp as module_evm::Config>::config(),
     )
     .unwrap();
+
+    println!("eth call erc20 balanceOf result: {:?}\n", info);
 
     U256::from_big_endian(info.value.as_ref())
 }

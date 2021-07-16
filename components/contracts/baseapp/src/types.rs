@@ -61,5 +61,9 @@ pub trait BaseProvider {
 
     fn current_block(&self) -> Option<ethereum::Block>;
 
+    fn current_transaction_statuses(&self) -> Option<Vec<fp_evm::TransactionStatus>>;
+
+    fn current_receipts(&self) -> Option<Vec<ethereum::Receipt>>;
+
     fn account_code_at(&self, address: H160) -> Option<Vec<u8>>;
 }

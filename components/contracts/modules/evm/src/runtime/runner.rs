@@ -9,7 +9,7 @@ use evm::{
 };
 use fp_core::{context::Context, ensure};
 use fp_evm::{CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity};
-use fp_traits::evm::{FeeCalculator, OnChargeEVMTransaction};
+use fp_traits::evm::{DecimalsMapping, FeeCalculator, OnChargeEVMTransaction};
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
 use sha3::{Digest, Keccak256};
@@ -62,17 +62,27 @@ impl<C: Config> ActionRunner<C> {
         let total_fee = gas_price
             .checked_mul(U256::from(gas_limit))
             .ok_or(eg!("FeeOverflow"))?;
+        let total_fee = C::DecimalsMapping::into_native_token(total_fee);
         let total_payment =
             value.checked_add(total_fee).ok_or(eg!("PaymentOverflow"))?;
         let source_account = App::<C>::account_basic(ctx, &source);
-        ensure!(source_account.balance >= total_payment, eg!("BalanceLow"));
 
         if let Some(nonce) = nonce {
-            ensure!(source_account.nonce == nonce, eg!("InvalidNonce"));
+            ensure!(
+                source_account.nonce == nonce,
+                eg!(format!(
+                    "InvalidNonce, expected: {}, actual: {}",
+                    source_account.nonce, nonce
+                ))
+            );
         }
 
-        // Deduct fee from the `source` account.
-        C::OnChargeTransaction::withdraw_fee(ctx, &source, total_fee)?;
+        if !config.estimate {
+            ensure!(source_account.balance >= total_payment, eg!("BalanceLow"));
+
+            // Deduct fee from the `source` account.
+            C::OnChargeTransaction::withdraw_fee(ctx, &source, total_fee)?;
+        }
 
         // Execute the EVM call.
         let (reason, retv) = f(&mut executor);
@@ -89,10 +99,13 @@ impl<C: Config> ActionRunner<C> {
             actual_fee
         );
 
-        // Refund fees to the `source` account if deducted more before,
-        C::OnChargeTransaction::correct_and_deposit_fee(
-            ctx, &source, actual_fee, total_fee,
-        )?;
+        if !config.estimate {
+            let actual_fee = C::DecimalsMapping::into_native_token(actual_fee);
+            // Refund fees to the `source` account if deducted more before,
+            C::OnChargeTransaction::correct_and_deposit_fee(
+                ctx, &source, actual_fee, total_fee,
+            )?;
+        }
 
         let state = executor.into_state();
 

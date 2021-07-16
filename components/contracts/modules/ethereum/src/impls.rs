@@ -7,6 +7,7 @@ use fp_core::{
     transaction::ActionResult,
 };
 use fp_evm::{CallOrCreateInfo, TransactionStatus};
+use fp_traits::evm::DecimalsMapping;
 use module_evm::Runner;
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
@@ -96,12 +97,13 @@ impl<C: Config> App<C> {
         // Note: the index is not the transaction index in the real block.
         let transaction_index = pending.len() as u32;
         let gas_limit = transaction.gas_limit;
+        let transferred_value = C::DecimalsMapping::into_native_token(transaction.value);
 
         let (to, _contract_address, info) = Self::execute_transaction(
             &ctx,
             source,
             transaction.input.clone(),
-            transaction.value,
+            transferred_value,
             transaction.gas_limit,
             Some(transaction.gas_price),
             Some(transaction.nonce),

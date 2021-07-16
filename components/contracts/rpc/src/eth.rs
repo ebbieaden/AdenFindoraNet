@@ -1,17 +1,26 @@
 use crate::{error_on_execution_failure, forward::*, internal_err};
 use baseapp::{BaseApp, BaseProvider, UncheckedTransaction};
-use ethereum_types::{H160, H256, H64, U256, U64};
+use ethereum::{
+    Block as EthereumBlock, Transaction as EthereumTransaction,
+    TransactionMessage as EthereumTransactionMessage,
+};
+use ethereum_types::{H160, H256, H512, H64, U256, U64};
+use fp_evm::TransactionStatus;
 use fp_rpc_core::types::{
-    BlockNumber, Bytes, CallRequest, Filter, FilterChanges, Index, Log, PeerCount,
-    Receipt, RichBlock, SyncStatus, Transaction, TransactionRequest, Work,
+    Block, BlockNumber, BlockTransactions, Bytes, CallRequest, Filter, FilterChanges,
+    Index, Log, PeerCount, Receipt, Rich, RichBlock, SyncStatus, Transaction,
+    TransactionRequest, Work,
 };
 use fp_rpc_core::{EthApi, EthFilterApi, NetApi, Web3Api};
-use fp_traits::evm::{AddressMapping, EthereumAddressMapping, FeeCalculator};
+use fp_traits::evm::{
+    AddressMapping, DecimalsMapping, EthereumAddressMapping, FeeCalculator,
+};
 use fp_utils::ethereum::{sign_transaction_message, KeyPair};
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use module_evm::{Call, Create, Runner};
 use parking_lot::RwLock;
 use sha3::{Digest, Keccak256};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub struct EthApiImpl {
@@ -68,7 +77,10 @@ impl EthApi for EthApiImpl {
             .read()
             .account_of(&account_id, ctx)
             .unwrap_or_default();
-        Ok(U256::from(sa.balance))
+        <BaseApp as module_evm::Config>::DecimalsMapping::from_native_token(U256::from(
+            sa.balance,
+        ))
+        .ok_or(internal_err("balance overflow"))
     }
 
     fn send_transaction(&self, request: TransactionRequest) -> BoxFuture<H256> {
@@ -106,7 +118,9 @@ impl EthApi for EthApiImpl {
 
         let message = ethereum::TransactionMessage {
             nonce,
-            gas_price: request.gas_price.unwrap_or(U256::from(1)),
+            gas_price: request.gas_price.unwrap_or(
+                <BaseApp as module_evm::Config>::FeeCalculator::min_gas_price(),
+            ),
             gas_limit: request.gas.unwrap_or(U256::max_value()),
             value: request.value.unwrap_or(U256::zero()),
             input: request.data.map(|s| s.into_vec()).unwrap_or_default(),
@@ -171,6 +185,10 @@ impl EthApi for EthApiImpl {
             nonce,
         } = request;
 
+        let value = <BaseApp as module_evm::Config>::DecimalsMapping::into_native_token(
+            value.unwrap_or_default(),
+        );
+
         // use given gas limit or query current block's limit
         let gas_limit = match gas {
             Some(amount) => amount,
@@ -185,25 +203,33 @@ impl EthApi for EthApiImpl {
         };
         let data = data.map(|d| d.0).unwrap_or_default();
 
+        let mut config = <BaseApp as module_evm::Config>::config().clone();
+        // TODO estimate mode ?
+        config.estimate = true;
+
+        let ctx = self
+            .account_base_app
+            .read()
+            .create_query_context(0, false)
+            .unwrap();
         match to {
             Some(to) => {
                 let call = Call {
                     source: from.unwrap_or_default(),
                     target: to,
                     input: data,
-                    value: value.unwrap_or_default(),
+                    value,
                     gas_limit: gas_limit.as_u64(),
                     gas_price,
                     nonce,
                 };
 
                 // TODO check state?
-                let info = <BaseApp as module_evm::Config>::Runner::call(
-                    &self.account_base_app.read().check_state.clone(),
-                    call,
-                    <BaseApp as module_evm::Config>::config(),
-                )
-                .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
+                let info =
+                    <BaseApp as module_evm::Config>::Runner::call(&ctx, call, &config)
+                        .map_err(|err| {
+                        internal_err(format!("evm runner error: {:?}", err))
+                    })?;
 
                 error_on_execution_failure(&info.exit_reason, &info.value)?;
 
@@ -213,16 +239,14 @@ impl EthApi for EthApiImpl {
                 let create = Create {
                     source: from.unwrap_or_default(),
                     init: data,
-                    value: value.unwrap_or_default(),
+                    value,
                     gas_limit: gas_limit.as_u64(),
                     gas_price,
                     nonce,
                 };
 
-                let info = module_evm::runner::ActionRunner::<BaseApp>::create(
-                    &self.account_base_app.read().check_state.clone(),
-                    create,
-                    <BaseApp as module_evm::Config>::config(),
+                let info = <BaseApp as module_evm::Config>::Runner::create(
+                    &ctx, create, &config,
                 )
                 .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
 
@@ -280,10 +304,25 @@ impl EthApi for EthApiImpl {
     fn block_by_number(
         &self,
         _number: BlockNumber,
-        _full: bool,
+        full: bool,
     ) -> Result<Option<RichBlock>> {
-        println!("invoked: fn block_by_number");
-        Err(internal_err("Method not available4."))
+        // TODO optimize
+        let block = self.account_base_app.read().current_block();
+        let statuses = self.account_base_app.read().current_transaction_statuses();
+
+        match (block, statuses) {
+            (Some(block), Some(statuses)) => {
+                let hash = block.header.hash();
+
+                Ok(Some(rich_block_build(
+                    block,
+                    statuses.into_iter().map(|s| Some(s)).collect(),
+                    Some(hash),
+                    full,
+                )))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn transaction_count(
@@ -291,7 +330,8 @@ impl EthApi for EthApiImpl {
         address: H160,
         number: Option<BlockNumber>,
     ) -> Result<U256> {
-        let account_id = EthereumAddressMapping::into_account_id(address);
+        let account_id =
+            <BaseApp as module_evm::Config>::AddressMapping::into_account_id(address);
 
         let ctx = if let Some(BlockNumber::Pending) = number {
             Some(self.account_base_app.read().check_state.clone())
@@ -377,12 +417,16 @@ impl EthApi for EthApiImpl {
         let CallRequest {
             from,
             to,
-            gas_price,
+            gas_price: _,
             gas,
             value,
             data,
-            nonce,
+            nonce: _,
         } = request;
+
+        let value = <BaseApp as module_evm::Config>::DecimalsMapping::into_native_token(
+            value.unwrap_or_default(),
+        );
 
         // use given gas limit or query current block's limit
         let gas_limit = match gas {
@@ -401,25 +445,29 @@ impl EthApi for EthApiImpl {
         let mut config = <BaseApp as module_evm::Config>::config().clone();
         config.estimate = true;
 
+        let ctx = self
+            .account_base_app
+            .read()
+            .create_query_context(0, false)
+            .unwrap();
+
         let used_gas = match to {
             Some(to) => {
                 let call = Call {
                     source: from.unwrap_or_default(),
                     target: to,
                     input: data,
-                    value: value.unwrap_or_default(),
+                    value,
                     gas_limit: gas_limit.as_u64(),
-                    gas_price,
-                    nonce,
+                    gas_price: None,
+                    nonce: None,
                 };
 
-                // TODO check state?
-                let info = module_evm::runner::ActionRunner::<BaseApp>::call(
-                    &self.account_base_app.read().check_state.clone(),
-                    call,
-                    &config,
-                )
-                .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
+                let info =
+                    <BaseApp as module_evm::Config>::Runner::call(&ctx, call, &config)
+                        .map_err(|err| {
+                        internal_err(format!("evm runner error: {:?}", err))
+                    })?;
 
                 error_on_execution_failure(&info.exit_reason, &info.value)?;
 
@@ -429,16 +477,14 @@ impl EthApi for EthApiImpl {
                 let create = Create {
                     source: from.unwrap_or_default(),
                     init: data,
-                    value: value.unwrap_or_default(),
+                    value,
                     gas_limit: gas_limit.as_u64(),
-                    gas_price,
-                    nonce,
+                    gas_price: None,
+                    nonce: None,
                 };
 
-                let info = module_evm::runner::ActionRunner::<BaseApp>::create(
-                    &self.account_base_app.read().check_state.clone(),
-                    create,
-                    &config,
+                let info = <BaseApp as module_evm::Config>::Runner::create(
+                    &ctx, create, &config,
                 )
                 .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
 
@@ -452,8 +498,18 @@ impl EthApi for EthApiImpl {
     }
 
     fn transaction_by_hash(&self, _hash: H256) -> Result<Option<Transaction>> {
-        println!("invoked: fn transaction_by_hash");
-        Err(internal_err("Method not available10."))
+        // TODO optimize
+        let block = self.account_base_app.read().current_block();
+        let statuses = self.account_base_app.read().current_transaction_statuses();
+
+        match (block, statuses) {
+            (Some(block), Some(statuses)) => Ok(Some(transaction_build(
+                block.transactions[0].clone(),
+                Some(block),
+                Some(statuses[0].clone()),
+            ))),
+            _ => Ok(None),
+        }
     }
 
     fn transaction_by_block_hash_and_index(
@@ -475,8 +531,75 @@ impl EthApi for EthApiImpl {
     }
 
     fn transaction_receipt(&self, _hash: H256) -> Result<Option<Receipt>> {
-        println!("invoked: fn transaction_receipt");
-        Err(internal_err("Method not available13."))
+        // TODO optimize
+        let block = self.account_base_app.read().current_block();
+        let statuses = self.account_base_app.read().current_transaction_statuses();
+        let receipts = self.account_base_app.read().current_receipts();
+
+        match (block, statuses, receipts) {
+            (Some(block), Some(statuses), Some(receipts)) => {
+                let block_hash = H256::from_slice(
+                    Keccak256::digest(&rlp::encode(&block.header)).as_slice(),
+                );
+                let receipt = receipts[0].clone();
+                let status = statuses[0].clone();
+                let mut cumulative_receipts = receipts.clone();
+                cumulative_receipts.truncate((status.transaction_index + 1) as usize);
+
+                return Ok(Some(Receipt {
+                    transaction_hash: Some(status.transaction_hash),
+                    transaction_index: Some(status.transaction_index.into()),
+                    block_hash: Some(block_hash),
+                    from: Some(status.from),
+                    to: status.to,
+                    block_number: Some(block.header.number),
+                    cumulative_gas_used: {
+                        let cumulative_gas: u32 = cumulative_receipts
+                            .iter()
+                            .map(|r| r.used_gas.as_u32())
+                            .sum();
+                        U256::from(cumulative_gas)
+                    },
+                    gas_used: Some(receipt.used_gas),
+                    contract_address: status.contract_address,
+                    logs: {
+                        let mut pre_receipts_log_index = None;
+                        if cumulative_receipts.len() > 0 {
+                            cumulative_receipts.truncate(cumulative_receipts.len() - 1);
+                            pre_receipts_log_index = Some(
+                                cumulative_receipts
+                                    .iter()
+                                    .map(|r| r.logs.len() as u32)
+                                    .sum::<u32>(),
+                            );
+                        }
+                        receipt
+                            .logs
+                            .iter()
+                            .enumerate()
+                            .map(|(i, log)| Log {
+                                address: log.address,
+                                topics: log.topics.clone(),
+                                data: Bytes(log.data.clone()),
+                                block_hash: Some(block_hash),
+                                block_number: Some(block.header.number),
+                                transaction_hash: Some(status.transaction_hash),
+                                transaction_index: Some(status.transaction_index.into()),
+                                log_index: Some(U256::from(
+                                    (pre_receipts_log_index.unwrap_or(0)) + i as u32,
+                                )),
+                                transaction_log_index: Some(U256::from(i)),
+                                removed: false,
+                            })
+                            .collect()
+                    },
+                    status_code: Some(U64::from(receipt.state_root.to_low_u64_be())),
+                    logs_bloom: receipt.logs_bloom,
+                    state_root: None,
+                }));
+            }
+            _ => Ok(None),
+        }
     }
 
     fn uncle_by_block_hash_and_index(
@@ -544,8 +667,8 @@ impl NetApi for NetApiImpl {
     }
 
     fn version(&self) -> Result<String> {
-        println!("invoked: fn version");
-        Ok(String::from("1336"))
+        let chain_id = <BaseApp as module_evm::Config>::ChainId::get();
+        Ok(String::from(chain_id.to_string()))
     }
 }
 
@@ -621,4 +744,148 @@ impl EthFilterApi for EthFilterApiImpl {
         println!("invoked: fn uninstall_filter");
         Err(internal_err("Method not available18."))
     }
+}
+
+fn rich_block_build(
+    block: ethereum::Block,
+    statuses: Vec<Option<TransactionStatus>>,
+    hash: Option<H256>,
+    full_transactions: bool,
+) -> RichBlock {
+    Rich {
+        inner: Block {
+            hash: Some(hash.unwrap_or_else(|| {
+                H256::from_slice(
+                    Keccak256::digest(&rlp::encode(&block.header)).as_slice(),
+                )
+            })),
+            parent_hash: block.header.parent_hash,
+            uncles_hash: block.header.ommers_hash,
+            author: block.header.beneficiary,
+            miner: block.header.beneficiary,
+            state_root: block.header.state_root,
+            transactions_root: block.header.transactions_root,
+            receipts_root: block.header.receipts_root,
+            number: Some(block.header.number),
+            gas_used: block.header.gas_used,
+            gas_limit: block.header.gas_limit,
+            extra_data: Bytes(block.header.extra_data.clone()),
+            logs_bloom: Some(block.header.logs_bloom),
+            timestamp: U256::from(block.header.timestamp / 1000),
+            difficulty: block.header.difficulty,
+            total_difficulty: U256::zero(),
+            seal_fields: vec![
+                Bytes(block.header.mix_hash.as_bytes().to_vec()),
+                Bytes(block.header.nonce.as_bytes().to_vec()),
+            ],
+            uncles: vec![],
+            transactions: {
+                if full_transactions {
+                    BlockTransactions::Full(
+                        block
+                            .transactions
+                            .iter()
+                            .enumerate()
+                            .map(|(index, transaction)| {
+                                transaction_build(
+                                    transaction.clone(),
+                                    Some(block.clone()),
+                                    Some(statuses[index].clone().unwrap_or_default()),
+                                )
+                            })
+                            .collect(),
+                    )
+                } else {
+                    BlockTransactions::Hashes(
+                        block
+                            .transactions
+                            .iter()
+                            .map(|transaction| {
+                                H256::from_slice(
+                                    Keccak256::digest(&rlp::encode(
+                                        &transaction.clone(),
+                                    ))
+                                    .as_slice(),
+                                )
+                            })
+                            .collect(),
+                    )
+                }
+            },
+            size: Some(U256::from(rlp::encode(&block).len() as u32)),
+        },
+        extra_info: BTreeMap::new(),
+    }
+}
+
+fn transaction_build(
+    transaction: EthereumTransaction,
+    block: Option<EthereumBlock>,
+    status: Option<TransactionStatus>,
+) -> Transaction {
+    let pubkey = match public_key(&transaction) {
+        Ok(p) => Some(p),
+        Err(_e) => None,
+    };
+
+    Transaction {
+        hash: H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice()),
+        nonce: transaction.nonce,
+        block_hash: block.as_ref().map_or(None, |block| {
+            Some(H256::from_slice(
+                Keccak256::digest(&rlp::encode(&block.header)).as_slice(),
+            ))
+        }),
+        block_number: block.as_ref().map(|block| block.header.number),
+        transaction_index: status
+            .as_ref()
+            .map(|status| U256::from(status.transaction_index)),
+        from: status.as_ref().map_or(
+            {
+                match pubkey {
+                    Some(pk) => {
+                        H160::from(H256::from_slice(Keccak256::digest(&pk).as_slice()))
+                    }
+                    _ => H160::default(),
+                }
+            },
+            |status| status.from,
+        ),
+        to: status.as_ref().map_or(
+            {
+                match transaction.action {
+                    ethereum::TransactionAction::Call(to) => Some(to),
+                    _ => None,
+                }
+            },
+            |status| status.to,
+        ),
+        value: transaction.value,
+        gas_price: transaction.gas_price,
+        gas: transaction.gas_limit,
+        input: Bytes(transaction.clone().input),
+        creates: status
+            .as_ref()
+            .map_or(None, |status| status.contract_address),
+        raw: Bytes(rlp::encode(&transaction).to_vec()),
+        public_key: pubkey.as_ref().map(|pk| H512::from(pk)),
+        chain_id: transaction.signature.chain_id().map(U64::from),
+        standard_v: U256::from(transaction.signature.standard_v()),
+        v: U256::from(transaction.signature.v()),
+        r: U256::from(transaction.signature.r().as_bytes()),
+        s: U256::from(transaction.signature.s().as_bytes()),
+    }
+}
+
+pub fn public_key(transaction: &EthereumTransaction) -> ruc::Result<[u8; 64]> {
+    let mut sig = [0u8; 65];
+    let mut msg = [0u8; 32];
+    sig[0..32].copy_from_slice(&transaction.signature.r()[..]);
+    sig[32..64].copy_from_slice(&transaction.signature.s()[..]);
+    sig[64] = transaction.signature.standard_v();
+    msg.copy_from_slice(
+        &EthereumTransactionMessage::from(transaction.clone()).hash()[..],
+    );
+
+    fp_core::crypto::secp256k1_ecdsa_recover(&sig, &msg)
 }

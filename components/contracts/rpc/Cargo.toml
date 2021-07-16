@@ -37,6 +37,8 @@ module-ethereum = { path = "../modules/ethereum"}
 module-evm = { path = "../modules/evm"}
 
 # primitives
+fp-core = { path = "../primitives/core" }
+fp-evm = { path = "../primitives/evm" }
 fp-traits = { path = "../primitives/traits" }
 fp-utils = { path = "../primitives/utils" }
 

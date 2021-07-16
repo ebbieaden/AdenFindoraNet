@@ -71,6 +71,7 @@ impl module_evm::Config for BaseApp {
     type AddressMapping = fp_traits::evm::EthereumAddressMapping;
     type BlockGasLimit = BlockGasLimit;
     type ChainId = ChainId;
+    type DecimalsMapping = fp_traits::evm::EthereumDecimalsMapping;
     type FeeCalculator = ();
     type OnChargeTransaction = module_evm::App<Self>;
     type Precompiles = ();
@@ -253,6 +254,29 @@ impl BaseProvider for BaseApp {
             false,
         ) {
             module_ethereum::storage::CurrentBlock::get(ctx.store).unwrap_or(None)
+        } else {
+            None
+        }
+    }
+
+    fn current_transaction_statuses(&self) -> Option<Vec<fp_evm::TransactionStatus>> {
+        if let Ok(ctx) = self.create_query_context(
+            self.chain_state.read().height().unwrap_or_default(),
+            false,
+        ) {
+            module_ethereum::storage::CurrentTransactionStatuses::get(ctx.store)
+                .unwrap_or(None)
+        } else {
+            None
+        }
+    }
+
+    fn current_receipts(&self) -> Option<Vec<ethereum::Receipt>> {
+        if let Ok(ctx) = self.create_query_context(
+            self.chain_state.read().height().unwrap_or_default(),
+            false,
+        ) {
+            module_ethereum::storage::CurrentReceipts::get(ctx.store).unwrap_or(None)
         } else {
             None
         }

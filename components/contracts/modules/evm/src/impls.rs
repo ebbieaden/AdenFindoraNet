@@ -53,6 +53,7 @@ impl<C: Config> App<C> {
 /// `OnUnbalanced`).
 impl<C: Config> OnChargeEVMTransaction for App<C> {
     fn withdraw_fee(ctx: &Context, who: &H160, fee: U256) -> Result<()> {
+        // TODO fee pay to block author
         let account_id = C::AddressMapping::into_account_id(*who);
         C::AccountAsset::withdraw(ctx, &account_id, fee.low_u128())
     }
