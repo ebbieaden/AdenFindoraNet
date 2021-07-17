@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # env
-source env.sh
+source scripts/devnet/env.sh || exit
 
 # stop nodes
 script_stop=$(dirname "$0")/stopnodes.sh
