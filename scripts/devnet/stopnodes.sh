@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # env
-source env.sh
+source scripts/devnet/env.sh || exit 1
 
 # stop all abci nodes
 abcis=`pgrep -f abci_validator_node`

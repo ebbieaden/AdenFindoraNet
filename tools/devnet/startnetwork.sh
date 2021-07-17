@@ -3,7 +3,7 @@
 unset LEDGER_DIR
 
 # env
-source env.sh
+source scripts/devnet/env.sh || exit 1
 
 # paths
 WALLET="$HOME/.findora"

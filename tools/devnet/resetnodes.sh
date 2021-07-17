@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # env
-source env.sh
+source scripts/devnet/env.sh || exit 1
 
 # get params if provided
 V="3"
