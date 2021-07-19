@@ -1,4 +1,4 @@
-use crate::ecdsa;
+use crate::{ecdsa, hashing::keccak_256};
 use ledger::address::SmartAddress;
 use primitive_types::{H160, H256};
 use ruc::eg;
@@ -65,7 +65,7 @@ impl From<XfrPublicKey> for Address32 {
 
 impl From<ecdsa::Public> for Address32 {
     fn from(k: ecdsa::Public) -> Self {
-        ecdsa::keccak_256(k.as_ref()).into()
+        keccak_256(k.as_ref()).into()
     }
 }
 
@@ -168,7 +168,7 @@ impl Verify for MultiSignature {
             },
             // Self::Ecdsa(ref sig) => match sig.recover(msg) {
             //     Some(pubkey) => {
-            //         &ecdsa::keccak_256(pubkey.as_ref())
+            //         &keccak_256(pubkey.as_ref())
             //             == <dyn AsRef<[u8; 32]>>::as_ref(signer)
             //     }
             //     _ => false,
@@ -338,7 +338,7 @@ mod tests {
         let signer = MultiSigner::from(alice.address());
         let sig = MultiSignature::from(sig);
         assert!(
-            sig.verify(ecdsa::keccak_256(b"hello").as_ref(), &signer.into_account()),
+            sig.verify(keccak_256(b"hello").as_ref(), &signer.into_account()),
             "ecdsa signature verify failed"
         );
     }
