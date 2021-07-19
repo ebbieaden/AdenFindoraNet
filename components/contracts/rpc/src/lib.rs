@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 pub use eth::{EthApiImpl, EthFilterApiImpl, NetApiImpl, Web3ApiImpl};
 pub use fp_rpc_core::{EthApiServer, EthFilterApiServer, NetApiServer, Web3ApiServer};
+use log::error;
 use rustc_hex::ToHex;
 
 pub fn start_service(
@@ -45,6 +46,7 @@ pub fn start_service(
 }
 
 pub fn internal_err<T: ToString>(message: T) -> Error {
+    error!(target: "eth_rpc", "internal error: {:?}", message.to_string());
     Error {
         code: ErrorCode::InternalError,
         message: message.to_string(),

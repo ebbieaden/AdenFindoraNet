@@ -17,6 +17,7 @@ use fp_traits::evm::{
 };
 use fp_utils::ethereum::{sign_transaction_message, KeyPair};
 use jsonrpc_core::{futures::future, BoxFuture, Result};
+use log::debug;
 use module_evm::{Call, Create, Runner};
 use parking_lot::RwLock;
 use sha3::{Digest, Keccak256};
@@ -72,15 +73,16 @@ impl EthApi for EthApiImpl {
         };
 
         let account_id = EthereumAddressMapping::into_account_id(address);
-        let sa = self
-            .account_base_app
-            .read()
-            .account_of(&account_id, ctx)
-            .unwrap_or_default();
-        <BaseApp as module_evm::Config>::DecimalsMapping::from_native_token(U256::from(
-            sa.balance,
-        ))
-        .ok_or(internal_err("balance overflow"))
+        if let Ok(sa) = self.account_base_app.read().account_of(&account_id, ctx) {
+            Ok(
+                <BaseApp as module_evm::Config>::DecimalsMapping::from_native_token(
+                    U256::from(sa.balance),
+                )
+                .unwrap_or_default(),
+            )
+        } else {
+            Ok(U256::zero())
+        }
     }
 
     fn send_transaction(&self, request: TransactionRequest) -> BoxFuture<H256> {
@@ -204,7 +206,6 @@ impl EthApi for EthApiImpl {
         let data = data.map(|d| d.0).unwrap_or_default();
 
         let mut config = <BaseApp as module_evm::Config>::config().clone();
-        // TODO estimate mode ?
         config.estimate = true;
 
         let ctx = self
@@ -224,12 +225,12 @@ impl EthApi for EthApiImpl {
                     nonce,
                 };
 
-                // TODO check state?
                 let info =
                     <BaseApp as module_evm::Config>::Runner::call(&ctx, call, &config)
                         .map_err(|err| {
-                        internal_err(format!("evm runner error: {:?}", err))
+                        internal_err(format!("evm runner call error: {:?}", err))
                     })?;
+                debug!(target: "eth_rpc", "evm runner call result: {:?}", info);
 
                 error_on_execution_failure(&info.exit_reason, &info.value)?;
 
@@ -248,7 +249,10 @@ impl EthApi for EthApiImpl {
                 let info = <BaseApp as module_evm::Config>::Runner::create(
                     &ctx, create, &config,
                 )
-                .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
+                .map_err(|err| {
+                    internal_err(format!("evm runner create error: {:?}", err))
+                })?;
+                debug!(target: "eth_rpc", "evm runner create result: {:?}", info);
 
                 error_on_execution_failure(&info.exit_reason, &[])?;
 
@@ -418,7 +422,7 @@ impl EthApi for EthApiImpl {
             from,
             to,
             gas_price: _,
-            gas,
+            gas: _,
             value,
             data,
             nonce: _,
@@ -428,18 +432,8 @@ impl EthApi for EthApiImpl {
             value.unwrap_or_default(),
         );
 
-        // use given gas limit or query current block's limit
-        let gas_limit = match gas {
-            Some(amount) => amount,
-            None => {
-                let block = self.account_base_app.read().current_block();
-                if let Some(block) = block {
-                    block.header.gas_limit
-                } else {
-                    <BaseApp as module_evm::Config>::BlockGasLimit::get()
-                }
-            }
-        };
+        let gas_limit = <BaseApp as module_evm::Config>::BlockGasLimit::get();
+
         let data = data.map(|d| d.0).unwrap_or_default();
 
         let mut config = <BaseApp as module_evm::Config>::config().clone();
@@ -466,8 +460,9 @@ impl EthApi for EthApiImpl {
                 let info =
                     <BaseApp as module_evm::Config>::Runner::call(&ctx, call, &config)
                         .map_err(|err| {
-                        internal_err(format!("evm runner error: {:?}", err))
+                        internal_err(format!("evm runner call error: {:?}", err))
                     })?;
+                debug!(target: "eth_rpc", "evm runner call result: {:?}", info);
 
                 error_on_execution_failure(&info.exit_reason, &info.value)?;
 
@@ -486,7 +481,10 @@ impl EthApi for EthApiImpl {
                 let info = <BaseApp as module_evm::Config>::Runner::create(
                     &ctx, create, &config,
                 )
-                .map_err(|err| internal_err(format!("evm runner error: {:?}", err)))?;
+                .map_err(|err| {
+                    internal_err(format!("evm runner create error: {:?}", err))
+                })?;
+                debug!(target: "eth_rpc", "evm runner create result: {:?}", info);
 
                 error_on_execution_failure(&info.exit_reason, &[])?;
 
@@ -497,17 +495,23 @@ impl EthApi for EthApiImpl {
         Ok(used_gas)
     }
 
-    fn transaction_by_hash(&self, _hash: H256) -> Result<Option<Transaction>> {
-        // TODO optimize
+    fn transaction_by_hash(&self, hash: H256) -> Result<Option<Transaction>> {
         let block = self.account_base_app.read().current_block();
         let statuses = self.account_base_app.read().current_transaction_statuses();
 
         match (block, statuses) {
-            (Some(block), Some(statuses)) => Ok(Some(transaction_build(
-                block.transactions[0].clone(),
-                Some(block),
-                Some(statuses[0].clone()),
-            ))),
+            (Some(block), Some(statuses)) => {
+                let index = statuses.iter().position(|t| t.transaction_hash == hash);
+                if index.is_none() {
+                    return Ok(None);
+                }
+
+                Ok(Some(transaction_build(
+                    block.transactions[index.unwrap()].clone(),
+                    Some(block),
+                    Some(statuses[index.unwrap()].clone()),
+                )))
+            }
             _ => Ok(None),
         }
     }
@@ -530,19 +534,23 @@ impl EthApi for EthApiImpl {
         Err(internal_err("Method not available12."))
     }
 
-    fn transaction_receipt(&self, _hash: H256) -> Result<Option<Receipt>> {
-        // TODO optimize
+    fn transaction_receipt(&self, hash: H256) -> Result<Option<Receipt>> {
         let block = self.account_base_app.read().current_block();
         let statuses = self.account_base_app.read().current_transaction_statuses();
         let receipts = self.account_base_app.read().current_receipts();
 
         match (block, statuses, receipts) {
             (Some(block), Some(statuses), Some(receipts)) => {
+                let index = statuses.iter().position(|t| t.transaction_hash == hash);
+                if index.is_none() {
+                    return Ok(None);
+                }
+
                 let block_hash = H256::from_slice(
                     Keccak256::digest(&rlp::encode(&block.header)).as_slice(),
                 );
-                let receipt = receipts[0].clone();
-                let status = statuses[0].clone();
+                let receipt = receipts[index.unwrap()].clone();
+                let status = statuses[index.unwrap()].clone();
                 let mut cumulative_receipts = receipts.clone();
                 cumulative_receipts.truncate((status.transaction_index + 1) as usize);
 
