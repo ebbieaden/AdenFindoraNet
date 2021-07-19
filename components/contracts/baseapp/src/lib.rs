@@ -244,7 +244,7 @@ impl BaseProvider for BaseApp {
             )?,
             Some(ctx) => ctx,
         };
-        module_account::App::<BaseApp>::account_of(&ctx, who)
+        module_account::App::<Self>::account_of(&ctx, who)
             .ok_or(eg!("account does not exist"))
     }
 
@@ -253,7 +253,7 @@ impl BaseProvider for BaseApp {
             self.chain_state.read().height().unwrap_or_default(),
             false,
         ) {
-            module_ethereum::storage::CurrentBlock::get(ctx.store).unwrap_or(None)
+            module_ethereum::App::<Self>::current_block(&ctx)
         } else {
             None
         }
@@ -264,8 +264,7 @@ impl BaseProvider for BaseApp {
             self.chain_state.read().height().unwrap_or_default(),
             false,
         ) {
-            module_ethereum::storage::CurrentTransactionStatuses::get(ctx.store)
-                .unwrap_or(None)
+            module_ethereum::App::<Self>::current_transaction_statuses(&ctx)
         } else {
             None
         }
@@ -276,7 +275,7 @@ impl BaseProvider for BaseApp {
             self.chain_state.read().height().unwrap_or_default(),
             false,
         ) {
-            module_ethereum::storage::CurrentReceipts::get(ctx.store).unwrap_or(None)
+            module_ethereum::App::<Self>::current_receipts(&ctx)
         } else {
             None
         }

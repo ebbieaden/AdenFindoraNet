@@ -6,13 +6,7 @@ use ruc::*;
 pub mod abci;
 
 fn main() {
-    env_logger::init();
-    log::info!(concat!(
-        "Build: ",
-        env!("VERGEN_SHA_SHORT"),
-        " ",
-        env!("VERGEN_BUILD_DATE")
-    ));
+    fp_utils::logging::init_logging(None);
 
     pnk!(abci::run());
 }

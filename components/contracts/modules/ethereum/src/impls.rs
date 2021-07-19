@@ -46,8 +46,7 @@ impl<C: Config> App<C> {
 
         let headers = Vec::<ethereum::Header>::new();
         let partial_header = ethereum::PartialHeader {
-            // parent_hash: Self::current_block_hash().unwrap_or_default(),
-            parent_hash: H256::default(),
+            parent_hash: Self::current_block_hash(ctx).unwrap_or_default(),
             // TODO find block author
             beneficiary: H160::default(),
             // TODO: figure out if there's better way to get a sort-of-valid state root.
@@ -64,13 +63,13 @@ impl<C: Config> App<C> {
                 .clone()
                 .into_iter()
                 .fold(U256::zero(), |acc, r| acc + r.used_gas),
-            timestamp: ctx.block_time().get_seconds() as u64,
+            timestamp: ctx.block_time().get_nanos() as u64,
             extra_data: Vec::new(),
             mix_hash: H256::default(),
             nonce: H64::default(),
         };
         let block = ethereum::Block::new(partial_header, transactions.clone(), headers);
-        // TODO cache root hash?
+        // TODO storage change 20 to 32 bytes
         // block.header.state_root =
         //     H256::from_slice(ctx.store.read().root_hash().as_slice());
 
@@ -93,9 +92,8 @@ impl<C: Config> App<C> {
             H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
 
         let mut pending = Pending::get(ctx.store.clone()).unwrap_or_default();
-
-        // Note: the index is not the transaction index in the real block.
         let transaction_index = pending.len() as u32;
+
         let gas_limit = transaction.gas_limit;
         let transferred_value = C::DecimalsMapping::into_native_token(transaction.value);
 
@@ -218,6 +216,28 @@ impl<C: Config> App<C> {
                 Ok((None, Some(res.value), CallOrCreateInfo::Create(res)))
             }
         }
+    }
+
+    /// Get the transaction status with given index.
+    pub fn current_transaction_statuses(
+        ctx: &Context,
+    ) -> Option<Vec<TransactionStatus>> {
+        CurrentTransactionStatuses::get(ctx.store.clone()).unwrap_or(None)
+    }
+
+    /// Get current block.
+    pub fn current_block(ctx: &Context) -> Option<ethereum::Block> {
+        CurrentBlock::get(ctx.store.clone()).unwrap_or(None)
+    }
+
+    /// Get current block hash
+    pub fn current_block_hash(ctx: &Context) -> Option<H256> {
+        Self::current_block(ctx).map(|block| block.header.hash())
+    }
+
+    /// Get receipts by number.
+    pub fn current_receipts(ctx: &Context) -> Option<Vec<ethereum::Receipt>> {
+        CurrentReceipts::get(ctx.store.clone()).unwrap_or(None)
     }
 
     fn logs_bloom(logs: Vec<ethereum::Log>, bloom: &mut Bloom) {

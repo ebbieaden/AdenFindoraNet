@@ -171,7 +171,7 @@ impl<Address, Call> Applyable for CheckedTransaction<Address, Call> {
 }
 
 /// Action execution result in the transaction.
-#[derive(PartialEq, Clone, Default)]
+#[derive(PartialEq, Debug, Clone, Default)]
 pub struct ActionResult {
     /// Data is any data returned from message or handler execution.
     pub data: Vec<u8>,

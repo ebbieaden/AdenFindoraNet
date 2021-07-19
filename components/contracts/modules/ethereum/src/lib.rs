@@ -3,7 +3,7 @@ mod client;
 mod genesis;
 mod impls;
 
-use abci::{RequestBeginBlock, RequestEndBlock, ResponseEndBlock};
+use abci::{RequestEndBlock, ResponseEndBlock};
 use fp_core::{
     context::Context,
     crypto::Address,
@@ -65,10 +65,6 @@ impl<C: Config> Default for App<C> {
 }
 
 impl<C: Config> AppModule for App<C> {
-    fn begin_block(&mut self, ctx: &mut Context, _req: &RequestBeginBlock) {
-        Pending::delete(ctx.store.clone());
-    }
-
     fn end_block(
         &mut self,
         ctx: &mut Context,
@@ -76,6 +72,7 @@ impl<C: Config> AppModule for App<C> {
     ) -> ResponseEndBlock {
         if Pending::exists(ctx.store.clone()) {
             let _ = ruc::info!(Self::store_block(ctx, U256::from(req.height)));
+            Pending::delete(ctx.store.clone());
         }
         ResponseEndBlock::new()
     }

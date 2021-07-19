@@ -17,6 +17,8 @@ rlp = "0.5"
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "master" }
 sha3 = "0.8"
+tracing = "0.1.13"
+tracing-subscriber = "0.2.4"
 
 # primitives
 fp-core = { path = "../core" }

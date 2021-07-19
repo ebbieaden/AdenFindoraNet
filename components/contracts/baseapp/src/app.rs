@@ -1,6 +1,7 @@
 use crate::{types::convert_unchecked_transaction, RunTxMode};
 use abci::*;
 use fp_core::context::Context;
+use log::{debug, error};
 use ruc::{pnk, RucResult};
 
 impl Application for crate::BaseApp {
@@ -62,8 +63,9 @@ impl Application for crate::BaseApp {
             let check_fn = |mode: RunTxMode| {
                 let ctx = self.retrieve_context(mode, req.get_tx().to_vec()).clone();
                 if let Err(e) = self.modules.process_tx(ctx, mode, tx) {
+                    error!(target: "baseapp", "Ethereum transaction check error: {}", e);
                     resp.set_code(1);
-                    resp.set_log(format!("Ethereum transaction check failed: {}", e));
+                    resp.set_log(format!("Ethereum transaction check error: {}", e));
                 }
             };
             match req.get_field_type() {
@@ -118,6 +120,8 @@ impl Application for crate::BaseApp {
             let ret = self.modules.process_tx(ctx, RunTxMode::Deliver, tx);
             match ret {
                 Ok(ar) => {
+                    debug!(target: "baseapp", "deliver tx succeed result: {:?}", ar);
+
                     resp.set_data(ar.data);
                     resp.set_log(ar.log);
                     resp.set_gas_wanted(ar.gas_wanted as i64);
@@ -126,8 +130,9 @@ impl Application for crate::BaseApp {
                     resp
                 }
                 Err(e) => {
+                    error!(target: "baseapp", "Ethereum transaction deliver error: {}", e);
                     resp.set_code(1);
-                    resp.set_log(format!("Failed to deliver transaction: {}!", e));
+                    resp.set_log(format!("Ethereum transaction deliver error: {}", e));
                     resp
                 }
             }
