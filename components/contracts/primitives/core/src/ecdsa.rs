@@ -1,3 +1,4 @@
+use crate::hashing::keccak_256;
 use bip39::{Language, Mnemonic, MnemonicType};
 use libsecp256k1::{PublicKey, SecretKey};
 use primitive_types::{H160, H256};
@@ -388,13 +389,6 @@ impl Pair {
     pub fn to_raw_vec(&self) -> Vec<u8> {
         self.seed().to_vec()
     }
-}
-
-pub fn keccak_256(message: &[u8]) -> [u8; 32] {
-    let digest = Keccak256::digest(message);
-    let mut dest = [0; 32];
-    dest.copy_from_slice(digest.as_slice());
-    dest
 }
 
 #[cfg(test)]

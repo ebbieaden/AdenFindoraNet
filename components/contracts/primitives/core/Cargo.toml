@@ -11,6 +11,8 @@ readme = "README.md"
 [dependencies]
 abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
 base64 = "0.10"
+blake2-rfc = "0.2.18"
+byteorder = "1.4.3"
 ethereum-types = "0.11.0"
 hex = "0.4.2"
 ledger = { path = "../../../../ledger" }
@@ -24,10 +26,13 @@ rand = "0.7.2"
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 serde = { version = "1.0.124", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.9.5"
 sha3 = "0.8"
 storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "master" }
 substrate-bip39 = "0.4.2"
 tiny-bip39 = "0.8"
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+twox-hash = "1.6.0"
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
 
 [dev-dependencies]

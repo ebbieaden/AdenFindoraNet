@@ -74,7 +74,16 @@ impl module_evm::Config for BaseApp {
     type DecimalsMapping = fp_traits::evm::EthereumDecimalsMapping;
     type FeeCalculator = ();
     type OnChargeTransaction = module_evm::App<Self>;
-    type Precompiles = ();
+    type Precompiles = (
+        evm_precompile_basic::ECRecover,
+        evm_precompile_basic::Sha256,
+        evm_precompile_basic::Ripemd160,
+        evm_precompile_basic::Identity,
+        evm_precompile_modexp::Modexp,
+        evm_precompile_basic::ECRecoverPublicKey,
+        evm_precompile_sha3fips::Sha3FIPS256,
+        evm_precompile_sha3fips::Sha3FIPS512,
+    );
     type Runner = module_evm::runtime::runner::ActionRunner<Self>;
 }
 
