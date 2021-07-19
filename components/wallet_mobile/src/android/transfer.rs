@@ -343,7 +343,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
     env: JNIEnv,
     _: JClass,
     builder: jlong,
-    amount: jint,
+    amount: JString,
     recipient: jlong,
     tracing_policies_ptr: jlong,
     code: JString,
@@ -353,6 +353,10 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
     let builder = &*(builder as *mut TransferOperationBuilder);
     let tracing_policies = &*(tracing_policies_ptr as *mut TracingPolicies);
     let recipient = &*(recipient as *mut XfrPublicKey);
+    let amount: String = env
+        .get_string(amount)
+        .expect("Couldn't get java string!")
+        .into();
     let code: String = env
         .get_string(code)
         .expect("Couldn't get java string!")
@@ -361,7 +365,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
     let builder = builder
         .clone()
         .add_output_with_tracing(
-            amount as u64,
+            amount.parse::<u64>().unwrap(),
             recipient,
             tracing_policies,
             code,
@@ -390,7 +394,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
     env: JNIEnv,
     _: JClass,
     builder: jlong,
-    amount: jint,
+    amount: JString,
     recipient: jlong,
     code: JString,
     conf_amount: jboolean,
@@ -398,6 +402,10 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
 ) -> jlong {
     let builder = &*(builder as *mut TransferOperationBuilder);
     let recipient = &*(recipient as *mut XfrPublicKey);
+    let amount: String = env
+        .get_string(amount)
+        .expect("Couldn't get java string!")
+        .into();
     let code: String = env
         .get_string(code)
         .expect("Couldn't get java string!")
@@ -406,7 +414,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
     let builder = builder
         .clone()
         .add_output_no_tracing(
-            amount as u64,
+            amount.parse::<u64>().unwrap(),
             recipient,
             code,
             conf_amount == JNI_TRUE,

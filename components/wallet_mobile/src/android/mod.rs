@@ -360,12 +360,15 @@ pub extern "system" fn Java_com_findora_JniApi_openClientAssetRecordGetAssetType
 
 #[no_mangle]
 pub extern "system" fn Java_com_findora_JniApi_openClientAssetRecordGetAmount(
-    _env: JNIEnv,
+    env: JNIEnv,
     _: JClass,
     record_ptr: jlong,
-) -> jint {
+) -> jstring {
     let record = unsafe { &*(record_ptr as *mut types::OpenAssetRecord) };
-    *record.get_amount() as jint
+    let output = env
+        .new_string(record.get_amount().to_string())
+        .expect("Couldn't create java string!");
+    output.into_inner()
 }
 
 #[no_mangle]
