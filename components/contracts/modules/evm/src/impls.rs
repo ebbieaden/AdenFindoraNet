@@ -6,7 +6,7 @@ use fp_traits::{
     account::AccountAsset,
     evm::{AddressMapping, OnChargeEVMTransaction},
 };
-use primitive_types::{H160, U256};
+use primitive_types::{H160, H256, U256};
 use ruc::Result;
 
 impl<C: Config> App<C> {
@@ -33,6 +33,20 @@ impl<C: Config> App<C> {
         AccountCodes::insert(ctx.store.clone(), &address, &code);
     }
 
+    /// Get the account code
+    pub fn account_codes(ctx: &Context, address: &H160) -> Option<Vec<u8>> {
+        AccountCodes::get(ctx.store.clone(), address)
+    }
+
+    /// Get the account storage
+    pub fn account_storages(
+        ctx: &Context,
+        address: &H160,
+        index: &H256,
+    ) -> Option<H256> {
+        AccountStorages::get(ctx.store.clone(), address, index)
+    }
+
     /// Get the account basic in EVM format.
     pub fn account_basic(ctx: &Context, address: &H160) -> Account {
         let account_id = C::AddressMapping::into_account_id(*address);
@@ -43,8 +57,9 @@ impl<C: Config> App<C> {
     }
 
     /// Get the block proposer.
-    pub fn find_proposer(_ctx: &Context) -> H160 {
-        todo!()
+    pub fn find_proposer(ctx: &Context) -> H160 {
+        // TODO
+        H160::from_slice(&ctx.header.proposer_address[0..20])
     }
 }
 

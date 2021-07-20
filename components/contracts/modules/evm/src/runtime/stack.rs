@@ -6,19 +6,19 @@ use evm::{
 };
 use fp_core::{context::Context, macros::Get};
 use fp_evm::{Log, Vicinity};
-use fp_traits::account::AccountAsset;
+use fp_traits::{account::AccountAsset, evm::BlockHashMapping};
 use primitive_types::{H160, H256, U256};
 use std::{collections::btree_set::BTreeSet, marker::PhantomData, mem};
 
-pub struct FindoraStackSubstate<'context, 'config> {
-    pub ctx: &'context Context,
+pub struct FindoraStackSubstate<'config> {
+    pub ctx: Context,
     pub metadata: StackSubstateMetadata<'config>,
     pub deletes: BTreeSet<H160>,
     pub logs: Vec<Log>,
-    pub parent: Option<Box<FindoraStackSubstate<'context, 'config>>>,
+    pub parent: Option<Box<FindoraStackSubstate<'config>>>,
 }
 
-impl<'context, 'config> FindoraStackSubstate<'context, 'config> {
+impl<'config> FindoraStackSubstate<'config> {
     pub fn metadata(&self) -> &StackSubstateMetadata<'config> {
         &self.metadata
     }
@@ -29,7 +29,7 @@ impl<'context, 'config> FindoraStackSubstate<'context, 'config> {
 
     pub fn enter(&mut self, gas_limit: u64, is_static: bool) {
         let mut entering = Self {
-            ctx: self.ctx,
+            ctx: self.ctx.clone(), // TODO
             metadata: self.metadata.spit_child(gas_limit, is_static),
             parent: None,
             deletes: BTreeSet::new(),
@@ -108,7 +108,7 @@ impl<'context, 'config> FindoraStackSubstate<'context, 'config> {
 pub struct FindoraStackState<'context, 'vicinity, 'config, T> {
     pub ctx: &'context Context,
     pub vicinity: &'vicinity Vicinity,
-    pub substate: FindoraStackSubstate<'context, 'config>,
+    pub substate: FindoraStackSubstate<'config>,
     _marker: PhantomData<T>,
 }
 
@@ -125,7 +125,7 @@ impl<'context, 'vicinity, 'config, T: Config>
             ctx,
             vicinity,
             substate: FindoraStackSubstate {
-                ctx,
+                ctx: ctx.clone(), // TODO
                 metadata,
                 deletes: BTreeSet::new(),
                 logs: Vec::new(),
@@ -142,22 +142,17 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     fn gas_price(&self) -> U256 {
         self.vicinity.gas_price
     }
+
     fn origin(&self) -> H160 {
         self.vicinity.origin
     }
 
-    fn block_hash(&self, _number: U256) -> H256 {
-        // if number > U256::from(u32::max_value()) {
-        //     H256::default()
-        // } else {
-        //     T::BlockHashMapping::block_hash(number.as_u32())
-        // }
-        todo!()
+    fn block_hash(&self, number: U256) -> H256 {
+        C::BlockHashMapping::block_hash(self.ctx, number).unwrap_or(H256::default())
     }
 
     fn block_number(&self) -> U256 {
-        let number = self.ctx.block_height();
-        U256::from(number)
+        U256::from(self.ctx.block_height())
     }
 
     fn block_coinbase(&self) -> H160 {
@@ -165,7 +160,7 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 
     fn block_timestamp(&self) -> U256 {
-        U256::from(self.ctx.block_time().get_nanos())
+        U256::from(self.ctx.block_time().get_seconds())
     }
 
     fn block_difficulty(&self) -> U256 {
@@ -194,12 +189,11 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 
     fn code(&self, address: H160) -> Vec<u8> {
-        AccountCodes::get(self.ctx.store.clone(), &address).unwrap_or_default()
+        App::<C>::account_codes(self.ctx, &address).unwrap_or_default()
     }
 
     fn storage(&self, address: H160, index: H256) -> H256 {
-        AccountStorages::get(self.ctx.store.clone(), &address, &index)
-            .unwrap_or_default()
+        App::<C>::account_storages(self.ctx, &address, &index).unwrap_or_default()
     }
 
     fn original_storage(&self, _address: H160, _index: H256) -> Option<H256> {
@@ -299,7 +293,7 @@ impl<'context, 'vicinity, 'config, C: Config> StackState<'config>
     }
 
     fn reset_balance(&mut self, _address: H160) {
-        // Do nothing on reset balance in Substrate.
+        // Do nothing on reset balance in Findora.
         //
         // This function exists in EVM because a design issue
         // (arguably a bug) in SELFDESTRUCT that can cause total
@@ -307,9 +301,9 @@ impl<'context, 'vicinity, 'config, C: Config> StackState<'config>
     }
 
     fn touch(&mut self, _address: H160) {
-        // Do nothing on touch in Substrate.
+        // Do nothing on touch in Findora.
         //
-        // EVM pallet considers all accounts to exist, and distinguish
+        // EVM module considers all accounts to exist, and distinguish
         // only empty and non-empty accounts. This avoids many of the
         // subtle issues in EIP-161.
     }

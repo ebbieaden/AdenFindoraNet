@@ -12,7 +12,7 @@ do
     then
         echo -n "$node: "
         echo -en "abci(${GRN}$abci${NC}) <---> "
-        node=`pgrep -f "tendermint node --home $DEVNET/$node$" --log_level $TENDERMINT_LOG_LEVEL | tr "\n" " " | xargs echo -n`
+        node=`pgrep -f "tendermint node --home $DEVNET/$node" | tr "\n" " " | xargs echo -n`
         echo -e "node(${GRN}$node${NC})"
     fi
 done

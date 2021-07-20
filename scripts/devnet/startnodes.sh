@@ -28,6 +28,6 @@ do
     abci=`pgrep -f "abci_validator_node $DEVNET/$node$" | tr "\n" " " | xargs echo -n`
     echo -en "abci(${GRN}$abci${NC}) <---> "
     sleep 0.5
-    node=`pgrep -f "tendermint node --home $DEVNET/$node$" --log_level $TENDERMINT_LOG_LEVEL | tr "\n" " " | xargs echo -n`
+    node=`pgrep -f "tendermint node --home $DEVNET/$node" | tr "\n" " " | xargs echo -n`
     echo -e "node(${GRN}$node${NC})"
 done

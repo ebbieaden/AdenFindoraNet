@@ -14,7 +14,7 @@ use fp_core::{
 use fp_traits::account::AccountAsset;
 use ledger::data_model::Transaction as FindoraTransaction;
 use parking_lot::RwLock;
-use primitive_types::{H160, U256};
+use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -70,6 +70,7 @@ impl module_evm::Config for BaseApp {
     type AccountAsset = module_account::App<Self>;
     type AddressMapping = fp_traits::evm::EthereumAddressMapping;
     type BlockGasLimit = BlockGasLimit;
+    type BlockHashMapping = module_ethereum::App<Self>;
     type ChainId = ChainId;
     type DecimalsMapping = fp_traits::evm::EthereumDecimalsMapping;
     type FeeCalculator = ();
@@ -170,6 +171,7 @@ impl BaseApp {
 
         let mut ctx = Context::new(self.chain_state.clone());
         ctx.header = self.check_state.header.clone();
+        ctx.header_hash = self.check_state.header_hash.clone();
         ctx.chain_id = self.check_state.header.chain_id.clone();
         ctx.check_tx = true;
         Ok(ctx)
@@ -220,19 +222,20 @@ impl BaseApp {
         Ok(())
     }
 
-    fn set_deliver_state(&mut self, header: Header) {
+    fn set_deliver_state(&mut self, header: Header, header_hash: Vec<u8>) {
         self.deliver_state.check_tx = false;
         self.deliver_state.recheck_tx = false;
-        self.deliver_state.header = header.clone();
-        self.deliver_state.chain_id = header.chain_id;
+        self.deliver_state.chain_id = header.chain_id.clone();
+        self.deliver_state.header = header;
+        self.deliver_state.header_hash = header_hash;
     }
 
     fn set_check_state(&mut self, header: Header, header_hash: Vec<u8>) {
         self.check_state.check_tx = true;
         self.check_state.recheck_tx = false;
-        self.check_state.header = header.clone();
+        self.check_state.chain_id = header.chain_id.clone();
+        self.check_state.header = header;
         self.check_state.header_hash = header_hash;
-        self.check_state.chain_id = header.chain_id;
     }
 
     pub fn deliver_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
@@ -295,7 +298,18 @@ impl BaseProvider for BaseApp {
             self.chain_state.read().height().unwrap_or_default(),
             false,
         ) {
-            module_evm::storage::AccountCodes::get(ctx.store, &address)
+            module_evm::App::<Self>::account_codes(&ctx, &address)
+        } else {
+            None
+        }
+    }
+
+    fn account_storage_at(&self, address: H160, index: H256) -> Option<H256> {
+        if let Ok(ctx) = self.create_query_context(
+            self.chain_state.read().height().unwrap_or_default(),
+            false,
+        ) {
+            module_evm::App::<Self>::account_storages(&ctx, &address, &index)
         } else {
             None
         }

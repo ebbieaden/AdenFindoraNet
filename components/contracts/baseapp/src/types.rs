@@ -5,7 +5,7 @@ use fp_core::{
     crypto::{Address, Signature},
     transaction,
 };
-use primitive_types::H160;
+use primitive_types::{H160, H256};
 use ruc::{eg, Result};
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
@@ -66,4 +66,6 @@ pub trait BaseProvider {
     fn current_receipts(&self) -> Option<Vec<ethereum::Receipt>>;
 
     fn account_code_at(&self, address: H160) -> Option<Vec<u8>>;
+
+    fn account_storage_at(&self, address: H160, index: H256) -> Option<H256>;
 }

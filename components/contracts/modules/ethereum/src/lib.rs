@@ -12,8 +12,8 @@ use fp_core::{
     module::AppModule,
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
-use fp_traits::evm::{DecimalsMapping, FeeCalculator};
-use primitive_types::U256;
+use fp_traits::evm::{BlockHashMapping, DecimalsMapping, FeeCalculator};
+use primitive_types::{H256, U256};
 use ruc::{eg, Result, RucResult};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -134,5 +134,11 @@ impl<C: Config> ValidateUnsigned for App<C> {
         }
 
         Ok(())
+    }
+}
+
+impl<C: Config> BlockHashMapping for App<C> {
+    fn block_hash(ctx: &Context, number: U256) -> Option<H256> {
+        Self::block_hash(ctx, number)
     }
 }

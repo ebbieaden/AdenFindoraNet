@@ -8,8 +8,8 @@ use ethereum_types::{H160, H256, H512, H64, U256, U64};
 use fp_evm::TransactionStatus;
 use fp_rpc_core::types::{
     Block, BlockNumber, BlockTransactions, Bytes, CallRequest, Filter, FilterChanges,
-    Index, Log, PeerCount, Receipt, Rich, RichBlock, SyncStatus, Transaction,
-    TransactionRequest, Work,
+    FilteredParams, Index, Log, PeerCount, Receipt, Rich, RichBlock, SyncStatus,
+    Transaction, TransactionRequest, Work,
 };
 use fp_rpc_core::{EthApi, EthFilterApi, NetApi, Web3Api};
 use fp_traits::evm::{
@@ -67,7 +67,7 @@ impl EthApi for EthApiImpl {
 
     fn balance(&self, address: H160, number: Option<BlockNumber>) -> Result<U256> {
         let ctx = if let Some(BlockNumber::Pending) = number {
-            Some(self.account_base_app.read().check_state.clone())
+            Some(self.account_base_app.read().deliver_state.clone())
         } else {
             None
         };
@@ -267,7 +267,14 @@ impl EthApi for EthApiImpl {
     }
 
     fn author(&self) -> Result<H160> {
-        Err(internal_err("Method not available1."))
+        let proposer = self
+            .account_base_app
+            .read()
+            .check_state
+            .header
+            .proposer_address
+            .clone();
+        Ok(H160::from_slice(&proposer[0..20]))
     }
 
     fn is_mining(&self) -> Result<bool> {
@@ -296,27 +303,51 @@ impl EthApi for EthApiImpl {
         _index: U256,
         _number: Option<BlockNumber>,
     ) -> Result<H256> {
-        println!("invoked: fn storage_at");
-        Err(internal_err("Method not available2."))
+        // TODO
+        Ok(H256::default())
     }
 
-    fn block_by_hash(&self, _hash: H256, _full: bool) -> Result<Option<RichBlock>> {
-        println!("invoked: fn block_by_hash");
-        Err(internal_err("Method not available3."))
+    fn block_by_hash(&self, hash: H256, full: bool) -> Result<Option<RichBlock>> {
+        let block = self.account_base_app.read().current_block();
+        let statuses = self.account_base_app.read().current_transaction_statuses();
+
+        match (block, statuses) {
+            (Some(block), Some(statuses)) => Ok(Some(rich_block_build(
+                block,
+                statuses.into_iter().map(|s| Some(s)).collect(),
+                Some(hash),
+                full,
+            ))),
+            _ => Ok(None),
+        }
     }
 
     fn block_by_number(
         &self,
-        _number: BlockNumber,
+        number: BlockNumber,
         full: bool,
     ) -> Result<Option<RichBlock>> {
-        // TODO optimize
         let block = self.account_base_app.read().current_block();
         let statuses = self.account_base_app.read().current_transaction_statuses();
 
         match (block, statuses) {
             (Some(block), Some(statuses)) => {
                 let hash = block.header.hash();
+
+                match number {
+                    BlockNumber::Hash { hash: h, .. } => {
+                        if h != hash {
+                            return Ok(None);
+                        }
+                    }
+                    BlockNumber::Num(num) => {
+                        if block.header.number != U256::from(num) {
+                            return Ok(None);
+                        }
+                    }
+                    BlockNumber::Latest => {}
+                    _ => return Ok(None),
+                }
 
                 Ok(Some(rich_block_build(
                     block,
@@ -350,27 +381,57 @@ impl EthApi for EthApiImpl {
         Ok(U256::from(sa.nonce))
     }
 
-    fn block_transaction_count_by_hash(&self, _hash: H256) -> Result<Option<U256>> {
-        println!("invoked: fn block_transaction_count_by_hash");
-        Err(internal_err("Method not available5."))
+    fn block_transaction_count_by_hash(&self, hash: H256) -> Result<Option<U256>> {
+        let block = self.account_base_app.read().current_block();
+        match block {
+            Some(block) => {
+                if hash != block.header.hash() {
+                    return Ok(None);
+                }
+                Ok(Some(U256::from(block.transactions.len())))
+            }
+            None => Ok(None),
+        }
     }
 
     fn block_transaction_count_by_number(
         &self,
-        _number: BlockNumber,
+        number: BlockNumber,
     ) -> Result<Option<U256>> {
-        println!("invoked: fn block_transaction_count_by_number");
-        Err(internal_err("Method not available6."))
+        let block = self.account_base_app.read().current_block();
+        match block {
+            Some(block) => {
+                let hash = block.header.hash();
+
+                match number {
+                    BlockNumber::Hash { hash: h, .. } => {
+                        if h != hash {
+                            return Ok(None);
+                        }
+                    }
+                    BlockNumber::Num(num) => {
+                        if block.header.number != U256::from(num) {
+                            return Ok(None);
+                        }
+                    }
+                    BlockNumber::Latest => {}
+                    _ => {
+                        return Ok(None);
+                    }
+                }
+
+                Ok(Some(U256::from(block.transactions.len())))
+            }
+            None => Ok(None),
+        }
     }
 
     fn block_uncles_count_by_hash(&self, _: H256) -> Result<U256> {
-        println!("invoked: fn block_uncles_count_by_hash");
-        Err(internal_err("Method not available7."))
+        Ok(U256::zero())
     }
 
     fn block_uncles_count_by_number(&self, _: BlockNumber) -> Result<U256> {
-        println!("invoked: fn block_uncles_count_by_number");
-        Err(internal_err("Method not available8."))
+        Ok(U256::zero())
     }
 
     fn code_at(&self, address: H160, _number: Option<BlockNumber>) -> Result<Bytes> {
@@ -518,20 +579,69 @@ impl EthApi for EthApiImpl {
 
     fn transaction_by_block_hash_and_index(
         &self,
-        _hash: H256,
-        _index: Index,
+        hash: H256,
+        index: Index,
     ) -> Result<Option<Transaction>> {
-        println!("invoked: fn transaction_by_block_hash_and_index");
-        Err(internal_err("Method not available11."))
+        let index = index.value();
+
+        let block = self.account_base_app.read().current_block();
+        let statuses = self.account_base_app.read().current_transaction_statuses();
+        match (block, statuses) {
+            (Some(block), Some(statuses)) => {
+                if block.header.hash() != hash || index >= block.transactions.len() {
+                    return Ok(None);
+                }
+
+                Ok(Some(transaction_build(
+                    block.transactions[index].clone(),
+                    Some(block),
+                    Some(statuses[index].clone()),
+                )))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn transaction_by_block_number_and_index(
         &self,
-        _number: BlockNumber,
-        _index: Index,
+        number: BlockNumber,
+        index: Index,
     ) -> Result<Option<Transaction>> {
-        println!("invoked: fn transaction_by_block_number_and_index");
-        Err(internal_err("Method not available12."))
+        let index = index.value();
+
+        let block = self.account_base_app.read().current_block();
+        let statuses = self.account_base_app.read().current_transaction_statuses();
+        match (block, statuses) {
+            (Some(block), Some(statuses)) => {
+                let hash = block.header.hash();
+                match number {
+                    BlockNumber::Hash { hash: h, .. } => {
+                        if h != hash {
+                            return Ok(None);
+                        }
+                    }
+                    BlockNumber::Num(num) => {
+                        if block.header.number != U256::from(num) {
+                            return Ok(None);
+                        }
+                    }
+                    BlockNumber::Latest => {}
+                    _ => {
+                        return Ok(None);
+                    }
+                }
+                if index >= block.transactions.len() {
+                    return Ok(None);
+                }
+
+                Ok(Some(transaction_build(
+                    block.transactions[index].clone(),
+                    Some(block),
+                    Some(statuses[index].clone()),
+                )))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn transaction_receipt(&self, hash: H256) -> Result<Option<Receipt>> {
@@ -626,9 +736,21 @@ impl EthApi for EthApiImpl {
         Ok(None)
     }
 
-    fn logs(&self, _filter: Filter) -> Result<Vec<Log>> {
-        println!("invoked: fn logs");
-        Err(internal_err("Method not available14."))
+    fn logs(&self, filter: Filter) -> Result<Vec<Log>> {
+        let mut ret: Vec<Log> = Vec::new();
+        if let Some(hash) = filter.block_hash.clone() {
+            let block = self.account_base_app.read().current_block();
+            let statuses = self.account_base_app.read().current_transaction_statuses();
+
+            if let (Some(block), Some(statuses)) = (block, statuses) {
+                if hash != block.header.hash() {
+                    return Ok(ret);
+                }
+
+                filter_block_logs(&mut ret, &filter, block, statuses);
+            }
+        }
+        Ok(ret)
     }
 
     fn work(&self) -> Result<Work> {
@@ -696,12 +818,10 @@ impl Default for Web3ApiImpl {
 
 impl Web3Api for Web3ApiImpl {
     fn client_version(&self) -> Result<String> {
-        println!("invoked: fn client_version");
         Ok(String::from("findora-eth-api/v0.1.0-rust"))
     }
 
     fn sha3(&self, input: Bytes) -> Result<H256> {
-        println!("invoked: fn sha3");
         Ok(H256::from_slice(
             Keccak256::digest(&input.into_vec()).as_slice(),
         ))
@@ -896,4 +1016,61 @@ pub fn public_key(transaction: &EthereumTransaction) -> ruc::Result<[u8; 64]> {
     );
 
     fp_core::crypto::secp256k1_ecdsa_recover(&sig, &msg)
+}
+
+fn filter_block_logs<'a>(
+    ret: &'a mut Vec<Log>,
+    filter: &'a Filter,
+    block: EthereumBlock,
+    transaction_statuses: Vec<TransactionStatus>,
+) -> &'a Vec<Log> {
+    let params = FilteredParams::new(Some(filter.clone()));
+    let mut block_log_index: u32 = 0;
+    let block_hash =
+        H256::from_slice(Keccak256::digest(&rlp::encode(&block.header)).as_slice());
+    for status in transaction_statuses.iter() {
+        let logs = status.logs.clone();
+        let mut transaction_log_index: u32 = 0;
+        let transaction_hash = status.transaction_hash;
+        for ethereum_log in logs {
+            let mut log = Log {
+                address: ethereum_log.address.clone(),
+                topics: ethereum_log.topics.clone(),
+                data: Bytes(ethereum_log.data.clone()),
+                block_hash: None,
+                block_number: None,
+                transaction_hash: None,
+                transaction_index: None,
+                log_index: None,
+                transaction_log_index: None,
+                removed: false,
+            };
+            let mut add: bool = true;
+            if let (Some(_), Some(_)) = (filter.address.clone(), filter.topics.clone()) {
+                if !params.filter_address(&log) || !params.filter_topics(&log) {
+                    add = false;
+                }
+            } else if let Some(_) = filter.address {
+                if !params.filter_address(&log) {
+                    add = false;
+                }
+            } else if let Some(_) = &filter.topics {
+                if !params.filter_topics(&log) {
+                    add = false;
+                }
+            }
+            if add {
+                log.block_hash = Some(block_hash);
+                log.block_number = Some(block.header.number.clone());
+                log.transaction_hash = Some(transaction_hash);
+                log.transaction_index = Some(U256::from(status.transaction_index));
+                log.log_index = Some(U256::from(block_log_index));
+                log.transaction_log_index = Some(U256::from(transaction_log_index));
+                ret.push(log);
+            }
+            transaction_log_index += 1;
+            block_log_index += 1;
+        }
+    }
+    ret
 }
