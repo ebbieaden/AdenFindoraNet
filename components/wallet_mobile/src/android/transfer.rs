@@ -238,7 +238,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderDe
 //  @param {BigInt} amount
 //  @returns {TransferOperationBuilder}
 pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAddInputWithTracing(
-    _env: JNIEnv,
+    env: JNIEnv,
     _: JClass,
     builder: jlong,
     txo_ref_ptr: jlong,
@@ -246,7 +246,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
     owner_memo_ptr: jlong,
     tracing_policies_ptr: jlong,
     key_ptr: jlong,
-    amount: jint,
+    amount: JString,
 ) -> jlong {
     let builder = &*(builder as *mut TransferOperationBuilder);
     let txo_ref = *(txo_ref_ptr as *mut TxoRef);
@@ -260,6 +260,10 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
     }
     let tracing_policies = &*(tracing_policies_ptr as *mut TracingPolicies);
     let key = &*(key_ptr as *mut XfrKeyPair);
+    let amount: String = env
+        .get_string(amount)
+        .expect("Couldn't get java string!")
+        .into();
 
     let builder = builder
         .clone()
@@ -269,7 +273,7 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
             owner_memo,
             tracing_policies,
             key,
-            amount as u64,
+            amount.parse::<u64>().unwrap(),
         )
         .unwrap();
     Box::into_raw(Box::new(builder)) as jlong
@@ -294,14 +298,14 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
 // * @param {BigInt} amount
 // * @returns {TransferOperationBuilder}
 pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAddInputNoTracing(
-    _env: JNIEnv,
+    env: JNIEnv,
     _: JClass,
     builder: jlong,
     txo_ref_ptr: jlong,
     asset_record_ptr: jlong,
     owner_memo_ptr: jlong,
     key_ptr: jlong,
-    amount: jint,
+    amount: JString,
 ) -> jlong {
     let builder = &*(builder as *mut TransferOperationBuilder);
     let txo_ref = *(txo_ref_ptr as *mut TxoRef);
@@ -314,10 +318,20 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transferOperationBuilderAd
         owner_memo = Some(memo.clone());
     }
     let key = &*(key_ptr as *mut XfrKeyPair);
+    let amount: String = env
+        .get_string(amount)
+        .expect("Couldn't get java string!")
+        .into();
 
     let builder = builder
         .clone()
-        .add_input_no_tracing(txo_ref, asset_record, owner_memo, key, amount as u64)
+        .add_input_no_tracing(
+            txo_ref,
+            asset_record,
+            owner_memo,
+            key,
+            amount.parse::<u64>().unwrap(),
+        )
         .unwrap();
     Box::into_raw(Box::new(builder)) as jlong
 }
