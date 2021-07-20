@@ -2,7 +2,7 @@ use fp_core::{
     context::Context,
     crypto::{Address, Address32},
 };
-use primitive_types::{H160, U256};
+use primitive_types::{H160, H256, U256};
 use ruc::Result;
 use std::convert::TryFrom;
 
@@ -19,6 +19,11 @@ impl AddressMapping for EthereumAddressMapping {
         data[0..20].copy_from_slice(&address[..]);
         Address32::try_from(&data[..]).unwrap()
     }
+}
+
+/// A trait for getting a block hash by number.
+pub trait BlockHashMapping {
+    fn block_hash(ctx: &Context, number: U256) -> Option<H256>;
 }
 
 pub trait DecimalsMapping {

@@ -235,6 +235,11 @@ impl<C: Config> App<C> {
         Self::current_block(ctx).map(|block| block.header.hash())
     }
 
+    /// Get block hash by number
+    pub fn block_hash(ctx: &Context, number: U256) -> Option<H256> {
+        BlockHash::get(ctx.store.clone(), &number)
+    }
+
     /// Get receipts by number.
     pub fn current_receipts(ctx: &Context) -> Option<Vec<ethereum::Receipt>> {
         CurrentReceipts::get(ctx.store.clone()).unwrap_or(None)

@@ -86,7 +86,7 @@ impl Application for crate::BaseApp {
         init_header.time = req.time.clone();
 
         // initialize the deliver state and check state with a correct header
-        self.set_deliver_state(init_header.clone());
+        self.set_deliver_state(init_header.clone(), vec![]);
         self.set_check_state(init_header, vec![]);
 
         // TODO init genesis about consensus and validators
@@ -101,8 +101,10 @@ impl Application for crate::BaseApp {
         // Initialize the DeliverTx state. If this is the first block, it should
         // already be initialized in InitChain. Otherwise app.deliverState will be
         // nil, since it is reset on Commit.
-        self.set_deliver_state(req.header.as_ref().unwrap_or_default().clone());
-        self.deliver_state.header_hash = req.hash.clone();
+        self.set_deliver_state(
+            req.header.as_ref().unwrap_or_default().clone(),
+            req.hash.clone(),
+        );
 
         self.modules.begin_block(&mut self.deliver_state, req);
 
@@ -154,7 +156,6 @@ impl Application for crate::BaseApp {
         let header = self.deliver_state.block_header();
         let header_hash = self.deliver_state.header_hash();
 
-        // TODO not clear cache
         self.check_state.store = self.deliver_state.store.clone();
 
         // Write the DeliverTx state into branched storage and commit the Store.

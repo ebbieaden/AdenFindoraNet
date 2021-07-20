@@ -15,7 +15,10 @@ use fp_core::{
 use fp_evm::PrecompileSet;
 use fp_traits::{
     account::AccountAsset,
-    evm::{AddressMapping, DecimalsMapping, FeeCalculator, OnChargeEVMTransaction},
+    evm::{
+        AddressMapping, BlockHashMapping, DecimalsMapping, FeeCalculator,
+        OnChargeEVMTransaction,
+    },
 };
 use primitive_types::U256;
 use ruc::Result;
@@ -32,6 +35,8 @@ pub trait Config {
     type AddressMapping: AddressMapping;
     /// The block gas limit. Can be a simple constant, or an adjustment algorithm in another pallet.
     type BlockGasLimit: Get<U256>;
+    /// Block number to block hash.
+    type BlockHashMapping: BlockHashMapping;
     /// Chain ID of EVM.
     type ChainId: Get<u64>;
     /// Mapping from eth decimals to native token decimals.
