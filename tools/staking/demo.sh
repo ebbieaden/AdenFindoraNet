@@ -55,7 +55,7 @@ init() {
 
     make -C ../.. debug_env || exit 1
 
-    printf "bright poem guard trade airport artist soon mountain shoe satisfy fox adapt garden decline uncover when pilot person flat bench connect coach planet hidden" > ${RWD_KEY_PATH}
+    printf "zoo nerve assault talk depend approve mercy surge bicycle ridge dismiss satoshi boring opera next fat cinnamon valley office actor above spray alcohol giant" > ${RWD_KEY_PATH}
 
     fns setup -S ${SERVER_HOST} || exit 1
     fns setup -O ${RWD_KEY_PATH} || exit 1

@@ -81,6 +81,33 @@ impl<C: Config> AccountAsset<Address> for App<C> {
         Ok(())
     }
 
+    fn burn(
+        ctx: &Context,
+        target: &Address,
+        balance: u128,
+        asset: AssetType,
+    ) -> Result<()> {
+        let mut target_account: SmartAccount =
+            AccountStore::get(ctx.store.clone(), target)
+                .c(d!("account does not exist"))?;
+        if asset == ASSET_TYPE_FRA {
+            target_account.balance = target_account
+                .balance
+                .checked_sub(balance)
+                .c(d!("insufficient balance"))?;
+        } else {
+            if let Some(amount) = target_account.assets.get_mut(&asset) {
+                *amount = (*amount)
+                    .checked_sub(balance)
+                    .c(d!("insufficient balance"))?;
+            } else {
+            }
+            return Err(eg!("no this assets"));
+        }
+        AccountStore::insert(ctx.store.clone(), target, &target_account);
+        Ok(())
+    }
+
     fn withdraw(ctx: &Context, who: &Address, value: u128) -> Result<()> {
         let mut sa: SmartAccount =
             AccountStore::get(ctx.store.clone(), who).c(d!("account does not exist"))?;

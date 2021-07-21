@@ -4,5 +4,6 @@ pub mod crypto;
 pub mod ecdsa;
 pub mod hashing;
 pub mod macros;
+pub mod mint_output;
 pub mod module;
 pub mod transaction;

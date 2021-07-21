@@ -6,15 +6,21 @@
 //! This module is the library part of FNS.
 //!
 
+use crate::fns::utils::parse_td_validator_keys;
 use lazy_static::lazy_static;
-use ledger::staking::{
-    check_delegation_amount, td_pubkey_to_bytes, td_pubkey_to_td_addr, COINBASE_KP,
-    COINBASE_PK, COINBASE_PRINCIPAL_KP, COINBASE_PRINCIPAL_PK,
+use ledger::{
+    data_model::BLACK_HOLE_PUBKEY_STAKING,
+    staking::{
+        check_delegation_amount, gen_random_keypair, td_addr_to_bytes,
+        td_pubkey_to_td_addr, td_pubkey_to_td_addr_bytes, PartialUnDelegation,
+        TendermintAddrRef,
+    },
 };
 use ruc::*;
 use std::fs;
+use tendermint::PrivateKey;
 use txn_builder::BuildsTransactions;
-use zei::xfr::sig::XfrKeyPair;
+use zei::xfr::sig::{XfrKeyPair, XfrSecretKey};
 
 pub mod utils;
 
@@ -23,15 +29,15 @@ const CFG_PATH: &str = "/tmp/.____fns_config____";
 lazy_static! {
     static ref MNEMONIC: Option<String> = fs::read_to_string(&*MNEMONIC_FILE).ok();
     static ref MNEMONIC_FILE: String = format!("{}/mnemonic", CFG_PATH);
-    static ref TD_PUBKEY: Option<String> = fs::read_to_string(&*TD_PUBKEY_FILE).ok();
-    static ref TD_PUBKEY_FILE: String = format!("{}/tendermint_pubkey", CFG_PATH);
+    static ref TD_KEY: Option<String> = fs::read_to_string(&*TD_KEY_FILE).ok();
+    static ref TD_KEY_FILE: String = format!("{}/tendermint_keys", CFG_PATH);
     static ref SERV_ADDR: Option<String> = fs::read_to_string(&*SERV_ADDR_FILE).ok();
     static ref SERV_ADDR_FILE: String = format!("{}/serv_addr", CFG_PATH);
 }
 
 pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<()> {
     let am = amount.parse::<u64>().c(d!("'amount' must be an integer"))?;
-    check_delegation_amount(am).c(d!())?;
+    check_delegation_amount(am, false).c(d!())?;
     let cr = commission_rate
         .parse::<f64>()
         .c(d!("commission rate must be a float number"))
@@ -39,45 +45,88 @@ pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<
     let td_pubkey = get_td_pubkey().c(d!())?;
 
     let kp = get_keypair().c(d!())?;
+    let vkp = get_td_privkey().c(d!())?;
 
     let mut builder = utils::new_tx_builder().c(d!())?;
     builder
-        .add_operation_staking(&kp, td_pubkey, cr, memo.map(|m| m.to_owned()))
+        .add_operation_staking(&kp, &vkp, td_pubkey, cr, memo.map(|m| m.to_owned()))
         .c(d!())?;
-    utils::gen_transfer_op(&kp, vec![(&COINBASE_PRINCIPAL_PK, am)])
+    utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, am)], false, false)
         .c(d!())
         .map(|principal_op| builder.add_operation(principal_op))?;
 
     utils::send_tx(&builder.take_transaction()).c(d!())
 }
 
-pub fn stake_append(amount: &str) -> Result<()> {
+pub fn stake_append(
+    amount: &str,
+    staker: Option<&str>,
+    td_addr: Option<TendermintAddrRef>,
+) -> Result<()> {
     let am = amount.parse::<u64>().c(d!("'amount' must be an integer"))?;
-    check_delegation_amount(am).c(d!())?;
+    check_delegation_amount(am, true).c(d!())?;
 
-    let td_pubkey = get_td_pubkey().c(d!())?;
-    let td_addr = td_pubkey_to_td_addr(&td_pubkey);
+    let td_addr = td_addr.map(|ta| ta.to_owned()).c(d!()).or_else(|_| {
+        get_td_pubkey()
+            .c(d!())
+            .map(|td_pk| td_pubkey_to_td_addr(&td_pk))
+    })?;
 
-    let kp = get_keypair().c(d!())?;
+    let kp = staker
+        .c(d!())
+        .and_then(|sk| wallet::restore_keypair_from_mnemonic_default(sk).c(d!()))
+        .or_else(|_| get_keypair().c(d!()))?;
 
     let mut builder = utils::new_tx_builder().c(d!())?;
     builder.add_operation_delegation(&kp, td_addr);
-    utils::gen_transfer_op(&kp, vec![(&COINBASE_PRINCIPAL_PK, am)])
+    utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, am)], false, false)
         .c(d!())
         .map(|principal_op| builder.add_operation(principal_op))?;
 
     utils::send_tx(&builder.take_transaction()).c(d!())
 }
 
-pub fn unstake() -> Result<()> {
-    let kp = get_keypair().c(d!())?;
+pub fn unstake(
+    am: Option<&str>,
+    staker: Option<&str>,
+    td_addr: Option<TendermintAddrRef>,
+) -> Result<()> {
+    let am = if let Some(i) = am {
+        Some(i.parse::<u64>().c(d!("'amount' must be an integer"))?)
+    } else {
+        None
+    };
+
+    let kp = staker
+        .c(d!())
+        .and_then(|sk| wallet::restore_keypair_from_mnemonic_default(sk).c(d!()))
+        .or_else(|_| get_keypair().c(d!()))?;
+    let td_addr_bytes = td_addr
+        .c(d!())
+        .and_then(|ta| td_addr_to_bytes(ta).c(d!()))
+        .or_else(|_| {
+            get_td_pubkey()
+                .c(d!())
+                .map(|td_pk| td_pubkey_to_td_addr_bytes(&td_pk))
+        })?;
 
     let mut builder = utils::new_tx_builder().c(d!())?;
 
     utils::gen_fee_op(&kp).c(d!()).map(|op| {
         builder.add_operation(op);
-        // TODO: suit for partial un-delegations
-        builder.add_operation_undelegation(&kp, None);
+        if let Some(am) = am {
+            // partial undelegation
+            builder.add_operation_undelegation(
+                &kp,
+                Some(PartialUnDelegation::new(
+                    am,
+                    gen_random_keypair().get_pk(),
+                    td_addr_bytes,
+                )),
+            );
+        } else {
+            builder.add_operation_undelegation(&kp, None);
+        }
     })?;
 
     utils::send_tx(&builder.take_transaction()).c(d!())
@@ -108,9 +157,13 @@ pub fn show() -> Result<()> {
         println!("\x1b[31;01mServer URL:\x1b[00m\n{}\n", i);
     });
 
-    let xfr_pubkey = ruc::info!(get_keypair()).map(|i| {
+    let xfr_account = ruc::info!(get_keypair()).map(|i| {
         println!(
-            "\x1b[31;01mXfrPublicKey:\x1b[00m\n{}\n",
+            "\x1b[31;01mFindora Address:\x1b[00m\n{}\n",
+            wallet::public_key_to_bech32(&i.get_pk())
+        );
+        println!(
+            "\x1b[31;01mFindora Public Key:\x1b[00m\n{}\n",
             wallet::public_key_to_base64(&i.get_pk())
         );
     });
@@ -122,20 +175,8 @@ pub fn show() -> Result<()> {
         );
     });
 
-    let cb_balance = ruc::info!(utils::get_balance(&COINBASE_KP)).map(|i| {
-        println!("\x1b[31;01mCoinBase Balance:\x1b[00m\n{} FRA units\n", i);
-    });
-
-    let cb_principal_balance = ruc::info!(utils::get_balance(&COINBASE_PRINCIPAL_KP))
-        .map(|i| {
-            println!(
-                "\x1b[31;01mCoinBase Principal Balance:\x1b[00m\n{} FRA units\n",
-                i
-            );
-        });
-
     let self_balance = ruc::info!(utils::get_balance(&kp)).map(|i| {
-        println!("\x1b[31;01mYour Balance:\x1b[00m\n{} FRA units\n", i);
+        println!("\x1b[31;01mNode Balance:\x1b[00m\n{} FRA units\n", i);
     });
 
     let delegation_info = utils::get_delegation_info(kp.get_pk_ref())
@@ -149,10 +190,8 @@ pub fn show() -> Result<()> {
 
     if [
         serv_addr,
-        xfr_pubkey,
+        xfr_account,
         td_pubkey,
-        cb_balance,
-        cb_principal_balance,
         self_balance,
         delegation_info,
     ]
@@ -168,7 +207,7 @@ pub fn show() -> Result<()> {
 pub fn setup(
     serv_addr: Option<&str>,
     owner_mnemonic_path: Option<&str>,
-    validator_pubkey: Option<&str>,
+    validator_key_path: Option<&str>,
 ) -> Result<()> {
     fs::create_dir_all(CFG_PATH).c(d!("fail to create config path"))?;
 
@@ -178,35 +217,32 @@ pub fn setup(
     if let Some(mp) = owner_mnemonic_path {
         fs::write(&*MNEMONIC_FILE, mp).c(d!("fail to cache 'owner-mnemonic-path'"))?;
     }
-    if let Some(pubkey) = validator_pubkey {
-        fs::write(&*TD_PUBKEY_FILE, pubkey).c(d!("fail to cache 'validator-pubkey'"))?;
+    if let Some(kp) = validator_key_path {
+        fs::write(&*TD_KEY_FILE, kp).c(d!("fail to cache 'validator-key-path'"))?;
     }
     Ok(())
 }
 
-pub fn transfer_fra(target_addr: &str, am: &str) -> Result<()> {
-    let ta =
+pub fn transfer_fra(
+    owner_sk: Option<&str>,
+    target_addr: &str,
+    am: &str,
+    confidential_am: bool,
+    confidential_ty: bool,
+) -> Result<()> {
+    let from = owner_sk
+        .c(d!())
+        .and_then(|sk| {
+            ruc::info!(serde_json::from_str::<XfrSecretKey>(&format!("\"{}\"", sk)))
+                .c(d!())
+                .map(|sk| sk.into_keypair())
+        })
+        .or_else(|_| get_keypair().c(d!()))?;
+    let to =
         wallet::public_key_from_base64(target_addr).c(d!("invalid 'target-addr'"))?;
     let am = am.parse::<u64>().c(d!("'amount' must be an integer"))?;
 
-    get_keypair()
-        .c(d!())
-        .and_then(|kp| utils::transfer(&kp, &ta, am).c(d!()))
-}
-
-/// Mainly for official usage,
-/// and can be also used in test scenes.
-pub fn contribute(am: Option<&str>) -> Result<()> {
-    let am = if let Some(i) = am {
-        i.parse::<u64>().c(d!("'amount' must be an integer"))?
-    } else {
-        // 400m FRAs
-        4_000000_000000
-    };
-
-    get_keypair()
-        .c(d!())
-        .and_then(|kp| utils::transfer(&kp, &*COINBASE_PK, am).c(d!()))
+    utils::transfer(&from, &to, am, confidential_am, confidential_ty).c(d!())
 }
 
 /// Mainly for official usage,
@@ -239,10 +275,29 @@ pub fn get_keypair() -> Result<XfrKeyPair> {
 }
 
 fn get_td_pubkey() -> Result<Vec<u8>> {
-    if let Some(pubkey) = TD_PUBKEY.as_ref() {
-        td_pubkey_to_bytes(pubkey).c(d!())
+    if let Some(key_path) = TD_KEY.as_ref() {
+        fs::read_to_string(key_path)
+            .c(d!("can not read key file from path"))
+            .and_then(|k| {
+                let v_keys = parse_td_validator_keys(k).c(d!())?;
+                Ok(v_keys.pub_key.to_vec())
+            })
     } else {
         Err(eg!("'validator-pubkey' has not been set"))
+    }
+}
+
+fn get_td_privkey() -> Result<PrivateKey> {
+    if let Some(key_path) = TD_KEY.as_ref() {
+        fs::read_to_string(key_path)
+            .c(d!("can not read key file from path"))
+            .and_then(|k| {
+                parse_td_validator_keys(k)
+                    .c(d!())
+                    .map(|v_keys| v_keys.priv_key)
+            })
+    } else {
+        Err(eg!("'validator-privkey' has not been set"))
     }
 }
 
@@ -254,4 +309,9 @@ fn convert_commission_rate(cr: f64) -> Result<[u64; 2]> {
         return Err(eg!("commission rate must be a positive float number"));
     }
     Ok([(cr * 10000.0) as u64, 10000])
+}
+
+/// Return the built version.
+pub fn version() -> &'static str {
+    concat!(env!("VERGEN_SHA_SHORT"), " ", env!("VERGEN_BUILD_DATE"))
 }
