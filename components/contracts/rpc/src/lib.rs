@@ -3,6 +3,7 @@ mod forward;
 
 use baseapp::BaseApp;
 use evm::{ExitError, ExitReason};
+pub use forward::{TendermintForward, TX_COMMIT};
 use fp_utils::ethereum::generate_address;
 use jsonrpc_core::{Error, ErrorCode};
 use jsonrpc_http_server::{

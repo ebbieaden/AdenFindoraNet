@@ -6,9 +6,10 @@
 
 use crate::abci::server::callback::TENDERMINT_BLOCK_HEIGHT;
 use abci::{Evidence, Header, LastCommitInfo, PubKey, ValidatorUpdate};
+use baseapp::BaseApp as AccountBaseApp;
 use lazy_static::lazy_static;
 use ledger::{
-    data_model::{Operation, Transaction},
+    data_model::{Operation, Transaction, ASSET_TYPE_FRA},
     staking::{
         ops::{
             governance::{governance_penalty_tendermint_auto, ByzantineKind},
@@ -261,6 +262,7 @@ fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
 /// Pay for freed 'Delegations' and 'FraDistributions'.
 pub fn system_mint_pay<RNG: RngCore + CryptoRng>(
     la: &(impl LedgerAccess + LedgerUpdate<RNG>),
+    account_base_app: &mut AccountBaseApp,
 ) -> Option<Transaction> {
     let staking = la.get_staking();
     let mut limit = staking.coinbase_balance() as i128;
@@ -268,11 +270,11 @@ pub fn system_mint_pay<RNG: RngCore + CryptoRng>(
     // at most `NUM_TO_PAY` items to pay per block
     const NUM_TO_PAY: usize = 2048;
 
-    let mint_entries = staking
+    let mut mint_entries = staking
         .delegation_get_global_principal_with_receiver()
         .into_iter()
         .map(|(k, (n, receiver_pk))| {
-            MintEntry::new(MintKind::UnStake, k, receiver_pk, n)
+            MintEntry::new(MintKind::UnStake, k, receiver_pk, n, ASSET_TYPE_FRA)
         })
         .chain(
             staking
@@ -288,10 +290,33 @@ pub fn system_mint_pay<RNG: RngCore + CryptoRng>(
                     limit -= *n as i128;
                     limit >= 0
                 })
-                .map(|(k, n)| MintEntry::new(MintKind::Claim, k, None, n)),
+                .map(|(k, n)| {
+                    MintEntry::new(MintKind::Claim, k, None, n, ASSET_TYPE_FRA)
+                }),
         )
         .take(NUM_TO_PAY)
         .collect::<Vec<_>>();
+
+    // add account mint_entries.
+    const MAX_MINT_PAY: usize = 64;
+    let mut vec = if let Ok(account_mint) = account_base_app.consume_mint(MAX_MINT_PAY) {
+        account_mint
+            .iter()
+            .map(|mint| {
+                MintEntry::new(
+                    MintKind::Other,
+                    mint.target,
+                    None,
+                    mint.amount,
+                    mint.asset,
+                )
+            })
+            .collect::<Vec<MintEntry>>()
+    } else {
+        Vec::new()
+    };
+
+    mint_entries.append(&mut vec);
 
     if mint_entries.is_empty() {
         None

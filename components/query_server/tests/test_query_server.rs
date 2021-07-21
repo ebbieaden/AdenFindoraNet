@@ -4,8 +4,8 @@
 
 use lazy_static::lazy_static;
 use ledger::data_model::{
-    AssetRules, AssetTypeCode, Operation, Transaction, TxnEffect, TxnSID, TxoSID, Utxo,
-    XfrAddress,
+    AccountAddress, AssetRules, AssetTypeCode, IssuerPublicKey, Operation, Transaction,
+    TxOutput, TxnEffect, TxnSID, TxoRef, TxoSID, Utxo, XfrAddress, ASSET_TYPE_FRA,
 };
 use ledger::staking::ops::mint_fra::{MintEntry, MintFraOps, MintKind};
 use ledger::store::{LedgerAccess, LedgerState, LedgerUpdate};
@@ -15,16 +15,20 @@ use query_server::QueryServer;
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::*;
+use std::borrow::BorrowMut;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use txn_builder::{BuildsTransactions, PolicyChoice, TransactionBuilder};
 use utils::MetricsRenderer;
+use zei::api::anon_creds::ACCommitment;
 use zei::setup::PublicParams;
 use zei::xfr::asset_record::{
     build_blind_asset_record, open_blind_asset_record, AssetRecordType,
 };
 use zei::xfr::sig::XfrKeyPair;
-use zei::xfr::structs::OwnerMemo;
+use zei::xfr::structs::{
+    AssetRecordTemplate, AssetTracerKeyPair, OwnerMemo, TracingPolicies, TracingPolicy,
+};
 
 lazy_static! {
     static ref LEDGER: Arc<RwLock<LedgerState>> =
@@ -72,55 +76,175 @@ fn apply_transaction(tx: Transaction) -> Option<(TxnSID, Vec<TxoSID>)> {
 /// 1. get_address_of_sid
 /// 2. get_owned_utxo_sids
 /// 3. get_coinbase_entries
+/// 4. get_traced_assets
+/// 5. get_issued_records
+/// 6. get_owner_memo
+/// 7. get_created_assets
+/// 8. get_issued_records_by_code
+/// 9. get_transaction_hash
+/// 10. get_transaction_sid
+/// 11. get_commits
+/// 12. get_related_transfers (not complete)
+/// 13. get_related_transactions
 fn test_scene_1() -> Result<()> {
     let mut prng = ChaChaRng::from_entropy();
-    let code = AssetTypeCode::gen_random();
+    let mut code = AssetTypeCode::gen_random();
     let x_kp = XfrKeyPair::generate(&mut prng);
     let params = PublicParams::default();
 
     // define
     let mut builder =
         TransactionBuilder::from_seq_id(LEDGER.read().get_block_commit_count());
-    let tx = pnk!(builder.add_operation_create_asset(
-        &x_kp,
-        Some(code),
-        AssetRules::default(),
-        "test",
-        PolicyChoice::Fungible(),
-    ))
-    .transaction();
-    pnk!(apply_transaction(tx.clone()));
+
+    {
+        // if get traced assets,must create AssetRules from TracingPolicy
+        let asset_tracer_key_pair = AssetTracerKeyPair::generate(&mut prng);
+        let tracing_policy = TracingPolicy {
+            enc_keys: asset_tracer_key_pair.enc_key,
+            asset_tracing: false,
+            identity_tracing: None,
+        };
+
+        let mut ar = AssetRules::default();
+        ar.add_tracing_policy(tracing_policy);
+
+        builder
+            .add_operation_create_asset(
+                &x_kp,
+                Some(code),
+                ar,
+                "test",
+                PolicyChoice::Fungible(),
+            )
+            .c(d!());
+    }
+
+    let tx = builder.transaction();
+    let (define_txns, _) = pnk!(apply_transaction(tx.clone()));
 
     // issue
     let mut builder =
         TransactionBuilder::from_seq_id(LEDGER.read().get_block_commit_count());
-    let tx = pnk!(builder.add_basic_issue_asset(
-        &x_kp,
-        &code,
-        LEDGER.read().get_block_commit_count(),
-        1000,
-        AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-        &params,
-    ))
-    .transaction();
-    let (_, issue_txos) = pnk!(apply_transaction(tx.clone()));
 
-    // create txn from mint_ops
+    {
+        let mut prng = ChaChaRng::from_entropy();
+        let ar = AssetRecordTemplate::with_no_asset_tracing(
+            1000,
+            code.val,
+            AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
+            x_kp.clone().get_pk(),
+        );
+        let (ba, _, owner_memo) =
+            build_blind_asset_record(&mut prng, &params.pc_gens, &ar, vec![]);
+        let (om, (_, _)) =
+            pnk!(OwnerMemo::from_amount(&mut prng, 1000, &x_kp.pub_key).c(d!()));
+
+        builder
+            .add_operation_issue_asset(
+                &x_kp,
+                &code,
+                LEDGER.read().get_block_commit_count(),
+                &[(
+                    TxOutput {
+                        id: None,
+                        record: ba,
+                        lien: None,
+                    },
+                    Some(om),
+                )],
+            )
+            .c(d!());
+    }
+
+    let issue_tx = builder.transaction();
+    let (issue_txns, issue_txos) = pnk!(apply_transaction(issue_tx.clone()));
+
+    // mint_ops
     let mint_ops = Operation::MintFra(MintFraOps::new(
         0u64,
         vec![
-            MintEntry::new(MintKind::Claim, x_kp.pub_key, None, 100),
-            MintEntry::new(MintKind::UnStake, x_kp.pub_key, None, 900),
+            MintEntry::new(MintKind::Claim, x_kp.pub_key, None, 100, ASSET_TYPE_FRA),
+            MintEntry::new(MintKind::UnStake, x_kp.pub_key, None, 900, ASSET_TYPE_FRA),
         ],
     ));
-    let tx =
+    let mint_tx =
         Transaction::from_operation(mint_ops, LEDGER.read().get_block_commit_count());
-    let (_, mint_txos) = pnk!(apply_transaction(tx.clone()));
+    let (mint_txns, mint_txos) = pnk!(apply_transaction(mint_tx.clone()));
 
-    // A necessary step, in fact, is to update utxos_to_map_index
+    // A necessary step, update data from tendermint on query server
     QS.write().update();
 
-    let result = QS
+    if let Some(set) = QS
+        .read()
+        .get_related_transactions(&XfrAddress { key: x_kp.pub_key })
+    {
+        assert!(
+            set.contains(&define_txns)
+                && set.contains(&issue_txns)
+                && set.contains(&mint_txns)
+        );
+    }
+
+    let seq_id = QS.read().get_commits();
+    assert_eq!(3, seq_id); // define,issue,mint_fra
+
+    if let Some(issue_tx_hash) = QS.read().get_transaction_hash(issue_txns) {
+        assert_eq!(issue_tx_hash, &issue_tx.hash_tm().hex().to_uppercase());
+
+        if let Some(issue_txn_sid) = QS.read().get_transaction_sid(issue_tx_hash.clone())
+        {
+            assert_eq!(issue_txn_sid, &issue_txns);
+        }
+    }
+
+    if let Some(mint_tx_hash) = QS.read().get_transaction_hash(mint_txns) {
+        assert_eq!(mint_tx_hash, &mint_tx.hash_tm().hex().to_uppercase());
+
+        if let Some(mint_txn_sid) = QS.read().get_transaction_sid(mint_tx_hash.clone()) {
+            assert_eq!(mint_txn_sid, &mint_txns);
+        }
+    }
+
+    for (i, ts) in issue_txos.iter().chain(mint_txos.iter()).enumerate() {
+        match i {
+            0 => {
+                if let Some(om) = QS.read().get_owner_memo(*ts) {
+                    assert_eq!(om.decrypt_amount(&x_kp).ok(), Some(1000));
+                }
+            }
+            1 | 2 => {
+                assert_eq!(None, QS.read().get_owner_memo(*ts));
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(v) = QS.read().get_issued_records_by_code(&code) {
+        assert_eq!(v[0].0.record.amount.get_amount(), Some(1000));
+        assert_eq!(v[0].0.record.public_key, x_kp.pub_key);
+    }
+
+    if let Some(define_assets) = QS.read().get_created_assets(&IssuerPublicKey {
+        key: x_kp.pub_key.clone(),
+    }) {
+        assert_eq!(define_assets.clone()[0].pubkey.key, x_kp.pub_key);
+    }
+
+    let records = pnk!(QS.read().get_issued_records(&IssuerPublicKey {
+        key: x_kp.pub_key.clone()
+    }));
+    assert_eq!(records[0].0.record.public_key, x_kp.pub_key.clone());
+
+    let atc_vec = pnk!(
+        QS.read()
+            .get_traced_assets(&IssuerPublicKey {
+                key: x_kp.pub_key.clone()
+            })
+            .cloned()
+    );
+    assert_eq!(atc_vec[0], code);
+
+    let (_, result) = QS
         .read()
         .get_coinbase_entries(&XfrAddress { key: x_kp.pub_key }, 0, 5, true)
         .unwrap();
@@ -138,12 +262,8 @@ fn test_scene_1() -> Result<()> {
         };
     judgement_mint_result(result, vec![100, 900]);
 
-    // test call api
-    let op = QS.read().get_address_of_sid(issue_txos[0]).cloned();
-    assert_eq!(Some(XfrAddress { key: x_kp.pub_key }), op);
-
-    for mint_txo in mint_txos {
-        let op = QS.read().get_address_of_sid(mint_txo).cloned();
+    for (_, ts) in issue_txos.iter().chain(mint_txos.iter()).enumerate() {
+        let op = QS.read().get_address_of_sid(*ts).cloned();
         assert_eq!(Some(XfrAddress { key: x_kp.pub_key }), op);
     }
 
@@ -162,6 +282,7 @@ fn test_scene_1() -> Result<()> {
             }
         };
     judgement_get_utxo_sids_result(op.unwrap(), map);
+
     Ok(())
 }
 

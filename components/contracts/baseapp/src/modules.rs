@@ -3,6 +3,7 @@ use abci::{RequestBeginBlock, RequestEndBlock, RequestQuery, ResponseEndBlock};
 use fp_core::{
     context::Context,
     crypto::Address,
+    mint_output::MintOutput,
     module::{AppModule, AppModuleBasic},
     transaction::{ActionResult, Applyable, Executable, ValidateUnsigned},
 };
@@ -134,6 +135,14 @@ impl ModuleManager {
             )?;
         }
         Ok(())
+    }
+
+    pub fn consume_mint(
+        &mut self,
+        ctx: &Context,
+        size: usize,
+    ) -> Result<Vec<MintOutput>> {
+        module_account::App::<BaseApp>::consume_mint(ctx, size)
     }
 }
 

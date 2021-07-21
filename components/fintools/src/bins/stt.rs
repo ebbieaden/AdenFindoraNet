@@ -146,7 +146,7 @@ fn run() -> Result<()> {
                     .c(d!())
                     .map(|kp| kp.get_pk())
                     .or_else(|e| wallet::public_key_from_base64(receiver).c(d!(e)))?;
-                fns::utils::transfer(owner_kp, &target_pk, am).c(d!())?;
+                fns::utils::transfer(owner_kp, &target_pk, am, false, false).c(d!())?;
             }
             _ => {
                 println!("{}", m.usage());
@@ -197,7 +197,7 @@ mod init {
             .collect::<Vec<_>>();
 
         println!(">>> transfer FRAs to validators...");
-        fns::utils::transfer_batch(&root_kp, target_list).c(d!())?;
+        fns::utils::transfer_batch(&root_kp, target_list, false, false).c(d!())?;
 
         println!(">>> wait 6 blocks ...");
         sleep_n_block!(6);
@@ -306,6 +306,8 @@ mod delegate {
         fns::utils::gen_transfer_op(
             owner_kp,
             vec![(&BLACK_HOLE_PUBKEY_STAKING, amount)],
+            false,
+            false,
         )
         .c(d!())
         .map(|principal_op| {
@@ -378,7 +380,12 @@ fn print_info(
     user: Option<NameRef>,
 ) -> Result<()> {
     if show_root_mnemonic {
-        println!("\x1b[31;01mROOT MNEMONIC:\x1b[00m\n{}\n", ROOT_MNEMONIC);
+        let kp = wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
+        println!(
+            "\x1b[31;01mROOT MNEMONIC:\x1b[00m\n{}\nKeys: {}",
+            ROOT_MNEMONIC,
+            serde_json::to_string(&kp).c(d!())?
+        );
     }
 
     if show_user_list {

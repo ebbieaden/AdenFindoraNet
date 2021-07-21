@@ -6,18 +6,18 @@
 
 use crate::staking::BlockHeight;
 use crate::{
-    data_model::{TxOutput, ASSET_TYPE_FRA},
+    data_model::TxOutput,
     staking::{Amount, FRA},
 };
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
-use zei::xfr::sig::XfrPublicKey;
 use zei::{
     setup::PublicParams,
     xfr::{
         asset_record::{build_blind_asset_record, AssetRecordType},
-        structs::{AssetRecordTemplate, OwnerMemo},
+        sig::XfrPublicKey,
+        structs::{AssetRecordTemplate, AssetType, OwnerMemo},
     },
 };
 // use zei::xfr::structs::AssetType;
@@ -59,6 +59,7 @@ pub struct MintEntry {
     pub target_pk: XfrPublicKey,
     pub amount: Amount,
     pub utxo: TxOutput,
+    pub asset_type: AssetType,
 }
 
 impl MintEntry {
@@ -69,11 +70,12 @@ impl MintEntry {
         target_pk: XfrPublicKey,
         receiver_pk: Option<XfrPublicKey>,
         amount: Amount,
+        asset_type: AssetType,
     ) -> Self {
         let mut prng = ChaChaRng::seed_from_u64(0);
         let ar = AssetRecordTemplate::with_no_asset_tracing(
             amount,
-            ASSET_TYPE_FRA,
+            asset_type,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
             receiver_pk.unwrap_or(target_pk),
         );
@@ -91,6 +93,7 @@ impl MintEntry {
             target_pk,
             amount,
             utxo,
+            asset_type,
         }
     }
 }
@@ -100,5 +103,5 @@ impl MintEntry {
 pub enum MintKind {
     Claim,
     UnStake,
-    ConvertUtxoFra,
+    Other,
 }

@@ -8,7 +8,9 @@ use fp_core::account::SmartAccount;
 use fp_core::{
     context::Context,
     crypto::Address,
-    ensure, parameter_types,
+    ensure,
+    mint_output::MintOutput,
+    parameter_types,
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
 use fp_traits::account::AccountAsset;
@@ -239,6 +241,10 @@ impl BaseApp {
 
     pub fn check_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {
         self.modules.process_findora_tx(&self.check_state, tx)
+    }
+
+    pub fn consume_mint(&mut self, size: usize) -> Result<Vec<MintOutput>> {
+        self.modules.consume_mint(&self.deliver_state, size)
     }
 }
 

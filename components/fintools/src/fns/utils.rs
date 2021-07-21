@@ -4,7 +4,7 @@ use ledger::{
         DelegationInfo, Operation, StateCommitmentData, Transaction, TransferType,
         TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
     },
-    staking::{init::get_inital_validators, FRA},
+    staking::{init::get_inital_validators, FRA_TOTAL_AMOUNT},
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use utils::{HashOf, SignatureOf};
 use zei::xfr::{
     asset_record::{open_blind_asset_record, AssetRecordType},
     sig::{XfrKeyPair, XfrPublicKey},
-    structs::{AssetRecordTemplate, OwnerMemo, XfrAmount},
+    structs::{AssetRecordTemplate, OwnerMemo},
 };
 
 ///////////////////////////////////////
@@ -56,11 +56,23 @@ pub fn set_initial_validators(owner_kp: &XfrKeyPair) -> Result<()> {
 
 #[inline(always)]
 #[allow(missing_docs)]
-pub fn transfer(owner_kp: &XfrKeyPair, target_pk: &XfrPublicKey, am: u64) -> Result<()> {
-    if 200_0000 * FRA < am {
-        return Err(eg!("The transfer amount is too large!"));
+pub fn transfer(
+    owner_kp: &XfrKeyPair,
+    target_pk: &XfrPublicKey,
+    am: u64,
+    confidential_am: bool,
+    confidential_ty: bool,
+) -> Result<()> {
+    if FRA_TOTAL_AMOUNT < am {
+        return Err(eg!("Requested amount exceeds limit!"));
     }
-    transfer_batch(owner_kp, vec![(target_pk, am)]).c(d!())
+    transfer_batch(
+        owner_kp,
+        vec![(target_pk, am)],
+        confidential_am,
+        confidential_ty,
+    )
+    .c(d!())
 }
 
 #[inline(always)]
@@ -68,9 +80,12 @@ pub fn transfer(owner_kp: &XfrKeyPair, target_pk: &XfrPublicKey, am: u64) -> Res
 pub fn transfer_batch(
     owner_kp: &XfrKeyPair,
     target_list: Vec<(&XfrPublicKey, u64)>,
+    confidential_am: bool,
+    confidential_ty: bool,
 ) -> Result<()> {
     let mut builder = new_tx_builder().c(d!())?;
-    let op = gen_transfer_op(owner_kp, target_list).c(d!())?;
+    let op = gen_transfer_op(owner_kp, target_list, confidential_am, confidential_ty)
+        .c(d!())?;
     builder.add_operation(op);
     send_tx(&builder.take_transaction()).c(d!())
 }
@@ -81,8 +96,17 @@ pub fn transfer_batch(
 pub fn gen_transfer_op(
     owner_kp: &XfrKeyPair,
     target_list: Vec<(&XfrPublicKey, u64)>,
+    confidential_am: bool,
+    confidential_ty: bool,
 ) -> Result<Operation> {
-    gen_transfer_op_x(owner_kp, target_list, true).c(d!())
+    gen_transfer_op_x(
+        owner_kp,
+        target_list,
+        true,
+        confidential_am,
+        confidential_ty,
+    )
+    .c(d!())
 }
 
 #[allow(missing_docs)]
@@ -90,6 +114,8 @@ pub fn gen_transfer_op_x(
     owner_kp: &XfrKeyPair,
     mut target_list: Vec<(&XfrPublicKey, u64)>,
     auto_fee: bool,
+    confidential_am: bool,
+    confidential_ty: bool,
 ) -> Result<Operation> {
     if auto_fee {
         target_list.push((&*BLACK_HOLE_PUBKEY, TX_FEE_MIN));
@@ -102,20 +128,15 @@ pub fn gen_transfer_op_x(
     let utxos = get_owned_utxos(owner_kp.get_pk_ref()).c(d!())?.into_iter();
 
     for (sid, (utxo, owner_memo)) in utxos {
-        if let XfrAmount::NonConfidential(n) = utxo.0.record.amount {
-            alt!(n < am, i_am = n, i_am = am);
-            am = am.saturating_sub(n);
-        } else {
-            continue;
-        }
+        let oar =
+            open_blind_asset_record(&utxo.0.record, &owner_memo, owner_kp).c(d!())?;
 
-        open_blind_asset_record(&utxo.0.record, &owner_memo, owner_kp)
-            .c(d!())
-            .and_then(|ob| {
-                trans_builder
-                    .add_input(TxoRef::Absolute(sid), ob, None, None, i_am)
-                    .c(d!())
-            })?;
+        alt!(oar.amount < am, i_am = oar.amount, i_am = am);
+        am = am.saturating_sub(oar.amount);
+
+        trans_builder
+            .add_input(TxoRef::Absolute(sid), oar, None, None, i_am)
+            .c(d!())?;
 
         alt!(0 == am, break);
     }
@@ -124,13 +145,32 @@ pub fn gen_transfer_op_x(
         return Err(eg!("insufficient balance"));
     }
 
+    if auto_fee {
+        target_list.pop();
+        trans_builder
+            .add_output(
+                &AssetRecordTemplate::with_no_asset_tracing(
+                    TX_FEE_MIN,
+                    ASSET_TYPE_FRA,
+                    AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
+                    *BLACK_HOLE_PUBKEY,
+                ),
+                None,
+                None,
+                None,
+            )
+            .c(d!())?;
+    }
+
+    let art = match (confidential_am, confidential_ty) {
+        (true, true) => AssetRecordType::ConfidentialAmount_ConfidentialAssetType,
+        (true, false) => AssetRecordType::ConfidentialAmount_NonConfidentialAssetType,
+        (false, true) => AssetRecordType::NonConfidentialAmount_ConfidentialAssetType,
+        _ => AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
+    };
+
     let outputs = target_list.into_iter().map(|(pk, n)| {
-        AssetRecordTemplate::with_no_asset_tracing(
-            n,
-            ASSET_TYPE_FRA,
-            AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
-            *pk,
-        )
+        AssetRecordTemplate::with_no_asset_tracing(n, ASSET_TYPE_FRA, art, *pk)
     });
 
     for output in outputs {
@@ -154,7 +194,7 @@ pub fn gen_transfer_op_x(
 #[inline(always)]
 #[allow(missing_docs)]
 pub fn gen_fee_op(owner_kp: &XfrKeyPair) -> Result<Operation> {
-    gen_transfer_op(owner_kp, vec![]).c(d!())
+    gen_transfer_op(owner_kp, vec![], false, false).c(d!())
 }
 
 /////////////////////////////////////////

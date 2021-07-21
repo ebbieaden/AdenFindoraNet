@@ -173,7 +173,9 @@ pub fn end_block(
     // mint coinbase, cache system transactions to ledger
     {
         let laa = la.get_committed_state().write();
-        if let Some(tx) = staking::system_mint_pay(&*laa) {
+        if let Some(tx) =
+            staking::system_mint_pay(&*laa, &mut *s.account_base_app.write())
+        {
             drop(laa);
             // this unwrap should be safe
             la.cache_transaction(tx).unwrap();

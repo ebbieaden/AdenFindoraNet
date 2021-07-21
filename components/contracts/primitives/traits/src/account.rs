@@ -31,6 +31,14 @@ pub trait AccountAsset<Address> {
         asset: AssetType,
     ) -> Result<()>;
 
+    /// Burns `value` to the free balance of `who`.
+    fn burn(
+        ctx: &Context,
+        target: &Address,
+        balance: u128,
+        asset: AssetType,
+    ) -> Result<()>;
+
     /// Removes some balance from `who` account.
     fn withdraw(ctx: &Context, who: &Address, value: u128) -> Result<()>;
 

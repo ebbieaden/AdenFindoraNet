@@ -1,12 +1,13 @@
 extern crate byteorder;
 extern crate tempdir;
 
-use crate::data_model::errors::PlatformError;
-use crate::data_model::{StakingUpdate, *};
-use crate::policies::{calculate_fee, DebtMemo};
-use crate::policy_script::policy_check_txn;
-use crate::staking::Staking;
-use crate::{inp_fail, inv_fail};
+use crate::{
+    data_model::{errors::PlatformError, StakingUpdate, *},
+    inp_fail, inv_fail,
+    policies::{calculate_fee, DebtMemo},
+    policy_script::policy_check_txn,
+    staking::{Staking, FRA_TOTAL_AMOUNT},
+};
 use aoko::std_ext::KtStd;
 use bitmap::{BitMap, SparseMap};
 use cryptohash::sha256::Digest as BitDigest;
@@ -331,23 +332,19 @@ impl HasInvariants for LedgerStatus {
     }
 
     fn deep_invariant_check(&self) -> Result<()> {
-        self.fast_invariant_check().c(d!(PlatformError::Unknown))
+        self.fast_invariant_check().c(d!())
     }
 }
 
 // TODO(joe): fill these in
 impl HasInvariants for LedgerState {
     fn fast_invariant_check(&self) -> Result<()> {
-        self.status
-            .fast_invariant_check()
-            .c(d!(PlatformError::Unknown))
+        self.status.fast_invariant_check().c(d!())
     }
 
     fn deep_invariant_check(&self) -> Result<()> {
-        self.fast_invariant_check().c(d!(PlatformError::Unknown))?;
-        self.status
-            .deep_invariant_check()
-            .c(d!(PlatformError::Unknown))?;
+        self.fast_invariant_check().c(d!())?;
+        self.status.deep_invariant_check().c(d!())?;
         let mut txn_sid = 0;
         for (ix, block) in self.blocks.iter().enumerate() {
             let fin_txns = block.txns.to_vec();
@@ -706,9 +703,7 @@ impl LedgerStatus {
             };
 
             if let Some(rules) = signature_rules {
-                rules
-                    .check_signature_set(key_set)
-                    .c(d!(PlatformError::Unknown))?;
+                rules.check_signature_set(key_set).c(d!())?;
             }
         }
 
@@ -742,8 +737,8 @@ impl LedgerStatus {
                 .c(d!(PlatformError::InputsError(None)))?
                 .properties;
 
-            let debt_memo = serde_json::from_str::<DebtMemo>(&debt_type.memo.0)
-                .c(d!(PlatformError::Unknown))?;
+            let debt_memo =
+                serde_json::from_str::<DebtMemo>(&debt_type.memo.0).c(d!())?;
             let correct_fee = calculate_fee(
                 debt_swap_effects.initial_balance,
                 debt_memo.interest_rate,
@@ -804,8 +799,7 @@ impl LedgerStatus {
                     .c(d!(PlatformError::InputsError(None)))?;
                 if let Some((ref pol, ref globals)) = asset.properties.policy {
                     let globals = globals.clone();
-                    policy_check_txn(code, globals, &pol, &txn_effect.txn)
-                        .c(d!(PlatformError::Unknown))?;
+                    policy_check_txn(code, globals, &pol, &txn_effect.txn).c(d!())?;
                 }
             }
         }
@@ -1161,7 +1155,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerStateChecker {
                 .0
                 .utxo_map
                 .query((base_ix + (ix as u64)) as usize)
-                .c(d!(PlatformError::Unknown))?;
+                .c(d!())?;
             if txo.is_none() && live {
                 return Err(eg!(PlatformError::CheckedReplayError(None)));
             }
@@ -1184,10 +1178,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerStateChecker {
         // The transaction must match its spot in the txn merkle tree
         let txn_sid = self.0.status.next_txn.0 + block.txns.len();
         let proof = ProofOf::<(TxnSID, Transaction)>::new(
-            self.0
-                .txn_merkle
-                .get_proof(txn_sid as u64, 0)
-                .c(d!(PlatformError::Unknown))?,
+            self.0.txn_merkle.get_proof(txn_sid as u64, 0).c(d!())?,
         );
 
         if !proof.0.verify(txn.txn.hash(TxnSID(txn_sid)).0) {
@@ -1275,10 +1266,7 @@ impl LedgerStateChecker {
 
         // The block must match its spot in the block merkle tree
         let proof = ProofOf::<Vec<Transaction>>::new(
-            self.0
-                .block_merkle
-                .get_proof(ix, 0)
-                .c(d!(PlatformError::Unknown))?,
+            self.0.block_merkle.get_proof(ix, 0).c(d!())?,
         );
 
         let block = block;
@@ -1313,11 +1301,7 @@ impl LedgerStateChecker {
         // level state commitment.
 
         for (ix, _) in self.0.status.utxos.iter() {
-            let live = self
-                .0
-                .utxo_map
-                .query(ix.0 as usize)
-                .c(d!(PlatformError::Unknown))?;
+            let live = self.0.utxo_map.query(ix.0 as usize).c(d!())?;
             if !live {
                 return Err(eg!(PlatformError::CheckedReplayError(None)));
             }
@@ -1409,11 +1393,11 @@ impl LedgerState {
     // TODO(joe): Make this an iterator of some sort so that we don't have to load the whole log
     // into memory
     fn load_transaction_log(path: &str) -> Result<Vec<LoggedBlock>> {
-        let file = File::open(path).c(d!(PlatformError::Unknown))?;
+        let file = File::open(path).c(d!())?;
         let reader = BufReader::new(file);
         let mut v = Vec::new();
         for l in reader.lines() {
-            let l = l.c(d!(PlatformError::Unknown))?;
+            let l = l.c(d!())?;
             match serde_json::from_str::<LoggedBlock>(&l) {
                 Ok(next_block) => {
                     v.push(next_block);
@@ -1584,7 +1568,7 @@ impl LedgerState {
             .unwrap_or_else(ChaChaRng::from_entropy);
         let signing_key = match signing_key_path {
             Some(path) => {
-                let file = File::open(path).c(d!(PlatformError::Unknown))?;
+                let file = File::open(path).c(d!())?;
                 let mut reader = BufReader::new(file);
                 let mut ret = serde_json::from_reader::<&mut BufReader<File>, XfrKeyPair>(
                     &mut reader,
@@ -1609,15 +1593,11 @@ impl LedgerState {
             None => XfrKeyPair::generate(&mut prng),
         };
 
-        let blocks =
-            LedgerState::load_transaction_log(txn_path).c(d!(PlatformError::Unknown))?;
+        let blocks = LedgerState::load_transaction_log(txn_path).c(d!())?;
         // dbg!(&blocks);
         let txn_log = (
             txn_path.into(),
-            OpenOptions::new()
-                .append(true)
-                .open(txn_path)
-                .c(d!(PlatformError::Unknown))?,
+            OpenOptions::new().append(true).open(txn_path).c(d!())?,
         );
         // dbg!(&txn_log);
         let mut ledger = LedgerStateChecker(LedgerState {
@@ -1627,16 +1607,14 @@ impl LedgerState {
                 txn_path,
                 utxo_map_path,
             )
-            .c(d!(PlatformError::Unknown))?,
+            .c(d!())?,
             prng,
             signing_key,
             block_merkle: LedgerState::init_merkle_log(block_merkle_path, false)
-                .c(d!(PlatformError::Unknown))?,
-            txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, false)
-                .c(d!(PlatformError::Unknown))?,
+                .c(d!())?,
+            txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, false).c(d!())?,
             blocks: Vec::new(),
-            utxo_map: LedgerState::init_utxo_map(utxo_map_path, false)
-                .c(d!(PlatformError::Unknown))?,
+            utxo_map: LedgerState::init_utxo_map(utxo_map_path, false).c(d!())?,
             txn_log: None,
             block_ctx: Some(BlockEffect::new()),
         });
@@ -1663,21 +1641,15 @@ impl LedgerState {
 
             let mut block_builder = ledger.start_block().c(d!())?;
             for txn in block {
-                let eff =
-                    TxnEffect::compute_effect(txn).c(d!(PlatformError::Unknown))?;
+                let eff = TxnEffect::compute_effect(txn).c(d!())?;
                 ledger
                     .apply_transaction(&mut block_builder, eff, true)
-                    .c(d!(PlatformError::Unknown))?;
+                    .c(d!())?;
             }
-            ledger = ledger
-                .check_block(ix as u64, &block_builder)
-                .c(d!(PlatformError::Unknown))?;
+            ledger = ledger.check_block(ix as u64, &block_builder).c(d!())?;
             ledger.finish_block(block_builder).c(d!())?;
 
-            ledger
-                .0
-                .fast_invariant_check()
-                .c(d!(PlatformError::Unknown))?;
+            ledger.0.fast_invariant_check().c(d!())?;
         }
 
         ledger.0.txn_log = Some(txn_log);
@@ -1721,19 +1693,15 @@ impl LedgerState {
                         })
                         .c(d!(PlatformError::SerializationError(None)))
                 })
-                .c(d!(PlatformError::Unknown))?
+                .c(d!())?
             }
             None => XfrKeyPair::generate(&mut prng),
         };
 
-        let blocks =
-            LedgerState::load_transaction_log(txn_path).c(d!(PlatformError::Unknown))?;
+        let blocks = LedgerState::load_transaction_log(txn_path).c(d!())?;
         let txn_log = (
             txn_path.into(),
-            OpenOptions::new()
-                .append(true)
-                .open(txn_path)
-                .c(d!(PlatformError::Unknown))?,
+            OpenOptions::new().append(true).open(txn_path).c(d!())?,
         );
         let mut ledger = LedgerState {
             status: LedgerStatus::new(
@@ -1742,16 +1710,14 @@ impl LedgerState {
                 txn_path,
                 utxo_map_path,
             )
-            .c(d!(PlatformError::Unknown))?,
+            .c(d!())?,
             prng,
             signing_key,
             block_merkle: LedgerState::init_merkle_log(block_merkle_path, true)
-                .c(d!(PlatformError::Unknown))?,
-            txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, true)
-                .c(d!(PlatformError::Unknown))?,
+                .c(d!())?,
+            txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, true).c(d!())?,
             blocks: Vec::new(),
-            utxo_map: LedgerState::init_utxo_map(utxo_map_path, true)
-                .c(d!(PlatformError::Unknown))?,
+            utxo_map: LedgerState::init_utxo_map(utxo_map_path, true).c(d!())?,
             txn_log: None,
             block_ctx: Some(BlockEffect::new()),
         };
@@ -1760,20 +1726,17 @@ impl LedgerState {
             let block = logged_block.block;
             let mut block_builder = ledger.start_block().c(d!())?;
             for txn in block {
-                let eff =
-                    TxnEffect::compute_effect(txn).c(d!(PlatformError::Unknown))?;
+                let eff = TxnEffect::compute_effect(txn).c(d!())?;
                 ledger
                     .apply_transaction(&mut block_builder, eff, true)
-                    .c(d!(PlatformError::Unknown))?;
+                    .c(d!())?;
             }
             ledger.status.pulse_count = logged_block.state.pulse_count;
             ledger.finish_block(block_builder).c(d!())?;
         }
 
         ledger.txn_log = Some(txn_log);
-        ledger
-            .fast_invariant_check()
-            .c(d!(PlatformError::Unknown))?;
+        ledger.fast_invariant_check().c(d!())?;
 
         Ok(ledger)
     }
@@ -1812,10 +1775,10 @@ impl LedgerState {
                 None,
                 None,
             )
-            .c(d!(PlatformError::Unknown))?;
+            .c(d!())?;
 
             {
-                let file = File::create(sig_key_file).c(d!(PlatformError::Unknown))?;
+                let file = File::create(sig_key_file).c(d!())?;
                 let mut writer = BufWriter::new(file);
 
                 serde_json::to_writer::<&mut BufWriter<File>, XfrKeyPair>(
@@ -2144,10 +2107,10 @@ pub mod helpers {
         };
         let asset_body =
             DefineAssetBody::new(&code, &issuer_key, asset_rules, memo, None, None)
-                .c(d!(PlatformError::Unknown))?;
+                .c(d!())?;
         let asset_create =
             DefineAsset::new(asset_body, &IssuerKeyPair { keypair: &keypair })
-                .c(d!(PlatformError::Unknown))?;
+                .c(d!())?;
         Ok(Transaction::from_operation(
             Operation::DefineAsset(asset_create),
             seq_id,
@@ -2457,9 +2420,6 @@ pub mod helpers {
 /// Define and Issue FRA.
 /// Currently this should only be used for tests.
 pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
-    const FRA_DECIMAL: u8 = 6;
-    const FRA_AMOUNT: u64 = 2_1000_0000_0000_0000;
-
     /*
      * Define FRA
      **/
@@ -2472,7 +2432,8 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
         &fra_code,
         fra_owner_kp,
         AssetRules {
-            decimals: FRA_DECIMAL,
+            max_units: Some(1000 + FRA_TOTAL_AMOUNT),
+            decimals: FRA_DECIMALS,
             ..AssetRules::default()
         },
         Some(Memo("FRA".to_owned())),
@@ -2484,7 +2445,7 @@ pub fn fra_gen_initial_tx(fra_owner_kp: &XfrKeyPair) -> Transaction {
      **/
 
     let template = AssetRecordTemplate::with_no_asset_tracing(
-        FRA_AMOUNT / 2,
+        FRA_TOTAL_AMOUNT / 2,
         fra_code.val,
         AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
         fra_owner_kp.get_pk(),

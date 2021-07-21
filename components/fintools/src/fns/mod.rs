@@ -11,15 +11,16 @@ use lazy_static::lazy_static;
 use ledger::{
     data_model::BLACK_HOLE_PUBKEY_STAKING,
     staking::{
-        check_delegation_amount, gen_random_keypair, td_pubkey_to_td_addr,
-        td_pubkey_to_td_addr_bytes, PartialUnDelegation,
+        check_delegation_amount, gen_random_keypair, td_addr_to_bytes,
+        td_pubkey_to_td_addr, td_pubkey_to_td_addr_bytes, PartialUnDelegation,
+        TendermintAddrRef,
     },
 };
 use ruc::*;
 use std::fs;
 use tendermint::PrivateKey;
 use txn_builder::BuildsTransactions;
-use zei::xfr::sig::XfrKeyPair;
+use zei::xfr::sig::{XfrKeyPair, XfrSecretKey};
 
 pub mod utils;
 
@@ -50,42 +51,64 @@ pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<
     builder
         .add_operation_staking(&kp, &vkp, td_pubkey, cr, memo.map(|m| m.to_owned()))
         .c(d!())?;
-    utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, am)])
+    utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, am)], false, false)
         .c(d!())
         .map(|principal_op| builder.add_operation(principal_op))?;
 
     utils::send_tx(&builder.take_transaction()).c(d!())
 }
 
-pub fn stake_append(amount: &str) -> Result<()> {
+pub fn stake_append(
+    amount: &str,
+    staker: Option<&str>,
+    td_addr: Option<TendermintAddrRef>,
+) -> Result<()> {
     let am = amount.parse::<u64>().c(d!("'amount' must be an integer"))?;
     check_delegation_amount(am, true).c(d!())?;
 
-    let td_pubkey = get_td_pubkey().c(d!())?;
-    let td_addr = td_pubkey_to_td_addr(&td_pubkey);
+    let td_addr = td_addr.map(|ta| ta.to_owned()).c(d!()).or_else(|_| {
+        get_td_pubkey()
+            .c(d!())
+            .map(|td_pk| td_pubkey_to_td_addr(&td_pk))
+    })?;
 
-    let kp = get_keypair().c(d!())?;
+    let kp = staker
+        .c(d!())
+        .and_then(|sk| wallet::restore_keypair_from_mnemonic_default(sk).c(d!()))
+        .or_else(|_| get_keypair().c(d!()))?;
 
     let mut builder = utils::new_tx_builder().c(d!())?;
     builder.add_operation_delegation(&kp, td_addr);
-    utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, am)])
+    utils::gen_transfer_op(&kp, vec![(&BLACK_HOLE_PUBKEY_STAKING, am)], false, false)
         .c(d!())
         .map(|principal_op| builder.add_operation(principal_op))?;
 
     utils::send_tx(&builder.take_transaction()).c(d!())
 }
 
-pub fn unstake(am: Option<&str>) -> Result<()> {
+pub fn unstake(
+    am: Option<&str>,
+    staker: Option<&str>,
+    td_addr: Option<TendermintAddrRef>,
+) -> Result<()> {
     let am = if let Some(i) = am {
         Some(i.parse::<u64>().c(d!("'amount' must be an integer"))?)
     } else {
         None
     };
 
-    let kp = get_keypair().c(d!())?;
-    let td_addr_bytes = get_td_pubkey()
+    let kp = staker
         .c(d!())
-        .map(|td_pk| td_pubkey_to_td_addr_bytes(&td_pk))?;
+        .and_then(|sk| wallet::restore_keypair_from_mnemonic_default(sk).c(d!()))
+        .or_else(|_| get_keypair().c(d!()))?;
+    let td_addr_bytes = td_addr
+        .c(d!())
+        .and_then(|ta| td_addr_to_bytes(ta).c(d!()))
+        .or_else(|_| {
+            get_td_pubkey()
+                .c(d!())
+                .map(|td_pk| td_pubkey_to_td_addr_bytes(&td_pk))
+        })?;
 
     let mut builder = utils::new_tx_builder().c(d!())?;
 
@@ -134,9 +157,13 @@ pub fn show() -> Result<()> {
         println!("\x1b[31;01mServer URL:\x1b[00m\n{}\n", i);
     });
 
-    let xfr_pubkey = ruc::info!(get_keypair()).map(|i| {
+    let xfr_account = ruc::info!(get_keypair()).map(|i| {
         println!(
-            "\x1b[31;01mXfrPublicKey:\x1b[00m\n{}\n",
+            "\x1b[31;01mFindora Address:\x1b[00m\n{}\n",
+            wallet::public_key_to_bech32(&i.get_pk())
+        );
+        println!(
+            "\x1b[31;01mFindora Public Key:\x1b[00m\n{}\n",
             wallet::public_key_to_base64(&i.get_pk())
         );
     });
@@ -149,7 +176,7 @@ pub fn show() -> Result<()> {
     });
 
     let self_balance = ruc::info!(utils::get_balance(&kp)).map(|i| {
-        println!("\x1b[31;01mYour Balance:\x1b[00m\n{} FRA units\n", i);
+        println!("\x1b[31;01mNode Balance:\x1b[00m\n{} FRA units\n", i);
     });
 
     let delegation_info = utils::get_delegation_info(kp.get_pk_ref())
@@ -163,7 +190,7 @@ pub fn show() -> Result<()> {
 
     if [
         serv_addr,
-        xfr_pubkey,
+        xfr_account,
         td_pubkey,
         self_balance,
         delegation_info,
@@ -196,14 +223,26 @@ pub fn setup(
     Ok(())
 }
 
-pub fn transfer_fra(target_addr: &str, am: &str) -> Result<()> {
-    let ta =
+pub fn transfer_fra(
+    owner_sk: Option<&str>,
+    target_addr: &str,
+    am: &str,
+    confidential_am: bool,
+    confidential_ty: bool,
+) -> Result<()> {
+    let from = owner_sk
+        .c(d!())
+        .and_then(|sk| {
+            ruc::info!(serde_json::from_str::<XfrSecretKey>(&format!("\"{}\"", sk)))
+                .c(d!())
+                .map(|sk| sk.into_keypair())
+        })
+        .or_else(|_| get_keypair().c(d!()))?;
+    let to =
         wallet::public_key_from_base64(target_addr).c(d!("invalid 'target-addr'"))?;
     let am = am.parse::<u64>().c(d!("'amount' must be an integer"))?;
 
-    get_keypair()
-        .c(d!())
-        .and_then(|kp| utils::transfer(&kp, &ta, am).c(d!()))
+    utils::transfer(&from, &to, am, confidential_am, confidential_ty).c(d!())
 }
 
 /// Mainly for official usage,

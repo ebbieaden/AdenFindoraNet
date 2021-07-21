@@ -833,7 +833,7 @@ impl Staking {
                 }
             });
 
-        self.delegation_process_finished_before_height(h.saturating_sub(4));
+        self.delegation_process_finished_before_height(h);
 
         self.validator_clean_invalid_items();
     }
@@ -1951,7 +1951,7 @@ pub fn check_delegation_amount(am: Amount, is_append: bool) -> Result<()> {
     } else {
         let msg = format!(
             "Invalid delegation amount: {} (min: {}, max: {})",
-            am, MIN_DELEGATION_AMOUNT, MAX_DELEGATION_AMOUNT
+            am, lowb, MAX_DELEGATION_AMOUNT
         );
         Err(eg!(msg))
     }

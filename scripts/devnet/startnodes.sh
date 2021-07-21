@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # env
-source scripts/devnet/env.sh || exit 1
+source ./scripts/devnet/env.sh || exit 1
 
 # start abcis
 nodes=`ls -l $DEVNET | grep node  | awk '(NR>0){print $9}' | sort -V`
