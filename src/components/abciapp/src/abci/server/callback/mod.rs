@@ -8,6 +8,7 @@ use ledger::{
     staking::is_coinbase_tx,
     store::{LedgerAccess, LedgerUpdate},
 };
+use log::debug;
 use parking_lot::Mutex;
 use protobuf::RepeatedField;
 use query_server::BLOCK_CREATED;
@@ -38,15 +39,14 @@ pub fn info(s: &mut ABCISubmissionServer, req: &RequestInfo) -> ResponseInfo {
     let mut state = la.get_committed_state().write();
     let commitment = state.get_state_commitment();
     if commitment.1 > 0 {
-        let tendermint_height = commitment.1 + state.get_pulse_count();
+        // last height
+        let td_height = resp_app.get_last_block_height();
+        resp.set_last_block_height(td_height);
+
+        // last hash
         let la_hash = commitment.0.as_ref().to_vec();
         let cs_hash = resp_app.take_last_block_app_hash();
-        resp.set_last_block_height(tendermint_height as i64);
-        resp.set_last_block_app_hash(root_hash(la_hash, cs_hash));
-    }
-
-    if let Ok(h) = ruc::info!(pulse_cache::read_height()) {
-        resp.set_last_block_height(h);
+        resp.set_last_block_app_hash(root_hash("info", td_height, la_hash, cs_hash));
     }
 
     if let Ok(s) = ruc::info!(pulse_cache::read_staking()) {
@@ -218,9 +218,8 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
     let state = la.get_committed_state().read();
     let commitment = state.get_state_commitment();
 
-    pnk!(pulse_cache::write_height(
-        TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed)
-    ));
+    let td_height = TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed);
+    pnk!(pulse_cache::write_height(td_height));
 
     pnk!(pulse_cache::write_staking(state.get_staking()));
 
@@ -229,13 +228,25 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
     // set root hash
     let la_hash = commitment.0.as_ref().to_vec();
     let cs_hash = s.account_base_app.write().commit(req).data;
-    r.set_data(root_hash(la_hash, cs_hash));
+    r.set_data(root_hash("commit", td_height, la_hash, cs_hash));
 
     r
 }
 
 /// Combines ledger state hash and chain state hash
-fn root_hash(mut la_hash: Vec<u8>, mut cs_hash: Vec<u8>) -> Vec<u8> {
+fn root_hash(
+    tag: &str,
+    height: i64,
+    mut la_hash: Vec<u8>,
+    mut cs_hash: Vec<u8>,
+) -> Vec<u8> {
+    debug!(
+        "root_hash_{}: {}_{}, height: {}",
+        tag,
+        hex::encode(la_hash.clone()),
+        hex::encode(cs_hash.clone()),
+        height
+    );
     la_hash.append(&mut cs_hash);
     fp_storage::hash::Sha256::hash(la_hash.as_slice()).to_vec()
 }
