@@ -35,9 +35,7 @@ impl ABCISubmissionServer {
                 pnk!(AccountBaseAPP::new(tempfile::tempdir().unwrap().path()))
             }
             Some(base_dir) => {
-                pnk!(AccountBaseAPP::new(
-                    base_dir.clone().join("chain.db").as_path()
-                ))
+                pnk!(AccountBaseAPP::new(base_dir))
             }
         };
 

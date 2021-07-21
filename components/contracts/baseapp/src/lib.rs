@@ -17,7 +17,6 @@ use parking_lot::RwLock;
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
@@ -26,6 +25,7 @@ pub use types::*;
 
 const APP_NAME: &str = "findora";
 const APP_DB_NAME: &str = "findora_db";
+const CHAIN_STATE_PATH: &str = "chain.db";
 
 pub struct BaseApp {
     /// application name from abci.Info
@@ -89,15 +89,10 @@ impl module_evm::Config for BaseApp {
 }
 
 impl BaseApp {
-    pub fn new(db_path: &Path) -> Result<Self> {
-        // Before we can completely avoid replaying transactions
-        // we need to clean db when restarting a node.
-        if Path::exists(db_path) {
-            fs::remove_dir_all(db_path).map_err(|_| eg!("Failed to remove db"))?;
-        }
-
+    pub fn new(base_dir: &Path) -> Result<Self> {
         // Creates a fresh chain state db
-        let fdb = FinDB::open(db_path)?;
+        let fdb_path = base_dir.clone().join(CHAIN_STATE_PATH);
+        let fdb = FinDB::open(fdb_path.as_path())?;
         let chain_state =
             Arc::new(RwLock::new(ChainState::new(fdb, APP_DB_NAME.to_string())));
 

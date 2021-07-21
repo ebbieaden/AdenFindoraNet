@@ -47,7 +47,7 @@ pub(super) fn write_height(h: i64) -> Result<()> {
     fs::write(&PATH.0, i64::to_ne_bytes(h)).c(d!())
 }
 
-pub(super) fn read_height() -> Result<i64> {
+pub(super) fn _read_height() -> Result<i64> {
     let read_tendermint_state_height = || {
         // the real-time state path in the abci container
         const STATE_PATH_FF: &str = "/root/.tendermint/data/priv_validator_state.json";
