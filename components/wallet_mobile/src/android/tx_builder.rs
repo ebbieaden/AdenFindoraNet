@@ -237,18 +237,27 @@ pub unsafe extern "system" fn Java_com_findora_JniApi_transactionBuilderAddOpera
     _: JClass,
     builder: jlong,
     keypair: jlong,
-    am: jint,
+    am: JString,
     validator: JString,
 ) -> jlong {
     let builder = &*(builder as *mut TransactionBuilder);
     let keypair = &*(keypair as *mut XfrKeyPair);
+    let am: String = env
+        .get_string(am)
+        .expect("Couldn't get java string!")
+        .into();
+
     let validator: String = env
         .get_string(validator)
         .expect("Couldn't get java string!")
         .into();
     let builder = builder
         .clone()
-        .add_operation_undelegate_partially(keypair, am as u64, validator)
+        .add_operation_undelegate_partially(
+            keypair,
+            am.parse::<u64>().unwrap(),
+            validator,
+        )
         .unwrap();
     Box::into_raw(Box::new(builder)) as jlong
 }
