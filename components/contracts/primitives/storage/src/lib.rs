@@ -11,6 +11,8 @@ pub use ruc::{d, Result, RucResult};
 pub use serde::{de::DeserializeOwned, Serialize};
 pub use std::sync::Arc;
 
+const DB_SEPARATOR: &str = "_";
+
 /// An instance of a storage in a module.
 pub trait StorageInstance {
     /// Prefix of a module to isolate it from other modules.

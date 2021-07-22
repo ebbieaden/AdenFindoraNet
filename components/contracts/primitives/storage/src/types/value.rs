@@ -1,5 +1,7 @@
 use crate::hash::StorageHasher;
 use crate::*;
+use storage::db::MerkleDB;
+use storage::state::State;
 
 /// A type that allow to store a value.
 ///
@@ -33,7 +35,7 @@ where
     }
 
     /// Does the value (explicitly) exist in storage?
-    pub fn exists(store: Arc<RwLock<Store>>) -> bool {
+    pub fn exists<T: MerkleDB>(store: Arc<RwLock<State<T>>>) -> bool {
         store
             .read()
             .exists(Self::hashed_key().as_ref())
@@ -41,7 +43,7 @@ where
     }
 
     /// Load the value from the provided storage instance.
-    pub fn get(store: Arc<RwLock<Store>>) -> Option<Value> {
+    pub fn get<T: MerkleDB>(store: Arc<RwLock<State<T>>>) -> Option<Value> {
         let output = store
             .read()
             .get(Self::hashed_key().as_ref())
@@ -54,13 +56,13 @@ where
     }
 
     /// Store a value under this hashed key into the provided storage instance.
-    pub fn put(store: Arc<RwLock<Store>>, val: Value) {
+    pub fn put<T: MerkleDB>(store: Arc<RwLock<State<T>>>, val: Value) {
         let _ = serde_json::to_vec(&val)
             .map(|v| store.write().set(Self::hashed_key().as_ref(), v));
     }
 
     /// Take a value from storage, removing it afterwards.
-    pub fn delete(store: Arc<RwLock<Store>>) {
+    pub fn delete<T: MerkleDB>(store: Arc<RwLock<State<T>>>) {
         let _ = store.write().delete(Self::hashed_key().as_ref());
     }
 }

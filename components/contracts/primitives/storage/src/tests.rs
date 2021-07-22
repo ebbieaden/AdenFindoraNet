@@ -1,11 +1,10 @@
 use crate::hash::{Sha256, StorageHasher};
 use crate::*;
-use fp_core::context::Store;
 use sha2::Digest;
 use std::env::temp_dir;
 use std::time::SystemTime;
-use storage::db::FinDB;
-use storage::state::ChainState;
+use storage::db::TempFinDB;
+use storage::state::{ChainState, State};
 
 #[test]
 fn storage_hasher_works() {
@@ -14,16 +13,16 @@ fn storage_hasher_works() {
     assert_eq!(sha2::Sha256::digest(text).as_slice(), Sha256::hash(text));
 }
 
-fn create_temp_db() -> Arc<RwLock<Store>> {
+fn create_temp_db() -> Arc<RwLock<State<TempFinDB>>> {
     let time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let mut path = temp_dir();
     path.push(format!("temp-findora-db–{}", time));
-    let fdb = FinDB::open(path).unwrap();
+    let fdb = TempFinDB::open(path).unwrap();
     let chain_state = Arc::new(RwLock::new(ChainState::new(fdb, "temp_db".to_string())));
-    Arc::new(RwLock::new(Store::new(chain_state)))
+    Arc::new(RwLock::new(State::new(chain_state)))
 }
 
 #[test]
@@ -71,10 +70,9 @@ fn storage_map_test() {
     let kvs = Account::iterate(store.clone());
     assert_eq!(kvs, vec![("b".to_string(), 20), ("c".to_string(), 30)]);
 
-    // TODO fix
-    // store.write().commit(1).unwrap();
-    // let kvs = Account::iterate(store.clone());
-    // assert_eq!(kvs, vec![("b".to_string(), 20), ("c".to_string(), 30)]);
+    store.write().commit(1).unwrap();
+    let kvs = Account::iterate(store.clone());
+    assert_eq!(kvs, vec![("b".to_string(), 20), ("c".to_string(), 30)]);
 }
 
 #[test]
@@ -106,8 +104,7 @@ fn storage_double_map_test() {
     let kvs = Data::iterate_prefix(store.clone(), &2);
     assert_eq!(kvs, vec![]);
 
-    // TODO fix
-    // store.write().commit(1).unwrap();
-    // let kvs = Data::iterate_prefix(store.clone(), 1);
-    // assert_eq!(kvs, vec![(3, 20)]);
+    store.write().commit(1).unwrap();
+    let kvs = Data::iterate_prefix(store.clone(), &1);
+    assert_eq!(kvs, vec![(3, 20)]);
 }

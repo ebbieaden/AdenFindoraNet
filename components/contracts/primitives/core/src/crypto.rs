@@ -1,10 +1,14 @@
 use crate::{ecdsa, hashing::keccak_256};
+use bech32::{FromBase32, ToBase32};
 use ledger::address::SmartAddress;
 use primitive_types::{H160, H256};
 use ruc::eg;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 use std::convert::TryFrom;
+use std::fmt;
+use std::fmt::Formatter;
+use std::str::FromStr;
 use zei::serialization::ZeiFromToBytes;
 use zei::xfr::sig::{XfrPublicKey, XfrSignature};
 
@@ -41,6 +45,27 @@ impl AsMut<[u8; 32]> for Address32 {
 impl From<[u8; 32]> for Address32 {
     fn from(x: [u8; 32]) -> Self {
         Self(x)
+    }
+}
+
+impl fmt::Display for Address32 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", bech32::encode("fra", self.to_base32()).unwrap())
+    }
+}
+
+impl FromStr for Address32 {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Address32, ()> {
+        let v = bech32::decode(s).and_then(|d| Vec::<u8>::from_base32(&d.1));
+        if v.is_err() {
+            return Err(());
+        }
+
+        let mut address_32 = Address32::default();
+        address_32.0.copy_from_slice(v.unwrap().as_slice());
+        Ok(address_32)
     }
 }
 
@@ -341,5 +366,20 @@ mod tests {
             sig.verify(keccak_256(b"hello").as_ref(), &signer.into_account()),
             "ecdsa signature verify failed"
         );
+    }
+
+    #[test]
+    fn test_address_32() {
+        let mut prng = ChaChaRng::from_entropy();
+        let keypair = XfrKeyPair::generate(&mut prng);
+        let pubkey = keypair.pub_key;
+
+        let address_32 = Address32::from(pubkey);
+        let address_str = address_32.to_string();
+
+        let new_address = Address32::from_str(address_str.as_str());
+        let new_address_str = new_address.unwrap().to_string();
+
+        assert_eq!(new_address_str, address_str);
     }
 }
