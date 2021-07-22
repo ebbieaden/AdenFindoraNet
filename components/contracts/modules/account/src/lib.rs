@@ -15,7 +15,6 @@ use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, marker::PhantomData};
-use zei::xfr::structs::AssetType;
 
 pub trait Config {}
 
@@ -136,6 +135,10 @@ impl<C: Config> Executable for App<C> {
                         } else {
                             return Err(eg!("insufficient balance, no asset"));
                         }
+                    }
+
+                    if asset_amount > 0 {
+                        Self::burn(ctx, &sender, asset_amount as u128, ASSET_TYPE_FRA)?;
                     }
 
                     for (k, v) in asset_map.into_iter() {
