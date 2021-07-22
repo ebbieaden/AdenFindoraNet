@@ -35,7 +35,7 @@ query_api = { path =  "../query_api" }
 query_server = { path =  "../query_server" }
 utils = { path = "../../libs/utils" }
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
-storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "master" }
+storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "develop" }
 
 lazy_static = "1.4.0"
 futures = { version = "0.3.13", features = ["thread-pool"] }
