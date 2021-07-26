@@ -1,9 +1,15 @@
 use crate::storage::*;
 use crate::{App, Config};
-use fp_core::{account::SmartAccount, context::Context, crypto::Address};
+use fp_core::{
+    account::{MintOutput, SmartAccount},
+    context::Context,
+    crypto::Address,
+    transaction::ActionResult,
+};
 use fp_traits::account::AccountAsset;
 use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
+use std::collections::HashMap;
 use zei::xfr::structs::AssetType;
 
 impl<C: Config> AccountAsset<Address> for App<C> {
@@ -125,5 +131,55 @@ impl<C: Config> AccountAsset<Address> for App<C> {
         sa.balance = sa.balance.checked_add(value).c(d!("balance overflow"))?;
         AccountStore::insert(ctx.store.clone(), who, &sa);
         Ok(())
+    }
+}
+
+impl<C: Config> App<C> {
+    pub fn transfer_to_utxo(
+        ctx: &Context,
+        sender: Address,
+        outputs: Vec<MintOutput>,
+    ) -> Result<ActionResult> {
+        let mut asset_amount = 0;
+        let mut asset_map = HashMap::new();
+        for output in &outputs {
+            if output.asset == ASSET_TYPE_FRA {
+                asset_amount += output.amount;
+            } else {
+                if let Some(amount) = asset_map.get_mut(&output.asset) {
+                    *amount += output.amount;
+                } else {
+                    asset_map.insert(output.asset, output.amount);
+                }
+            }
+        }
+
+        log::info!(target: "account", "this tx's amount is: FRA: {}, OTHER: {:?}", asset_amount, asset_map);
+
+        let sa = Self::account_of(ctx, &sender).c(d!("no account!"))?;
+
+        if sa.balance < asset_amount as u128 {
+            return Err(eg!("insufficient balance fra"));
+        }
+
+        for (k, v) in asset_map.iter() {
+            if let Some(asset_balance) = sa.assets.get(&k) {
+                if asset_balance < &(v.clone() as u128) {
+                    return Err(eg!("insufficient balance"));
+                }
+            } else {
+                return Err(eg!("insufficient balance, no asset"));
+            }
+        }
+
+        if asset_amount > 0 {
+            Self::burn(ctx, &sender, asset_amount as u128, ASSET_TYPE_FRA)?;
+        }
+
+        for (k, v) in asset_map.into_iter() {
+            Self::burn(ctx, &sender, v as u128, k)?;
+        }
+        Self::add_mint(ctx, outputs)?;
+        Ok(ActionResult::default())
     }
 }

@@ -1,4 +1,4 @@
-use crate::{error_on_execution_failure, forward::*, internal_err};
+use crate::{error_on_execution_failure, internal_err};
 use baseapp::{BaseApp, BaseProvider, UncheckedTransaction};
 use ethereum::{
     Block as EthereumBlock, Transaction as EthereumTransaction,
@@ -23,11 +23,13 @@ use parking_lot::RwLock;
 use sha3::{Digest, Keccak256};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use tendermint_rpc::{Client, HttpClient};
+use tokio::runtime::Runtime;
 
 pub struct EthApiImpl {
     account_base_app: Arc<RwLock<BaseApp>>,
     signers: Vec<KeyPair>,
-    forwarder: TendermintForward,
+    tm_client: HttpClient,
 }
 
 impl EthApiImpl {
@@ -39,7 +41,7 @@ impl EthApiImpl {
         Self {
             account_base_app,
             signers,
-            forwarder: TendermintForward::new(url),
+            tm_client: HttpClient::new(url.as_str()).unwrap(),
         }
     }
 }
@@ -158,22 +160,28 @@ impl EthApi for EthApiImpl {
             H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
         let function =
             baseapp::Action::Ethereum(module_ethereum::Action::Transact(transaction));
-        let resp = match self
-            .forwarder
-            .forward_txn(UncheckedTransaction::new_unsigned(function), TX_SYNC)
-            .map_err(|e| internal_err(e))
-        {
-            Ok(resp) => resp,
-            Err(e) => return Box::new(future::result(Err(e))),
-        };
-
-        if resp.is_success() {
-            Box::new(future::result(Ok(transaction_hash)))
-        } else {
-            Box::new(future::result(Err(internal_err(format!(
-                "send ethereum transaction failed"
-            )))))
+        let txn = serde_json::to_vec(&UncheckedTransaction::new_unsigned(function))
+            .map_err(|e| internal_err(e));
+        if let Err(e) = txn {
+            return Box::new(future::result(Err(e)));
         }
+
+        let future_resp = async {
+            match self.tm_client.broadcast_tx_sync(txn.unwrap().into()).await {
+                Ok(resp) => {
+                    if resp.code.is_ok() {
+                        future::result(Ok(transaction_hash))
+                    } else {
+                        future::result(Err(internal_err(format!(
+                            "send ethereum transaction resp: {:?}",
+                            resp
+                        ))))
+                    }
+                }
+                Err(e) => future::result(Err(internal_err(e))),
+            }
+        };
+        Box::new(Runtime::new().unwrap().block_on(future_resp))
     }
 
     fn call(&self, request: CallRequest, _: Option<BlockNumber>) -> Result<Bytes> {
@@ -456,22 +464,28 @@ impl EthApi for EthApiImpl {
             H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
         let function =
             baseapp::Action::Ethereum(module_ethereum::Action::Transact(transaction));
-        let resp = match self
-            .forwarder
-            .forward_txn(UncheckedTransaction::new_unsigned(function), TX_SYNC)
-            .map_err(|e| internal_err(e))
-        {
-            Ok(resp) => resp,
-            Err(e) => return Box::new(future::result(Err(e))),
-        };
-
-        if resp.is_success() {
-            Box::new(future::result(Ok(transaction_hash)))
-        } else {
-            Box::new(future::result(Err(internal_err(format!(
-                "send ethereum raw transaction failed"
-            )))))
+        let txn = serde_json::to_vec(&UncheckedTransaction::new_unsigned(function))
+            .map_err(|e| internal_err(e));
+        if let Err(e) = txn {
+            return Box::new(future::result(Err(e)));
         }
+
+        let future_resp = async {
+            match self.tm_client.broadcast_tx_sync(txn.unwrap().into()).await {
+                Ok(resp) => {
+                    if resp.code.is_ok() {
+                        future::result(Ok(transaction_hash))
+                    } else {
+                        future::result(Err(internal_err(format!(
+                            "send ethereum transaction resp: {:?}",
+                            resp
+                        ))))
+                    }
+                }
+                Err(e) => future::result(Err(internal_err(e))),
+            }
+        };
+        Box::new(Runtime::new().unwrap().block_on(future_resp))
     }
 
     fn estimate_gas(

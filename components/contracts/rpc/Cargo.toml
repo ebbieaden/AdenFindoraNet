@@ -9,7 +9,7 @@ description = "Ethereum RPC (web3) compatibility layer for Findora."
 readme = "README.md"
 
 [dependencies]
-attohttpc = { version = "0.17.0", features = ["compress", "json", "tls-rustls"] }
+async-std = "1.9.0"
 baseapp = { path = "../baseapp" }
 base64 = "0.12"
 ethereum = { version = "0.7.1", features = ["with-serde"] }
@@ -31,6 +31,8 @@ ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 rustc-hex = { version = "2.1.0" }
 serde_json = "1.0"
 sha3 = "0.8"
+tendermint-rpc = { version = "0.19.0", features = ["http-client", "websocket-client"] }
+tokio = "1.0"
 
 # modules
 module-ethereum = { path = "../modules/ethereum"}

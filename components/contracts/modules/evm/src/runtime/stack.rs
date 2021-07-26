@@ -10,15 +10,15 @@ use fp_traits::{account::AccountAsset, evm::BlockHashMapping};
 use primitive_types::{H160, H256, U256};
 use std::{collections::btree_set::BTreeSet, marker::PhantomData, mem};
 
-pub struct FindoraStackSubstate<'config> {
-    pub ctx: Context,
+pub struct FindoraStackSubstate<'context, 'config> {
+    pub ctx: &'context Context,
     pub metadata: StackSubstateMetadata<'config>,
     pub deletes: BTreeSet<H160>,
     pub logs: Vec<Log>,
-    pub parent: Option<Box<FindoraStackSubstate<'config>>>,
+    pub parent: Option<Box<FindoraStackSubstate<'context, 'config>>>,
 }
 
-impl<'config> FindoraStackSubstate<'config> {
+impl<'context, 'config> FindoraStackSubstate<'context, 'config> {
     pub fn metadata(&self) -> &StackSubstateMetadata<'config> {
         &self.metadata
     }
@@ -29,7 +29,7 @@ impl<'config> FindoraStackSubstate<'config> {
 
     pub fn enter(&mut self, gas_limit: u64, is_static: bool) {
         let mut entering = Self {
-            ctx: self.ctx.clone(), // TODO
+            ctx: self.ctx,
             metadata: self.metadata.spit_child(gas_limit, is_static),
             parent: None,
             deletes: BTreeSet::new(),
@@ -108,7 +108,7 @@ impl<'config> FindoraStackSubstate<'config> {
 pub struct FindoraStackState<'context, 'vicinity, 'config, T> {
     pub ctx: &'context Context,
     pub vicinity: &'vicinity Vicinity,
-    pub substate: FindoraStackSubstate<'config>,
+    pub substate: FindoraStackSubstate<'context, 'config>,
     _marker: PhantomData<T>,
 }
 
@@ -125,7 +125,7 @@ impl<'context, 'vicinity, 'config, T: Config>
             ctx,
             vicinity,
             substate: FindoraStackSubstate {
-                ctx: ctx.clone(), // TODO
+                ctx,
                 metadata,
                 deletes: BTreeSet::new(),
                 logs: Vec::new(),
