@@ -70,19 +70,21 @@ impl<C: Config> ActionRunner<C> {
         if let Some(nonce) = nonce {
             ensure!(
                 source_account.nonce == nonce,
-                eg!(format!(
+                format!(
                     "InvalidNonce, expected: {}, actual: {}",
                     source_account.nonce, nonce
-                ))
+                )
             );
         }
 
         if !config.estimate {
-            ensure!(source_account.balance >= total_payment, eg!("BalanceLow"));
+            ensure!(source_account.balance >= total_payment, "BalanceLow");
 
             // Deduct fee from the `source` account.
             C::OnChargeTransaction::withdraw_fee(ctx, &source, total_fee)?;
         }
+
+        // TODO commit before executive?
 
         // Execute the EVM call.
         let (reason, retv) = f(&mut executor);

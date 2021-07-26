@@ -3,29 +3,30 @@ mod client;
 mod genesis;
 mod impls;
 
+use abci::{RequestQuery, ResponseQuery};
 use fp_core::{
+    account::{FinerTransfer, MintOutput, TransferToUTXO},
     context::Context,
     crypto::Address,
-    mint_output::MintOutput,
+    ensure,
     module::AppModule,
-    transaction::{ActionResult, Executable, ValidateUnsigned},
+    transaction::{ActionResult, Executable},
 };
 use fp_traits::account::AccountAsset;
-use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, marker::PhantomData};
+use std::marker::PhantomData;
 
 pub trait Config {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
-    Transfer((Address, u128)),
-    TransferToUTXO(Vec<MintOutput>),
+    Transfer(FinerTransfer),
+    TransferToUTXO(TransferToUTXO),
 }
 
 mod storage {
-    use fp_core::{account::SmartAccount, crypto::Address, mint_output::MintOutput};
+    use fp_core::{account::MintOutput, account::SmartAccount, crypto::Address};
     use fp_storage::*;
 
     // Store account information under all account addresses
@@ -83,7 +84,35 @@ impl<C: Config> Default for App<C> {
     }
 }
 
-impl<C: Config> AppModule for App<C> {}
+impl<C: Config> AppModule for App<C> {
+    fn query_route(
+        &self,
+        ctx: Context,
+        path: Vec<&str>,
+        req: &RequestQuery,
+    ) -> ResponseQuery {
+        let mut resp = ResponseQuery::new();
+        if path.len() != 1 {
+            resp.code = 1;
+            resp.log = String::from("account: invalid query path");
+            return resp;
+        }
+        match path[0] {
+            "nonce" => {
+                let data = serde_json::from_slice::<Address>(req.data.as_slice());
+                if data.is_err() {
+                    resp.code = 1;
+                    resp.log = String::from("account: query nonce with invalid params");
+                    return resp;
+                }
+                let nonce = Self::nonce(&ctx, &data.unwrap());
+                resp.value = serde_json::to_vec(&nonce).unwrap();
+                resp
+            }
+            _ => resp,
+        }
+    }
+}
 
 impl<C: Config> Executable for App<C> {
     type Origin = Address;
@@ -95,72 +124,25 @@ impl<C: Config> Executable for App<C> {
         ctx: &Context,
     ) -> Result<ActionResult> {
         match call {
-            Action::Transfer((dest, balance)) => {
+            Action::Transfer(action) => {
                 if let Some(sender) = origin {
-                    Self::transfer(ctx, &sender, &dest, balance)?;
+                    ensure!(action.nonce == Self::nonce(ctx, &sender), "InvalidNonce");
+                    Self::inc_nonce(ctx, &sender)?;
+                    Self::transfer(ctx, &sender, &action.to, action.amount)?;
                     Ok(ActionResult::default())
                 } else {
                     Err(eg!("invalid transaction origin"))
                 }
             }
-            Action::TransferToUTXO(outputs) => {
+            Action::TransferToUTXO(action) => {
                 if let Some(sender) = origin {
-                    let mut asset_amount = 0;
-                    let mut asset_map = HashMap::new();
-                    for output in &outputs {
-                        if output.asset == ASSET_TYPE_FRA {
-                            asset_amount += output.amount;
-                        } else {
-                            if let Some(amount) = asset_map.get_mut(&output.asset) {
-                                *amount += output.amount;
-                            } else {
-                                asset_map.insert(output.asset, output.amount);
-                            }
-                        }
-                    }
-
-                    log::info!(target: "account", "this tx's amount is: FRA: {}, OTHER: {:?}", asset_amount, asset_map);
-
-                    let sa = Self::account_of(ctx, &sender).c(d!("no account!"))?;
-
-                    if sa.balance < asset_amount as u128 {
-                        return Err(eg!("insufficient balance fra"));
-                    }
-
-                    for (k, v) in asset_map.iter() {
-                        if let Some(asset_balance) = sa.assets.get(&k) {
-                            if asset_balance < &(v.clone() as u128) {
-                                return Err(eg!("insufficient balance"));
-                            }
-                        } else {
-                            return Err(eg!("insufficient balance, no asset"));
-                        }
-                    }
-
-                    if asset_amount > 0 {
-                        Self::burn(ctx, &sender, asset_amount as u128, ASSET_TYPE_FRA)?;
-                    }
-
-                    for (k, v) in asset_map.into_iter() {
-                        Self::burn(ctx, &sender, v as u128, k)?;
-                    }
-                    Self::add_mint(ctx, outputs)?;
-                    Ok(ActionResult::default())
+                    ensure!(action.nonce == Self::nonce(ctx, &sender), "InvalidNonce");
+                    Self::inc_nonce(ctx, &sender)?;
+                    Self::transfer_to_utxo(ctx, sender, action.outputs)
                 } else {
                     Err(eg!("invalid transaction origin"))
                 }
             }
-        }
-    }
-}
-
-impl<C: Config> ValidateUnsigned for App<C> {
-    type Call = Action;
-
-    fn validate_unsigned(call: &Self::Call, _ctx: &Context) -> Result<()> {
-        match call {
-            Action::TransferToUTXO(_outputs) => Ok(()),
-            _ => Err(eg!("invalid unsigned transaction")),
         }
     }
 }

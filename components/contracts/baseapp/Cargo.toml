@@ -14,7 +14,6 @@ ethereum = { version = "0.7.1", features = ["with-serde"] }
 ethereum-types = "0.11.0"
 ledger = { path = "../../../ledger" }
 log = "0.4"
-merk = { git = "https://github.com/FindoraNetwork/merk.git", branch = "merk_fra" }
 parking_lot = "0.11.1"
 primitive-types = { version = "0.9.0", features = ["rlp", "byteorder"] }
 protobuf = "2.23"

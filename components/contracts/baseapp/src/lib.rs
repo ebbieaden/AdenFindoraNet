@@ -6,11 +6,10 @@ use crate::modules::ModuleManager;
 use abci::Header;
 use fp_core::account::SmartAccount;
 use fp_core::{
+    account::MintOutput,
     context::Context,
     crypto::Address,
-    ensure,
-    mint_output::MintOutput,
-    parameter_types,
+    ensure, parameter_types,
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
 use fp_traits::account::AccountAsset;

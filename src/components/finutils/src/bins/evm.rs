@@ -1,16 +1,19 @@
 use baseapp::Action;
 use clap::{crate_authors, crate_version, App, SubCommand};
-use fc_rpc::{TendermintForward, TX_COMMIT};
 use fintools::fns::get_keypair;
 use fintools::fns::utils;
+use fp_core::account::{MintOutput, TransferToUTXO};
 use fp_core::crypto::{Address32, MultiSignature};
-use fp_core::mint_output::MintOutput;
+// use fp_core::ecdsa::Pair;
 use fp_core::transaction::UncheckedTransaction;
 use ledger::address::SmartAddress;
 use ledger::data_model::ASSET_TYPE_FRA;
 use ledger::data_model::BLACK_HOLE_PUBKEY_STAKING;
 use module_account::Action as AccountAction;
 use ruc::*;
+use std::str::FromStr;
+use tendermint_rpc::Client;
+use tokio::runtime::Runtime;
 use txn_builder::BuildsTransactions;
 
 
@@ -18,9 +21,6 @@ fn transfer_amount(amount: u64, address: String) -> Result<()> {
     let mut builder = utils::new_tx_builder()?;
 
     let kp = get_keypair()?;
-    let signer = Address32::from(kp.get_pk());
-    println!("{:?}", signer);
-
     let transfer_op = utils::gen_transfer_op(
         &kp,
         vec![(&BLACK_HOLE_PUBKEY_STAKING, amount)],
@@ -44,22 +44,44 @@ fn refsnart_amount(amount: u64, address: String) -> Result<()> {
         amount,
         asset: ASSET_TYPE_FRA,
     };
+    // ed25519
     let kp = get_keypair()?;
+    let signer = Address32::from(kp.get_pk());
 
-    let account_call = AccountAction::TransferToUTXO(vec![output]);
+    // ecdsa
+    // let (kp, _, _) = Pair::generate_with_phrase(None);
+    // let signer = Address32::from(kp.address());
+
+    let tm_client = tendermint_rpc::HttpClient::new("http://127.0.0.1:26657").unwrap();
+    let query_ret = Runtime::new()
+        .unwrap()
+        .block_on(tm_client.abci_query(
+            Some(tendermint::abci::Path::from_str("module/account/nonce").unwrap()),
+            serde_json::to_vec(&signer).unwrap(),
+            None,
+            false,
+        ))
+        .unwrap();
+    let nonce = serde_json::from_slice::<u64>(query_ret.value.as_slice()).unwrap();
+
+    let account_call = AccountAction::TransferToUTXO(TransferToUTXO {
+        nonce,
+        outputs: vec![output],
+    });
     let account_of = Action::Account(account_call);
 
-    let signer = Address32::from(kp.get_pk());
-    println!("{:?}", signer);
     let msg = serde_json::to_vec(&account_of).unwrap();
 
     let sig = kp.get_sk_ref().sign(msg.as_slice(), kp.get_pk_ref());
     let signature = MultiSignature::from(sig);
 
     let tx = UncheckedTransaction::new_signed(account_of, signer, signature);
-    let forwarder = TendermintForward::new(String::from("http://127.0.0.1:26657"));
+    let txn = serde_json::to_vec(&tx).unwrap();
 
-    let resp = forwarder.forward_txn(tx, TX_COMMIT).c(d!())?;
+    let resp = Runtime::new()
+        .unwrap()
+        .block_on(tm_client.broadcast_tx_commit(txn.into()))
+        .c(d!())?;
 
     println!("tx_bytes: {:?}", resp);
     Ok(())

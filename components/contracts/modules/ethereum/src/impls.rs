@@ -68,10 +68,10 @@ impl<C: Config> App<C> {
             mix_hash: H256::default(),
             nonce: H64::default(),
         };
-        let block = ethereum::Block::new(partial_header, transactions.clone(), headers);
-        // TODO storage change 20 to 32 bytes
-        // block.header.state_root =
-        //     H256::from_slice(ctx.store.read().root_hash().as_slice());
+        let mut block =
+            ethereum::Block::new(partial_header, transactions.clone(), headers);
+        block.header.state_root =
+            H256::from_slice(ctx.store.read().root_hash().as_slice());
 
         CurrentBlock::put(ctx.store.clone(), Some(block.clone()));
         CurrentReceipts::put(ctx.store.clone(), Some(receipts));
