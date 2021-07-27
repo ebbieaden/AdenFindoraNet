@@ -1,4 +1,5 @@
 #![deny(warnings)]
+#![allow(clippy::needless_borrow)]
 
 use lazy_static::lazy_static;
 use ledger::data_model::errors::PlatformError;
@@ -505,7 +506,6 @@ where
                     key: i.get_related_address(),
                 });
             }
-
             Operation::TransferAsset(transfer) => {
                 for input in transfer.body.transfer.inputs.iter() {
                     related_addresses.insert(XfrAddress {

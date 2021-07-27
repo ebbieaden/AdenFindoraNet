@@ -1,4 +1,5 @@
 #![deny(warnings)]
+#![allow(clippy::needless_borrow)]
 
 extern crate ledger;
 extern crate serde;
@@ -356,7 +357,6 @@ pub trait BuildsTransactions {
         h: BlockHeight,
         v_set: Vec<Validator>,
     ) -> Result<&mut Self>;
-
     fn add_operation_convert_account(
         &mut self,
         kp: &XfrKeyPair,

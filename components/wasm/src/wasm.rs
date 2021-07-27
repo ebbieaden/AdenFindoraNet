@@ -3,6 +3,7 @@
 // For now, forwards transactions to a ledger hosted locally.
 // To compile wasm package, run wasm-pack build in the wasm directory;
 #![deny(warnings)]
+#![allow(clippy::needless_borrow)]
 
 use crate::wasm_data_model::*;
 use baseapp::{Action, UncheckedTransaction};
@@ -511,21 +512,6 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    pub fn add_operation_convert_account(
-        mut self,
-        keypair: &XfrKeyPair,
-        s: String,
-    ) -> Result<TransactionBuilder, JsValue> {
-        let sa = SmartAddress::from_string(s)
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
-        self.get_builder_mut()
-            .add_operation_convert_account(keypair, sa)
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
-        Ok(self)
-    }
-
     #[allow(missing_docs)]
     pub fn add_operation_delegate(
         mut self,
@@ -586,6 +572,21 @@ impl TransactionBuilder {
         }
         self.get_builder_mut()
             .add_operation_claim(keypair, Some(am));
+        Ok(self)
+    }
+
+    pub fn add_operation_convert_account(
+        mut self,
+        keypair: &XfrKeyPair,
+        s: String,
+    ) -> Result<TransactionBuilder, JsValue> {
+        let sa = SmartAddress::from_string(s)
+            .c(d!())
+            .map_err(error_to_jsvalue)?;
+        self.get_builder_mut()
+            .add_operation_convert_account(keypair, sa)
+            .c(d!())
+            .map_err(error_to_jsvalue)?;
         Ok(self)
     }
 

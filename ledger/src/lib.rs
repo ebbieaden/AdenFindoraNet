@@ -1,4 +1,5 @@
 #![deny(warnings)]
+#![allow(clippy::needless_borrow)]
 
 #[cfg(test)]
 #[macro_use(quickcheck)]

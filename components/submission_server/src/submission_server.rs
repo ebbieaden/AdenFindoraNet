@@ -1,4 +1,5 @@
 #![deny(warnings)]
+#![allow(clippy::needless_borrow)]
 
 use ledger::data_model::errors::PlatformError;
 use ledger::data_model::{

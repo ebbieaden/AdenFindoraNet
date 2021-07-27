@@ -76,6 +76,7 @@ fn run() -> Result<()> {
         .version(fns::version())
         .author(crate_authors!())
         .about("A manual test tool for the staking function.")
+        .arg_from_usage("-v, --version")
         .subcommand(subcmd_init)
         .subcommand(subcmd_issue)
         .subcommand(subcmd_delegate)
@@ -85,7 +86,9 @@ fn run() -> Result<()> {
         .subcommand(subcmd_show)
         .get_matches();
 
-    if matches.is_present("init") {
+    if matches.is_present("version") {
+        println!("{}", env!("VERGEN_SHA"));
+    } else if matches.is_present("init") {
         init::init().c(d!())?;
     } else if matches.is_present("issue") {
         issue::issue().c(d!())?;
@@ -423,7 +426,7 @@ fn get_delegation_info(user: NameRef) -> Result<String> {
 
 fn get_balance(user: NameRef) -> Result<u64> {
     let kp = search_kp(user).c(d!())?;
-    fns::utils::get_balance(&kp).c(d!())
+    fns::utils::get_balance(kp).c(d!())
 }
 
 #[derive(Debug, Serialize)]

@@ -9,7 +9,7 @@ description = "Findora Primitive transaction events"
 readme = "README.md"
 
 [dependencies]
-abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
+abci = { git = "https://github.com/FindoraNetwork/rust-abci.git", branch = "feat-findora" }
 fp-event-derive = { path = "event-derive" }
 protobuf = "2.23"
 serde_json = "1.0"

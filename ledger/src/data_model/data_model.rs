@@ -6,7 +6,7 @@ use super::errors;
 use crate::{
     des_fail,
     policy_script::{Policy, PolicyGlobals, TxnPolicyData},
-    ser_fail,
+    ser_fail, staking,
     staking::{
         is_coinbase_tx,
         ops::{
@@ -15,7 +15,7 @@ use crate::{
             mint_fra::MintFraOps, undelegation::UnDelegationOps,
             update_validator::UpdateValidatorOps,
         },
-        Staking, TendermintAddr, MAX_POWER_PERCENT_PER_VALIDATOR,
+        StakerMemo, Staking, TendermintAddr, MAX_POWER_PERCENT_PER_VALIDATOR,
     },
 };
 
@@ -1071,15 +1071,19 @@ pub struct FinalizedTransaction {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ValidatorList {
-    validators: Vec<Validator>,
     threshold: [u128; 2],
+    validator_cnt: u64,
+    cur_height: u64,
+    validators: Vec<Validator>,
 }
 
 impl ValidatorList {
-    pub fn new(validators: Vec<Validator>) -> Self {
+    pub fn new(cur_height: u64, validators: Vec<Validator>) -> Self {
         ValidatorList {
-            validators,
             threshold: MAX_POWER_PERCENT_PER_VALIDATOR,
+            validator_cnt: validators.len() as u64,
+            cur_height,
+            validators,
         }
     }
 }
@@ -1090,6 +1094,10 @@ pub struct Validator {
     power: u64,
     commission_rate: [u64; 2],
     accept_delegation: bool,
+    return_rate: [u128; 2],
+    rank: u64,
+    block_signed_cnt: u64,
+    extra: StakerMemo,
 }
 
 impl Validator {
@@ -1097,15 +1105,20 @@ impl Validator {
     #[allow(missing_docs)]
     pub fn new(
         addr: TendermintAddr,
-        power: u64,
-        commission_rate: [u64; 2],
+        return_rate: [u128; 2],
+        rank: u64,
         accept_delegation: bool,
+        v: &staking::Validator,
     ) -> Self {
         Validator {
             addr,
-            power,
-            commission_rate,
+            power: v.td_power,
+            commission_rate: v.get_commission_rate(),
             accept_delegation,
+            return_rate,
+            rank,
+            block_signed_cnt: v.signed_cnt,
+            extra: v.memo.clone().unwrap_or_default(),
         }
     }
 }
@@ -1454,8 +1467,6 @@ lazy_static! {
     pub static ref BLACK_HOLE_PUBKEY: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[0; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
     /// BlackHole of Staking
     pub static ref BLACK_HOLE_PUBKEY_STAKING: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[1; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
-    // /// BlackHole of AccountTransfer
-    // pub static ref BLACK_HOLE_PUBKEY_ACCOUNT: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[2; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
 }
 
 /// see [**mainnet-v1.0 defination**](https://www.notion.so/findora/Transaction-Fees-Analysis-d657247b70f44a699d50e1b01b8a2287)

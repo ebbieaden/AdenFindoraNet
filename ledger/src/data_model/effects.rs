@@ -23,8 +23,6 @@ use zei::xfr::sig::XfrPublicKey;
 use ruc::*;
 use zei::xfr::structs::{TracingPolicies, XfrAmount, XfrAssetType};
 
-// use crate::address::operation::BindAddressOp;
-
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct TxnEffect {
     // The Transaction object this represents
@@ -180,7 +178,6 @@ impl TxnEffect {
                         txo_count += 1;
                     });
                 }
-
                 Operation::ConvertAccount(i) => {
                     check_nonce!(i)
                 }
@@ -630,7 +627,6 @@ impl TxnEffect {
             update_validators,
             governances,
             fra_distributions,
-            // bind_addresses,
         };
 
         Ok(txn_effect)

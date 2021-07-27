@@ -25,7 +25,7 @@ async fn ping() -> actix_web::Result<String> {
 async fn version() -> actix_web::Result<String> {
     Ok(format!(
         "Build: {} {}",
-        option_env!("VERGEN_SHA_SHORT_EXTERN").unwrap_or(env!("VERGEN_SHA_SHORT")),
+        option_env!("VERGEN_SHA_EXTERN").unwrap_or(env!("VERGEN_SHA")),
         env!("VERGEN_BUILD_DATE")
     ))
 }

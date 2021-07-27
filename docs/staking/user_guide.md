@@ -34,7 +34,7 @@
 
 # Many popular linux distribution such as Ubuntu 20.04 and MacOs ship with Python pre-installed.
 # To install `toml` tool, you need install pip first, a tool that install and manage software packages
-# for Python.  To install toml, run in your shell:
+# for Python. To install toml, run in your shell:
 
 - pip install toml-cli
 

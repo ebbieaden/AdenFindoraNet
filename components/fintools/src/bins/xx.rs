@@ -809,7 +809,7 @@ mod test {
         .c(d!())?;
 
         let iss_op =
-            IssueAsset::new(iss_body, &IssuerKeyPair { keypair: &fra_kp }).c(d!())?;
+            IssueAsset::new(iss_body, &IssuerKeyPair { keypair: fra_kp }).c(d!())?;
 
         Ok(Operation::IssueAsset(iss_op))
     }

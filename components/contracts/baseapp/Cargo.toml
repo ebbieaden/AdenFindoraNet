@@ -9,7 +9,7 @@ description = "Base application for tendermint abci"
 readme = "README.md"
 
 [dependencies]
-abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
+abci = { git = "https://github.com/FindoraNetwork/rust-abci.git", branch = "feat-findora" }
 ethereum = { version = "0.7.1", features = ["with-serde"] }
 ethereum-types = "0.11.0"
 ledger = { path = "../../../ledger" }
@@ -21,7 +21,7 @@ ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 serde = { version = "1.0.124", features = ["derive"] }
 serde_json = "1.0.40"
 storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "develop" }
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.3a" }
 
 # primitives
 fp-core = { path = "../primitives/core" }

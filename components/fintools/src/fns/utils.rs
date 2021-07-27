@@ -2,9 +2,10 @@ use super::get_serv_addr;
 use ledger::{
     data_model::{
         DelegationInfo, Operation, StateCommitmentData, Transaction, TransferType,
-        TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, TX_FEE_MIN,
+        TxoRef, TxoSID, Utxo, ValidatorDetail, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY,
+        TX_FEE_MIN,
     },
-    staking::{init::get_inital_validators, FRA_TOTAL_AMOUNT},
+    staking::{init::get_inital_validators, TendermintAddrRef, FRA_TOTAL_AMOUNT},
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};
@@ -287,7 +288,7 @@ pub fn get_owner_memo_batch(ids: &[TxoSID]) -> Result<Vec<Option<OwnerMemo>>> {
         .and_then(|b| serde_json::from_slice(&b).c(d!()))
 }
 
-/// basic delegation info, and staking info if `pk` is a validator
+/// Delegation info(and staking info if `pk` is a validator).
 pub fn get_delegation_info(pk: &XfrPublicKey) -> Result<DelegationInfo> {
     let url = format!(
         "{}:8668/delegation_info/{}",
@@ -303,6 +304,24 @@ pub fn get_delegation_info(pk: &XfrPublicKey) -> Result<DelegationInfo> {
         .bytes()
         .c(d!())
         .and_then(|b| serde_json::from_slice::<DelegationInfo>(&b).c(d!()))
+}
+
+/// Get validator infomations.
+pub fn get_validator_detail(td_addr: TendermintAddrRef) -> Result<ValidatorDetail> {
+    let url = format!(
+        "{}:8668/validator_detail/{}",
+        get_serv_addr().c(d!())?,
+        td_addr
+    );
+
+    attohttpc::get(&url)
+        .send()
+        .c(d!())?
+        .error_for_status()
+        .c(d!())?
+        .bytes()
+        .c(d!())
+        .and_then(|b| serde_json::from_slice::<ValidatorDetail>(&b).c(d!()))
 }
 
 #[derive(Serialize, Deserialize)]

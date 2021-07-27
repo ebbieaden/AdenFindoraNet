@@ -9,7 +9,7 @@ description = "Findora Primitive core types"
 readme = "README.md"
 
 [dependencies]
-abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
+abci = { git = "https://github.com/FindoraNetwork/rust-abci.git", branch = "feat-findora" }
 base64 = "0.10"
 blake2-rfc = "0.2.18"
 byteorder = "1.4.3"
@@ -33,7 +33,7 @@ substrate-bip39 = "0.4.2"
 tiny-bip39 = "0.8"
 tiny-keccak = { version = "2.0", features = ["keccak"] }
 twox-hash = "1.6.0"
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.3a" }
 bech32 = "0.7.2"
 
 [dev-dependencies]

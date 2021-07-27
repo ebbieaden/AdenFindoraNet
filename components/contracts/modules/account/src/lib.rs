@@ -108,36 +108,6 @@ impl<C: Config> AppModule for App<C> {
     }
 }
 
-impl<C: Config> AppModule for App<C> {
-    fn query_route(
-        &self,
-        ctx: Context,
-        path: Vec<&str>,
-        req: &RequestQuery,
-    ) -> ResponseQuery {
-        let mut resp = ResponseQuery::new();
-        if path.len() != 1 {
-            resp.code = 1;
-            resp.log = String::from("account: invalid query path");
-            return resp;
-        }
-        match path[0] {
-            "nonce" => {
-                let data = serde_json::from_slice::<Address>(req.data.as_slice());
-                if data.is_err() {
-                    resp.code = 1;
-                    resp.log = String::from("account: query nonce with invalid params");
-                    return resp;
-                }
-                let nonce = Self::nonce(&ctx, &data.unwrap());
-                resp.value = serde_json::to_vec(&nonce).unwrap();
-                resp
-            }
-            _ => resp,
-        }
-    }
-}
-
 impl<C: Config> Executable for App<C> {
     type Origin = Address;
     type Call = Action;

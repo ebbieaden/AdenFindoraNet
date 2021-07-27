@@ -92,6 +92,7 @@ fn run() -> Result<()> {
         .version(fns::version())
         .author(crate_authors!())
         .about("A command line tool for staking in findora network.")
+        .arg_from_usage("-v, --version")
         .subcommand(subcmd_genkey)
         .subcommand(subcmd_stake)
         .subcommand(subcmd_unstake)
@@ -102,7 +103,9 @@ fn run() -> Result<()> {
         //.subcommand(subcmd_set_initial_validators)
         .get_matches();
 
-    if matches.is_present("genkey") {
+    if matches.is_present("version") {
+        println!("{}", env!("VERGEN_SHA"));
+    } else if matches.is_present("genkey") {
         gen_key_and_print();
     } else if let Some(m) = matches.subcommand_matches("stake") {
         let am = m.value_of("amount");
@@ -186,13 +189,18 @@ fn tip_success() {
 }
 
 fn gen_key_and_print() {
-    let mnemonic = pnk!(wallet::generate_mnemonic_custom(24, "en"));
-    let key = wallet::restore_keypair_from_mnemonic_default(&mnemonic)
-        .c(d!())
-        .and_then(|kp| serde_json::to_string_pretty(&kp).c(d!()));
+    let (m, k) = loop {
+        let mnemonic = pnk!(wallet::generate_mnemonic_custom(24, "en"));
+        let key = wallet::restore_keypair_from_mnemonic_default(&mnemonic)
+            .c(d!())
+            .and_then(|kp| serde_json::to_string_pretty(&kp).c(d!()));
+        let k = pnk!(key);
+        if !k.contains('-') {
+            break (mnemonic, k);
+        }
+    };
     println!(
         "\x1b[31;01mMnemonic:\x1b[00m {}\n\x1b[31;01mKey:\x1b[00m {}\n",
-        mnemonic,
-        pnk!(key)
+        m, k
     );
 }
