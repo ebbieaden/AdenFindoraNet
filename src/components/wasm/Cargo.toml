@@ -1,9 +1,9 @@
 [package]
 name = "wasm"
-version = "0.2.0"
-authors = ["FindoraNetwork"]
-build = "build.rs"
+version = "0.1.0"
+authors = ["ngolub <ngolub@stanford.edu>"]
 edition = "2018"
+build = "build.rs"
 
 description = ""
 repository = ""
@@ -14,18 +14,31 @@ license = ""
 wasm-opt = false
 
 [dependencies]
+ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 base64 = "0.10"
+credentials = { path = "../../libs/credentials" }
+cryptohash = { path = "../../libs/cryptohash" }
 futures = "0.1.20"
 hex = "0.3.2"
 js-sys = "0.3.27"
+ledger = { path = "../../ledger" }
 rand_chacha = "0.2.0"
+air = { path = "../../libs/ads/air" }
 rand_core = { version = "0.5", default-features = false, features = ["alloc"] }
 rand = { version = "0.7", features = ["wasm-bindgen"] }
 serde = { version = "1.0.124", features = ["derive"] }
+serde_derive = "^1.0.59"
 serde_json = "1.0"
-wasm-bindgen = { version = "0.2.62", features = ["serde-serialize"]  }
+sparse_merkle_tree = { path = "../../libs/ads/sparse_merkle_tree" }
+txn_builder = {path = "../txn_builder"}
+wasm-bindgen = { version = "=0.2.62", features = ["serde-serialize"]  }
 wasm-bindgen-futures = "0.3.27"
 wasm-bindgen-test = "0.2.50"
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
+utils = { path = "../../libs/utils" }
+fp-core = { path = "../contracts/primitives/core" }
+module-account = { path = "../contracts/modules/account" }
+baseapp = { path = "../contracts/baseapp" }
 
 ring = "0.16.19"
 aes-gcm = "0.8.0"
@@ -35,14 +48,7 @@ bech32 = "0.7.2"
 # OR the compiling will fail.
 getrandom = { version = "0.2", features = ["js"] }
 
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.4c" }
-ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
-
-finutils = { path = "../finutils" }
-globutils = { path = "../../libs/globutils" }
-credentials = { path = "../../libs/credentials" }
-cryptohash = { path = "../../libs/cryptohash" }
-ledger = { path = "../../ledger" }
+wallet = { path = "../wallet" }
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -64,7 +70,7 @@ features = [
 serde = "1.0.124"
 serde_json = "1.0.41"
 vergen = "=3.1.0"
-wasm-bindgen = { version = "0.2.62", features = ["serde-serialize"]  }
+wasm-bindgen = { version = "=0.2.62", features = ["serde-serialize"]  }
 
 [dev-dependencies]
 # Must enable the "js"-feature,

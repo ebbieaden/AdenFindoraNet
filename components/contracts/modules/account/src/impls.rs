@@ -134,13 +134,15 @@ impl<C: Config> AccountAsset<Address> for App<C> {
     }
 }
 
+const MIN_GAS_PRICE: u64 = 1_0000_0000_0000_u64;
+
 impl<C: Config> App<C> {
     pub fn transfer_to_utxo(
         ctx: &Context,
         sender: Address,
         outputs: Vec<MintOutput>,
     ) -> Result<ActionResult> {
-        let mut asset_amount = 0;
+        let mut asset_amount = MIN_GAS_PRICE;
         let mut asset_map = HashMap::new();
         for output in &outputs {
             if output.asset == ASSET_TYPE_FRA {

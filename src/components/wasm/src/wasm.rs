@@ -1,27 +1,11 @@
-//!
-//! Interface for issuing transactions that can be compiled to Wasm.
-//!
-//! Allows web clients to issue transactions from a browser contexts.
-//!
-//! For now, forwards transactions to a ledger hosted locally.
-//!
-//! To compile wasm package, run wasm-pack build in the wasm directory.
-//!
-
+// Interface for issuing transactions that can be compiled to Wasm.
+// Allows web clients to issue transactions from a browser contexts.
+// For now, forwards transactions to a ledger hosted locally.
+// To compile wasm package, run wasm-pack build in the wasm directory;
 #![deny(warnings)]
-#![deny(missing_docs)]
-#![allow(clippy::needless_borrow)]
 
-use crate::{
-    util::error_to_jsvalue,
-    wasm_data_model::{
-        AssetRules, AssetTracerKeyPair, AttributeAssignment, AttributeDefinition,
-        ClientAssetRecord, Credential, CredentialCommitment, CredentialCommitmentData,
-        CredentialCommitmentKey, CredentialIssuerKeyPair, CredentialPoK,
-        CredentialRevealSig, CredentialSignature, CredentialUserKeyPair, OwnerMemo,
-        PublicParams, TracingPolicies, TxoRef,
-    },
-};
+use crate::wasm_data_model::*;
+use baseapp::{Action, UncheckedTransaction};
 use credentials::{
     credential_commit, credential_issuer_key_gen, credential_open_commitment,
     credential_reveal, credential_sign, credential_user_key_gen, credential_verify,
@@ -29,17 +13,17 @@ use credentials::{
     CredUserPublicKey, CredUserSecretKey, Credential as PlatformCredential,
 };
 use cryptohash::sha256;
-use finutils::txn_builder::{
-    BuildsTransactions, FeeInput as PlatformFeeInput, FeeInputs as PlatformFeeInputs,
-    TransactionBuilder as PlatformTransactionBuilder,
-    TransferOperationBuilder as PlatformTransferOperationBuilder,
+use fp_core::{
+    account::{MintOutput, TransferToUTXO},
+    crypto::{Address32, MultiSignature},
+    ecdsa::Pair,
 };
-use globutils::{wallet, HashOf};
 use ledger::{
     data_model::{
         AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
         ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
     },
+    policies::{DebtMemo, Fraction},
     staking::{
         gen_random_keypair, td_addr_to_bytes, PartialUnDelegation, TendermintAddr,
         MAX_DELEGATION_AMOUNT, MIN_DELEGATION_AMOUNT,
@@ -48,20 +32,25 @@ use ledger::{
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::{d, err::RucResult};
+use txn_builder::{
+    BuildsTransactions, FeeInput as PlatformFeeInput, FeeInputs as PlatformFeeInputs,
+    PolicyChoice, TransactionBuilder as PlatformTransactionBuilder,
+    TransferOperationBuilder as PlatformTransferOperationBuilder,
+};
+use util::error_to_jsvalue;
+use utils::HashOf;
 use wasm_bindgen::prelude::*;
-use zei::{
-    serialization::ZeiFromToBytes,
-    xfr::{
-        asset_record::{open_blind_asset_record as open_bar, AssetRecordType},
-        lib::trace_assets as zei_trace_assets,
-        sig::{XfrKeyPair, XfrPublicKey, XfrSecretKey},
-        structs::{
-            AssetRecordTemplate, AssetType as ZeiAssetType, XfrBody, ASSET_TYPE_LENGTH,
-        },
-    },
+
+use zei::serialization::ZeiFromToBytes;
+use zei::xfr::asset_record::{open_blind_asset_record as open_bar, AssetRecordType};
+use zei::xfr::lib::trace_assets as zei_trace_assets;
+use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSecretKey};
+use zei::xfr::structs::{
+    AssetRecordTemplate, AssetType as ZeiAssetType, XfrBody, ASSET_TYPE_LENGTH,
 };
 
 use ledger::address::SmartAddress;
+use module_account::Action as AccountAction;
 
 mod util;
 mod wasm_data_model;
@@ -129,9 +118,98 @@ pub fn verify_authenticated_txn(
 }
 
 #[wasm_bindgen]
-/// ...
+/// Performs a simple loan repayment fee calculation.
+///
+/// The returned fee is a fraction of the `outstanding_balance`
+/// where the interest rate is expressed as a fraction `ir_numerator` / `ir_denominator`.
+///
+/// This function is specific to the  Lending Demo.
+/// @param {BigInt} ir_numerator - Interest rate numerator.
+/// @param {BigInt} ir_denominator - Interest rate denominator.
+/// @param {BigInt} outstanding_balance - Amount of outstanding debt.
+/// @ignore
+pub fn calculate_fee(
+    ir_numerator: u64,
+    ir_denominator: u64,
+    outstanding_balance: u64,
+) -> u64 {
+    ledger::policies::calculate_fee(
+        outstanding_balance,
+        Fraction::new(ir_numerator, ir_denominator),
+    )
+}
+
+#[wasm_bindgen]
+// Testnet will not support direct API access to hardcoded debt policy.
+/// Returns an address to use for cancelling debt tokens in a debt swap.
+/// @ignore
 pub fn get_null_pk() -> XfrPublicKey {
     XfrPublicKey::zei_from_bytes(&[0; 32]).unwrap()
+}
+
+#[wasm_bindgen]
+// Testnet will not support Discret policies.
+/// @ignore
+pub fn create_default_policy_info() -> String {
+    serde_json::to_string(&PolicyChoice::Fungible()).unwrap() // should never fail
+}
+
+#[wasm_bindgen]
+/// Create policy information needed for debt token asset types.
+/// This data will be parsed by the policy evalautor to ensure
+/// that all payment and fee amounts are correct.
+/// # Arguments
+///
+/// * `ir_numerator` - interest rate numerator
+/// * `ir_denominator`- interest rate denominator
+/// * `fiat_code` - Base64 string representing asset type used to pay off the loan
+/// * `amount` - loan amount
+/// @ignore
+// Testnet will not support Discret policies.
+pub fn create_debt_policy_info(
+    ir_numerator: u64,
+    ir_denominator: u64,
+    fiat_code: String,
+    loan_amount: u64,
+) -> Result<String, JsValue> {
+    let fiat_code = AssetTypeCode::new_from_base64(&fiat_code)
+        .c(d!())
+        .map_err(error_to_jsvalue)?;
+
+    serde_json::to_string(&PolicyChoice::LoanToken(
+        Fraction::new(ir_numerator, ir_denominator),
+        fiat_code,
+        loan_amount,
+    ))
+    .c(d!())
+    .map_err(|e| JsValue::from_str(&format!("Could not serialize PolicyChoice: {}", e)))
+}
+
+#[wasm_bindgen]
+/// Creates the memo needed for debt token asset types. The memo will be parsed by the policy evaluator to ensure
+/// that all payment and fee amounts are correct.
+/// @param {BigInt} ir_numerator  - Interest rate numerator.
+/// @param {BigInt} ir_denominator - Interest rate denominator.
+/// @param {string} fiat_code - Base64 string representing asset type used to pay off the loan.
+/// @param {BigInt} loan_amount - Loan amount.
+/// @throws Will throw an error if `fiat_code` fails to deserialize.
+/// @ignore
+// Testnet will not support Discret policies.
+pub fn create_debt_memo(
+    ir_numerator: u64,
+    ir_denominator: u64,
+    fiat_code: String,
+    loan_amount: u64,
+) -> Result<String, JsValue> {
+    let fiat_code = AssetTypeCode::new_from_base64(&fiat_code)
+        .c(d!())
+        .map_err(error_to_jsvalue)?;
+    let memo = DebtMemo {
+        interest_rate: Fraction::new(ir_numerator, ir_denominator),
+        fiat_code,
+        loan_amount,
+    };
+    Ok(serde_json::to_string(&memo).unwrap())
 }
 
 #[wasm_bindgen]
@@ -141,12 +219,10 @@ pub struct TransactionBuilder {
 }
 
 impl TransactionBuilder {
-    #[allow(missing_docs)]
     pub fn get_builder(&self) -> &PlatformTransactionBuilder {
         &self.transaction_builder
     }
 
-    #[allow(missing_docs)]
     pub fn get_builder_mut(&mut self) -> &mut PlatformTransactionBuilder {
         &mut self.transaction_builder
     }
@@ -179,7 +255,6 @@ impl From<FeeInput> for PlatformFeeInput {
 
 #[wasm_bindgen]
 #[derive(Default)]
-#[allow(missing_docs)]
 pub struct FeeInputs {
     inner: Vec<FeeInput>,
 }
@@ -194,14 +269,12 @@ impl From<FeeInputs> for PlatformFeeInputs {
 
 #[wasm_bindgen]
 impl FeeInputs {
-    #[allow(missing_docs)]
     pub fn new() -> Self {
         FeeInputs {
             inner: Vec::with_capacity(1),
         }
     }
 
-    #[allow(missing_docs)]
     pub fn append(
         &mut self,
         am: u64,
@@ -213,7 +286,6 @@ impl FeeInputs {
         self.inner.push(FeeInput { am, tr, ar, om, kp })
     }
 
-    #[allow(missing_docs)]
     pub fn append2(
         mut self,
         am: u64,
@@ -316,7 +388,7 @@ impl TransactionBuilder {
             key_pair,
             memo,
             token_code,
-            String::new(),
+            create_default_policy_info(),
             asset_rules,
         )
     }
@@ -328,7 +400,7 @@ impl TransactionBuilder {
         key_pair: &XfrKeyPair,
         memo: String,
         token_code: String,
-        _policy_choice: String,
+        policy_choice: String,
         asset_rules: AssetRules,
     ) -> Result<TransactionBuilder, JsValue> {
         let asset_token = if token_code.is_empty() {
@@ -339,15 +411,37 @@ impl TransactionBuilder {
                 .map_err(error_to_jsvalue)?
         };
 
+        let policy_choice = serde_json::from_str::<PolicyChoice>(&policy_choice)
+            .c(d!())
+            .map_err(|e| {
+                JsValue::from_str(&format!("Could not deserialize PolicyChoice: {}", e))
+            })?;
         self.get_builder_mut()
             .add_operation_create_asset(
                 &key_pair,
                 Some(asset_token),
                 asset_rules.rules,
                 &memo,
+                policy_choice,
             )
             .c(d!())
             .map_err(error_to_jsvalue)?;
+        Ok(self)
+    }
+
+    /// @ignore
+    // Testnet will not support Discret policies.
+    pub fn add_policy_option(
+        mut self,
+        token_code: String,
+        which_check: String,
+    ) -> Result<TransactionBuilder, JsValue> {
+        let token_code = AssetTypeCode::new_from_base64(&token_code)
+            .c(d!())
+            .map_err(error_to_jsvalue)?;
+
+        self.get_builder_mut()
+            .add_policy_option(token_code, which_check);
         Ok(self)
     }
 
@@ -510,7 +604,6 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    #[allow(missing_docs)]
     pub fn sign(mut self, kp: &XfrKeyPair) -> Result<TransactionBuilder, JsValue> {
         self.get_builder_mut().sign(kp);
         Ok(self)
@@ -542,6 +635,69 @@ impl TransactionBuilder {
             .map(|memo| OwnerMemo { memo: memo.clone() })
     }
 }
+
+fn generate_action(amount: u64, address: XfrPublicKey, nonce: u64) -> Action {
+    let output = MintOutput {
+        target: address,
+        amount,
+        asset: ASSET_TYPE_FRA,
+    };
+
+    let action = AccountAction::TransferToUTXO(TransferToUTXO {
+        nonce,
+        outputs: vec![output],
+    });
+
+    Action::Account(action)
+}
+
+/// Generate balance from account to utxo tx.
+#[wasm_bindgen]
+pub fn balance_from_account_to_utxo_by_xfr(
+    amount: u64,
+    address: XfrPublicKey,
+    kp: XfrKeyPair,
+    nonce: u64,
+) -> Result<String, JsValue> {
+    let account_of = generate_action(amount, address, nonce);
+
+    let msg = serde_json::to_vec(&account_of).map_err(error_to_jsvalue)?;
+
+    let signature = MultiSignature::from(kp.get_sk_ref().sign(&msg, kp.get_pk_ref()));
+    let signer = Address32::from(kp.get_pk());
+
+    let tx = UncheckedTransaction::new_signed(account_of, signer, signature);
+
+    let res = serde_json::to_string(&tx).map_err(error_to_jsvalue)?;
+
+    Ok(res)
+}
+
+#[wasm_bindgen]
+pub fn balance_from_account_to_utxo_by_eth(
+    amount: u64,
+    address: XfrPublicKey,
+    kp_phrase: String,
+    nonce: u64,
+) -> Result<String, JsValue> {
+    let kp = Pair::from_phrase(&kp_phrase, None)
+        .map_err(error_to_jsvalue)?
+        .0;
+
+    let account_of = generate_action(amount, address, nonce);
+
+    let msg = serde_json::to_vec(&account_of).map_err(error_to_jsvalue)?;
+
+    let signature = MultiSignature::from(kp.sign(&msg));
+    let signer = Address32::from(kp.public());
+
+    let tx = UncheckedTransaction::new_signed(account_of, signer, signature);
+
+    let res = serde_json::to_string(&tx).map_err(error_to_jsvalue)?;
+
+    Ok(res)
+}
+
 #[wasm_bindgen]
 #[derive(Default)]
 /// Structure that enables clients to construct complex transfers.
@@ -550,19 +706,16 @@ pub struct TransferOperationBuilder {
 }
 
 impl TransferOperationBuilder {
-    #[allow(missing_docs)]
     pub fn get_builder(&self) -> &PlatformTransferOperationBuilder {
         &self.op_builder
     }
 
-    #[allow(missing_docs)]
     pub fn get_builder_mut(&mut self) -> &mut PlatformTransferOperationBuilder {
         &mut self.op_builder
     }
 }
 
 impl TransferOperationBuilder {
-    #[allow(missing_docs)]
     pub fn add_input(
         mut self,
         txo_ref: TxoRef,
@@ -594,7 +747,6 @@ impl TransferOperationBuilder {
         Ok(self)
     }
 
-    #[allow(missing_docs)]
     pub fn add_output(
         mut self,
         amount: u64,
@@ -792,7 +944,21 @@ impl TransferOperationBuilder {
         Ok(self)
     }
 
-    #[allow(missing_docs)]
+    /// Co-sign an input index
+    /// @param {XfrKeyPair} kp - Co-signature key.
+    /// @params {Number} input_idx - Input index to apply co-signature to.
+    pub fn add_cosignature(
+        mut self,
+        kp: &XfrKeyPair,
+        input_idx: usize,
+    ) -> Result<TransferOperationBuilder, JsValue> {
+        self.get_builder_mut()
+            .sign_cosignature(kp, input_idx)
+            .c(d!())
+            .map_err(error_to_jsvalue)?;
+        Ok(self)
+    }
+
     pub fn builder(&self) -> String {
         serde_json::to_string(self.get_builder()).unwrap()
     }
@@ -1142,6 +1308,14 @@ pub fn trace_assets(
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+#[test]
+pub fn test() {
+    let kp = new_keypair();
+    let b64 = public_key_to_base64(kp.get_pk_ref());
+    let pk = public_key_from_base64(&b64).unwrap();
+    dbg!(pk);
+}
+
 //////////////////////////////////////////
 // Author: Chao Ma, github.com/chaosma. //
 //////////////////////////////////////////
@@ -1168,21 +1342,18 @@ pub fn public_key_from_bech32(addr: &str) -> Result<XfrPublicKey, JsValue> {
 }
 
 #[wasm_bindgen]
-#[allow(missing_docs)]
 pub fn bech32_to_base64(pk: &str) -> Result<String, JsValue> {
     let pub_key = public_key_from_bech32(pk)?;
     Ok(public_key_to_base64(&pub_key))
 }
 
 #[wasm_bindgen]
-#[allow(missing_docs)]
 pub fn base64_to_bech32(pk: &str) -> Result<String, JsValue> {
     let pub_key = public_key_from_base64(pk)?;
     Ok(public_key_to_bech32(&pub_key))
 }
 
 #[wasm_bindgen]
-#[allow(missing_docs)]
 pub fn encryption_pbkdf2_aes256gcm(key_pair: String, password: String) -> Vec<u8> {
     const CREDENTIAL_LEN: usize = 32;
     const IV_LEN: usize = 12;
@@ -1217,7 +1388,6 @@ pub fn encryption_pbkdf2_aes256gcm(key_pair: String, password: String) -> Vec<u8
 }
 
 #[wasm_bindgen]
-#[allow(missing_docs)]
 pub fn decryption_pbkdf2_aes256gcm(enc_key_pair: Vec<u8>, password: String) -> String {
     const CREDENTIAL_LEN: usize = 32;
     const IV_LEN: usize = 12;
@@ -1248,7 +1418,6 @@ pub fn decryption_pbkdf2_aes256gcm(enc_key_pair: Vec<u8>, password: String) -> S
 }
 
 #[wasm_bindgen]
-#[allow(missing_docs)]
 pub fn create_keypair_from_secret(sk_str: String) -> Option<XfrKeyPair> {
     serde_json::from_str::<XfrSecretKey>(&sk_str)
         .map(|sk| sk.into_keypair())
@@ -1256,7 +1425,6 @@ pub fn create_keypair_from_secret(sk_str: String) -> Option<XfrKeyPair> {
 }
 
 #[wasm_bindgen]
-#[allow(missing_docs)]
 pub fn get_pk_from_keypair(kp: &XfrKeyPair) -> XfrPublicKey {
     kp.get_pk()
 }
@@ -1292,7 +1460,6 @@ pub struct BipPath {
 
 #[wasm_bindgen]
 impl BipPath {
-    #[allow(missing_docs)]
     pub fn new(coin: u32, account: u32, change: u32, address: u32) -> Self {
         BipPath {
             coin,
@@ -1398,7 +1565,6 @@ pub fn get_delegation_max_amount() -> u64 {
 }
 
 #[cfg(test)]
-#[allow(missing_docs)]
 mod test {
     use super::*;
 
