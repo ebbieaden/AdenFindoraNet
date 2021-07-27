@@ -4,7 +4,7 @@ use fintools::fns::get_keypair;
 use fintools::fns::utils;
 use fp_core::account::{MintOutput, TransferToUTXO};
 use fp_core::crypto::{Address32, MultiSignature};
-// use fp_core::ecdsa::Pair;
+use fp_core::ecdsa::Pair;
 use fp_core::transaction::UncheckedTransaction;
 use ledger::address::SmartAddress;
 use ledger::data_model::ASSET_TYPE_FRA;
@@ -15,6 +15,7 @@ use std::str::FromStr;
 use tendermint_rpc::Client;
 use tokio::runtime::Runtime;
 use txn_builder::BuildsTransactions;
+use zei::xfr::sig::XfrKeyPair;
 
 fn transfer_amount(amount: u64, address: String) -> Result<()> {
     let mut builder = utils::new_tx_builder()?;
@@ -36,20 +37,43 @@ fn transfer_amount(amount: u64, address: String) -> Result<()> {
     Ok(())
 }
 
-fn refsnart_amount(amount: u64, address: String) -> Result<()> {
+pub enum Keypair {
+    ED25519(XfrKeyPair),
+    ECDSA(Pair),
+}
+
+impl Keypair {
+    pub fn sign(&self, data: &[u8]) -> MultiSignature {
+        match self {
+            Keypair::ECDSA(kp) => MultiSignature::from(kp.sign(data)),
+            Keypair::ED25519(kp) => {
+                MultiSignature::from(kp.get_sk_ref().sign(data, kp.get_pk_ref()))
+            }
+        }
+    }
+}
+
+fn refsnart_amount(
+    amount: u64,
+    address: String,
+    eth_phrase: Option<&str>,
+) -> Result<()> {
     let addr = wallet::public_key_from_base64(&address)?;
     let output = MintOutput {
         target: addr,
         amount,
         asset: ASSET_TYPE_FRA,
     };
-    // ed25519
-    let kp = get_keypair()?;
-    let signer = Address32::from(kp.get_pk());
 
-    // ecdsa
-    // let (kp, _, _) = Pair::generate_with_phrase(None);
-    // let signer = Address32::from(kp.address());
+    let (signer, kp) = if let Some(key_path) = eth_phrase {
+        let kp = Pair::from_phrase(key_path, None)?.0;
+        let signer = Address32::from(kp.public());
+        (signer, Keypair::ECDSA(kp))
+    } else {
+        let kp = get_keypair()?;
+        let signer = Address32::from(kp.get_pk());
+        (signer, Keypair::ED25519(kp))
+    };
 
     let tm_client = tendermint_rpc::HttpClient::new("http://127.0.0.1:26657").unwrap();
     let query_ret = Runtime::new()
@@ -71,10 +95,10 @@ fn refsnart_amount(amount: u64, address: String) -> Result<()> {
 
     let msg = serde_json::to_vec(&account_of).unwrap();
 
-    let sig = kp.get_sk_ref().sign(msg.as_slice(), kp.get_pk_ref());
-    let signature = MultiSignature::from(sig);
+    let signature = kp.sign(msg.as_slice());
 
     let tx = UncheckedTransaction::new_signed(account_of, signer, signature);
+
     let txn = serde_json::to_vec(&tx).unwrap();
 
     let resp = Runtime::new()
@@ -97,7 +121,8 @@ fn run() -> Result<()> {
         .arg_from_usage(
             "-b --balance=<Balance> transfer balance from account fra to utxo fra",
         )
-        .arg_from_usage("-a --address=<Address> transfer target address");
+        .arg_from_usage("-a --address=<Address> transfer target address")
+        .arg_from_usage("-e --eth-key=[ETHKey] transfer target address");
 
     let matchs = App::new("fe")
         .version(crate_version!())
@@ -119,9 +144,11 @@ fn run() -> Result<()> {
     if let Some(m) = matchs.subcommand_matches("refsnart") {
         let amount = m.value_of("balance").c(d!())?;
         let address = m.value_of("address").c(d!())?;
+        let eth_key = m.value_of("eth-key");
         refsnart_amount(
             u64::from_str_radix(amount, 10).c(d!())?,
             String::from(address),
+            eth_key,
         )?
     }
     Ok(())

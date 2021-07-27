@@ -36,6 +36,9 @@ wasm-bindgen-futures = "0.3.27"
 wasm-bindgen-test = "0.2.50"
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
 utils = { path = "../../libs/utils" }
+fp-core = { path = "../contracts/primitives/core" }
+module-account = { path = "../contracts/modules/account" }
+baseapp = { path = "../contracts/baseapp" }
 
 ring = "0.16.19"
 aes-gcm = "0.8.0"

@@ -5,6 +5,7 @@
 #![deny(warnings)]
 
 use crate::wasm_data_model::*;
+use baseapp::{Action, UncheckedTransaction};
 use credentials::{
     credential_commit, credential_issuer_key_gen, credential_open_commitment,
     credential_reveal, credential_sign, credential_user_key_gen, credential_verify,
@@ -12,6 +13,11 @@ use credentials::{
     CredUserPublicKey, CredUserSecretKey, Credential as PlatformCredential,
 };
 use cryptohash::sha256;
+use fp_core::{
+    account::{MintOutput, TransferToUTXO},
+    crypto::{Address32, MultiSignature},
+    ecdsa::Pair,
+};
 use ledger::{
     data_model::{
         AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
@@ -44,6 +50,7 @@ use zei::xfr::structs::{
 };
 
 use ledger::address::SmartAddress;
+use module_account::Action as AccountAction;
 
 mod util;
 mod wasm_data_model;
@@ -628,6 +635,69 @@ impl TransactionBuilder {
             .map(|memo| OwnerMemo { memo: memo.clone() })
     }
 }
+
+fn generate_action(amount: u64, address: XfrPublicKey, nonce: u64) -> Action {
+    let output = MintOutput {
+        target: address,
+        amount,
+        asset: ASSET_TYPE_FRA,
+    };
+
+    let action = AccountAction::TransferToUTXO(TransferToUTXO {
+        nonce,
+        outputs: vec![output],
+    });
+
+    Action::Account(action)
+}
+
+/// Generate balance from account to utxo tx.
+#[wasm_bindgen]
+pub fn balance_from_account_to_utxo_by_xfr(
+    amount: u64,
+    address: XfrPublicKey,
+    kp: XfrKeyPair,
+    nonce: u64,
+) -> Result<String, JsValue> {
+    let account_of = generate_action(amount, address, nonce);
+
+    let msg = serde_json::to_vec(&account_of).map_err(error_to_jsvalue)?;
+
+    let signature = MultiSignature::from(kp.get_sk_ref().sign(&msg, kp.get_pk_ref()));
+    let signer = Address32::from(kp.get_pk());
+
+    let tx = UncheckedTransaction::new_signed(account_of, signer, signature);
+
+    let res = serde_json::to_string(&tx).map_err(error_to_jsvalue)?;
+
+    Ok(res)
+}
+
+#[wasm_bindgen]
+pub fn balance_from_account_to_utxo_by_eth(
+    amount: u64,
+    address: XfrPublicKey,
+    kp_phrase: String,
+    nonce: u64,
+) -> Result<String, JsValue> {
+    let kp = Pair::from_phrase(&kp_phrase, None)
+        .map_err(error_to_jsvalue)?
+        .0;
+
+    let account_of = generate_action(amount, address, nonce);
+
+    let msg = serde_json::to_vec(&account_of).map_err(error_to_jsvalue)?;
+
+    let signature = MultiSignature::from(kp.sign(&msg));
+    let signer = Address32::from(kp.public());
+
+    let tx = UncheckedTransaction::new_signed(account_of, signer, signature);
+
+    let res = serde_json::to_string(&tx).map_err(error_to_jsvalue)?;
+
+    Ok(res)
+}
+
 #[wasm_bindgen]
 #[derive(Default)]
 /// Structure that enables clients to construct complex transfers.
