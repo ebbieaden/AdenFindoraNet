@@ -24,6 +24,7 @@ members = [
     "components/contracts/modules/evm/precompile/sha3fips",
     "components/contracts/modules/template",
     "components/contracts/primitives/core",
+    "components/contracts/primitives/events",
     "components/contracts/primitives/evm",
     "components/contracts/primitives/storage",
     "components/contracts/primitives/traits",

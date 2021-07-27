@@ -1,10 +1,10 @@
-use super::{App, Config};
+use super::{App, Config, MODULE_NAME};
 use fp_core::module::AppModuleBasic;
 use ruc::Result;
 
 impl<C: Config> AppModuleBasic for App<C> {
-    fn name(&self) -> String {
-        self.name.clone()
+    fn name() -> String {
+        MODULE_NAME.into()
     }
 
     fn default_genesis(&self) -> Vec<u8> {

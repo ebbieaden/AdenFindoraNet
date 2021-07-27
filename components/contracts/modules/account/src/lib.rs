@@ -17,6 +17,8 @@ use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
+pub const MODULE_NAME: &str = "account";
+
 pub trait Config {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,14 +38,12 @@ mod storage {
 }
 
 pub struct App<C> {
-    name: String,
     phantom: PhantomData<C>,
 }
 
 impl<C: Config> App<C> {
     pub fn new() -> Self {
         App {
-            name: "account".to_string(),
             phantom: Default::default(),
         }
     }
@@ -78,9 +78,33 @@ impl<C: Config> App<C> {
     }
 }
 
-impl<C: Config> Default for App<C> {
-    fn default() -> Self {
-        Self::new()
+impl<C: Config> AppModule for App<C> {
+    fn query_route(
+        &self,
+        ctx: Context,
+        path: Vec<&str>,
+        req: &RequestQuery,
+    ) -> ResponseQuery {
+        let mut resp = ResponseQuery::new();
+        if path.len() != 1 {
+            resp.code = 1;
+            resp.log = String::from("account: invalid query path");
+            return resp;
+        }
+        match path[0] {
+            "nonce" => {
+                let data = serde_json::from_slice::<Address>(req.data.as_slice());
+                if data.is_err() {
+                    resp.code = 1;
+                    resp.log = String::from("account: query nonce with invalid params");
+                    return resp;
+                }
+                let nonce = Self::nonce(&ctx, &data.unwrap());
+                resp.value = serde_json::to_vec(&nonce).unwrap();
+                resp
+            }
+            _ => resp,
+        }
     }
 }
 

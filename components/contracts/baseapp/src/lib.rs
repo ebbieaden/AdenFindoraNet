@@ -104,7 +104,7 @@ impl BaseApp {
             chain_state: chain_state.clone(),
             check_state: Context::new(chain_state.clone()),
             deliver_state: Context::new(chain_state),
-            modules: Default::default(),
+            modules: ModuleManager::new(),
         })
     }
 }

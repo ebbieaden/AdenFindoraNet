@@ -13,6 +13,8 @@ use ruc::Result;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
+pub const MODULE_NAME: &str = "template";
+
 pub trait Config {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,22 +29,14 @@ mod storage {
 }
 
 pub struct App<C> {
-    name: String,
     phantom: PhantomData<C>,
 }
 
 impl<C: Config> App<C> {
     pub fn new() -> Self {
         App {
-            name: "template".to_string(),
             phantom: Default::default(),
         }
-    }
-}
-
-impl<C: Config> Default for App<C> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -4,7 +4,7 @@ use ruc::Result;
 /// AppModuleBasic is the standard form for basic non-dependant elements of an application module.
 pub trait AppModuleBasic {
     /// Returns the module's name.
-    fn name(&self) -> String;
+    fn name() -> String;
 
     /// Returns default genesis state as raw bytes for the module.
     fn default_genesis(&self) -> Vec<u8>;
