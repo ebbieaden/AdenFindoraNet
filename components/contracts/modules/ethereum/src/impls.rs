@@ -1,11 +1,12 @@
 use crate::storage::*;
-use crate::{App, Config};
+use crate::{App, Config, ExecExitReason, TransactionExecuted};
 use ethereum_types::{Bloom, BloomInput, H64};
 use evm::ExitReason;
 use fp_core::{
     context::Context, crypto::secp256k1_ecdsa_recover, macros::Get,
-    transaction::ActionResult,
+    module::AppModuleBasic, transaction::ActionResult,
 };
+use fp_events::Event;
 use fp_evm::{CallOrCreateInfo, TransactionStatus};
 use fp_traits::evm::DecimalsMapping;
 use module_evm::Runner;
@@ -97,7 +98,7 @@ impl<C: Config> App<C> {
         let gas_limit = transaction.gas_limit;
         let transferred_value = C::DecimalsMapping::into_native_token(transaction.value);
 
-        let (to, _contract_address, info) = Self::execute_transaction(
+        let (to, contract_address, info) = Self::execute_transaction(
             &ctx,
             source,
             transaction.input.clone(),
@@ -160,13 +161,20 @@ impl<C: Config> App<C> {
         pending.push((transaction, status, receipt));
         Pending::put(ctx.store.clone(), pending);
 
-        // TODO events
-        // Self::deposit_event(Event::Executed(source, contract_address.unwrap_or_default(), transaction_hash, reason));
-
         let mut ar = ActionResult::default();
         ar.data = serde_json::to_vec(&info).unwrap_or_default();
         ar.gas_wanted = gas_limit.low_u64();
         ar.gas_used = used_gas.low_u64();
+        ar.events = vec![Event::emit_event(
+            Self::name(),
+            TransactionExecuted {
+                sender: source,
+                contract_address: contract_address.unwrap_or_default(),
+                transaction_hash,
+                reason: ExecExitReason(reason),
+            },
+        )];
+
         Ok(ar)
     }
 

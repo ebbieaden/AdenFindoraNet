@@ -1,0 +1,18 @@
+[package]
+name = "fp-events"
+version = "0.1.0"
+authors = ["Findora <tyler@findora.org>"]
+edition = "2018"
+homepage = "https://findora.org/technology"
+repository = "https://github.com/findoranetwork/platform/"
+description = "Findora Primitive transaction events"
+readme = "README.md"
+
+[dependencies]
+abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
+fp-event-derive = { path = "event-derive" }
+protobuf = "2.23"
+serde_json = "1.0"
+
+[dev-dependencies]
+serde = { version = "1.0.124", features = ["derive"] }

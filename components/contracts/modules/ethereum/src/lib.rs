@@ -12,12 +12,16 @@ use fp_core::{
     module::AppModule,
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
+use fp_events::*;
 use fp_traits::evm::{BlockHashMapping, DecimalsMapping, FeeCalculator};
-use primitive_types::{H256, U256};
+use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result, RucResult};
 use serde::{Deserialize, Serialize};
+use std::fmt::Formatter;
 use std::marker::PhantomData;
 use storage::*;
+
+pub const MODULE_NAME: &str = "ethereum";
 
 pub trait Config: module_evm::Config {}
 
@@ -44,23 +48,32 @@ pub mod storage {
     generate_storage!(Ethereum, BlockHash => Map<U256, H256>);
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ExecExitReason(pub evm::ExitReason);
+
+impl std::fmt::Display for ExecExitReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#?}", self.0)
+    }
+}
+
+#[derive(Event)]
+pub struct TransactionExecuted {
+    sender: H160,
+    contract_address: H160,
+    transaction_hash: H256,
+    reason: ExecExitReason,
+}
+
 pub struct App<C> {
-    name: String,
     phantom: PhantomData<C>,
 }
 
 impl<C: Config> App<C> {
     pub fn new() -> Self {
         App {
-            name: "ethereum".to_string(),
             phantom: Default::default(),
         }
-    }
-}
-
-impl<C: Config> Default for App<C> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

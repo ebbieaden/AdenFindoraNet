@@ -4,20 +4,30 @@ use fp_core::{
     account::MintOutput,
     context::Context,
     crypto::Address,
-    module::{AppModule, AppModuleBasic},
+    module::AppModule,
     transaction::{ActionResult, Applyable, Executable, ValidateUnsigned},
 };
 use ledger::address::operation::check_convert_tx;
 use ledger::data_model::Transaction as FindoraTransaction;
 use ruc::Result;
 
-#[derive(Default)]
 pub struct ModuleManager {
     // Ordered module list
     pub(crate) account_module: module_account::App<BaseApp>,
     pub(crate) ethereum_module: module_ethereum::App<BaseApp>,
     pub(crate) evm_module: module_evm::App<BaseApp>,
     pub(crate) template_module: module_template::App<BaseApp>,
+}
+
+impl ModuleManager {
+    pub fn new() -> Self {
+        ModuleManager {
+            account_module: module_account::App::new(),
+            ethereum_module: module_ethereum::App::new(),
+            evm_module: module_evm::App::new(),
+            template_module: module_template::App::new(),
+        }
+    }
 }
 
 impl ModuleManager {
@@ -36,13 +46,13 @@ impl ModuleManager {
 
         // Note: adding new modules may need to be updated.
         let module_name = path.remove(0);
-        if module_name == self.account_module.name().as_str() {
+        if module_name == module_account::MODULE_NAME {
             self.account_module.query_route(ctx, path, req)
-        } else if module_name == self.ethereum_module.name().as_str() {
+        } else if module_name == module_ethereum::MODULE_NAME {
             self.ethereum_module.query_route(ctx, path, req)
-        } else if module_name == self.evm_module.name().as_str() {
+        } else if module_name == module_evm::MODULE_NAME {
             self.evm_module.query_route(ctx, path, req)
-        } else if module_name == self.template_module.name().as_str() {
+        } else if module_name == module_template::MODULE_NAME {
             self.template_module.query_route(ctx, path, req)
         } else {
             resp.set_code(1);

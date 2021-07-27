@@ -27,6 +27,8 @@ use std::marker::PhantomData;
 
 pub use runtime::*;
 
+pub const MODULE_NAME: &str = "evm";
+
 static ISTANBUL_CONFIG: EvmConfig = EvmConfig::istanbul();
 
 pub trait Config {
@@ -73,22 +75,14 @@ pub mod storage {
 }
 
 pub struct App<C> {
-    name: String,
     phantom: PhantomData<C>,
 }
 
 impl<C: Config> App<C> {
     pub fn new() -> Self {
         App {
-            name: "evm".to_string(),
             phantom: Default::default(),
         }
-    }
-}
-
-impl<C: Config> Default for App<C> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

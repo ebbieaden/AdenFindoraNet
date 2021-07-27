@@ -22,6 +22,7 @@ sha3 = "0.8"
 
 # primitives
 fp-core = { path = "../../primitives/core" }
+fp-events = { path = "../../primitives/events" }
 fp-evm = { path = "../../primitives/evm" }
 fp-storage = { path = "../../primitives/storage" }
 fp-traits = { path = "../../primitives/traits" }
