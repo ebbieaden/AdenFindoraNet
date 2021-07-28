@@ -24,6 +24,12 @@ export ENABLE_QUERY_SERVICE = true
 # set default Findora home directory if not set
 FIN_HOME ?= /tmp/findora
 
+ifndef CARGO_TARGET_DIR
+	export CARGO_TARGET_DIR=target
+endif
+
+$(info ====== Build root is "$(CARGO_TARGET_DIR)" ======)
+
 ifdef DBG
 target_dir = debug
 else
@@ -32,7 +38,7 @@ endif
 
 bin_dir         = bin
 lib_dir         = lib
-pick            = target/$(target_dir)
+pick            = ${CARGO_TARGET_DIR}/$(target_dir)
 release_subdirs = $(bin_dir) $(lib_dir)
 
 bin_files = \
@@ -43,10 +49,10 @@ bin_files = \
 		$(shell go env GOPATH)/bin/tendermint
 
 bin_files_musl_debug = \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/fns \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/stt \
-		./target/x86_64-unknown-linux-musl/$(target_dir)/staking_cfg_generator \
+		./${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/$(target_dir)/abci_validator_node \
+		./${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/$(target_dir)/fns \
+		./${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/$(target_dir)/stt \
+		./${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/$(target_dir)/staking_cfg_generator \
 		$(shell go env GOPATH)/bin/tendermint
 
 WASM_PKG = wasm.tar.gz
@@ -57,7 +63,6 @@ define pack
 	mkdir $(target_dir)
 	cd $(target_dir); for i in $(release_subdirs); do mkdir $$i; done
 	cp $(bin_files) $(target_dir)/$(bin_dir)
-	cp $(lib_files) $(target_dir)/$(lib_dir)
 	cp $(target_dir)/$(bin_dir)/* ~/.cargo/bin/
 endef
 
@@ -66,11 +71,10 @@ define pack_musl_debug
 	mkdir $(target_dir)
 	cd $(target_dir); for i in $(release_subdirs); do mkdir $$i; done
 	cp $(bin_files_musl_debug) $(target_dir)/$(bin_dir)
-	cp $(lib_files) $(target_dir)/$(lib_dir)
 	cp $(target_dir)/$(bin_dir)/* ~/.cargo/bin/
 endef
 
-build: tendermint wasm
+build: tendermint
 ifdef DBG
 	cargo build --bins -p abciapp -p fintools
 	$(call pack,$(target_dir))
@@ -79,7 +83,7 @@ else
 	@ exit 1
 endif
 
-build_release: tendermint wasm
+build_release: tendermint
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
@@ -88,7 +92,7 @@ else
 	$(call pack,$(target_dir))
 endif
 
-build_release_musl: tendermint wasm
+build_release_musl: tendermint
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
@@ -97,7 +101,7 @@ else
 	$(call pack_musl_debug,$(target_dir))
 endif
 
-build_release_debug: tendermint wasm
+build_release_debug: tendermint
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
@@ -106,7 +110,7 @@ else
 	$(call pack,$(target_dir))
 endif
 
-build_release_musl_debug: tendermint wasm
+build_release_musl_debug: tendermint
 ifdef DBG
 	@ echo -e "\x1b[31;01m\$$(DBG) must NOT be defined !\x1b[00m"
 	@ exit 1
@@ -136,11 +140,14 @@ lint:
 	cargo clippy --workspace --tests
 	cargo clippy --features="abci_mock" --workspace --tests
 
+update:
+	cargo update
+
 test_status:
 	scripts/incur build
 	scripts/incur build --release
 	scripts/incur test
-	make build_release
+	$(MAKE) build_release
 
 fmt:
 	@ cargo fmt
@@ -150,18 +157,14 @@ fmtall:
 
 clean:
 	@ cargo clean
+	@ rm -rf tools/tendermint .git/modules/tools/tendermint
 	@ rm -rf debug release Cargo.lock
 
 tendermint:
-	if [ -d ".git" ]; then \
-		git submodule update --init --recursive; \
-	else \
-		if [ -d "tools/tendermint" ]; then rm -rf tools/tendermint; fi; \
-		git clone -b feat-findora --depth=1 https://gitee.com/kt10/tendermint.git tools/tendermint; \
-	fi
-	# cd tools/tendermint && make install
+	bash -x tools/download_tendermint.sh 'tools/tendermint'
+	# cd tools/tendermint && $(MAKE) install
 	cd tools/tendermint \
-		&& make build TENDERMINT_BUILD_OPTIONS=cleveldb \
+		&& $(MAKE) build TENDERMINT_BUILD_OPTIONS=cleveldb \
 		&& cp build/tendermint ~/go/bin/
 
 wasm:
@@ -176,7 +179,7 @@ debug_env: stop_debug_env build_release_debug
 	@ ./scripts/devnet/startnodes.sh
 
 run_staking_demo:
-	bash tools/staking/demo.sh
+	bash -x tools/staking/demo.sh
 
 start_debug_env:
 	./scripts/devnet/startnodes.sh

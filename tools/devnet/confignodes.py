@@ -21,14 +21,11 @@ abci_port = "26658"
 tendermint_host = "127.0.0.1"
 tendermint_port = "26657"
 
-submission_host = "127.0.0.1"
 submission_port = "8669"
 
-ledger_host = "127.0.0.1"
 ledger_port = "8668"
 
-evm_api_host = "127.0.0.1"
-evm_api_port = "7545"
+evm_api_port = "8545"
 """
 
 # toml set
