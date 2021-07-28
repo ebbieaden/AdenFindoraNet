@@ -39,6 +39,9 @@ use std::{env, fmt, mem};
 use time::OffsetDateTime;
 use unicode_normalization::UnicodeNormalization;
 use utils::{HashOf, ProofOf, Serialized, SignatureOf};
+use wasm_bindgen::prelude::*;
+use zei::anon_xfr::bar_to_from_abar::{BarToAbarBody, BarToAbarNote};
+use zei::errors::ZeiError;
 use zei::serialization::ZeiFromToBytes;
 use zei::xfr::lib::{gen_xfr_body, XfrNotePolicies};
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
@@ -552,6 +555,7 @@ pub struct CredentialProof {
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct SmartContract;
 
+#[wasm_bindgen]
 #[derive(
     Clone,
     Copy,
@@ -982,6 +986,34 @@ impl UpdateMemo {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct BarToAbar {
+    pub note: BarToAbarNote,
+    pub txo_sid: TxoSID,
+}
+
+impl BarToAbar {
+    pub fn new(
+        txo_sid: &TxoSID,
+        bar_to_abar_body: BarToAbarBody,
+        signing_key: &XfrKeyPair,
+    ) -> Result<BarToAbar> {
+        // sign the body
+        let msg = bincode::serialize(&bar_to_abar_body)
+            .map_err(|_| ZeiError::SerializationError)
+            .c(d!())?;
+        let signature = signing_key.sign(&msg);
+
+        Ok(BarToAbar {
+            note: BarToAbarNote {
+                body: bar_to_abar_body,
+                signature,
+            },
+            txo_sid: txo_sid.clone(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Operation {
     TransferAsset(TransferAsset),
     IssueAsset(IssueAsset),
@@ -995,6 +1027,7 @@ pub enum Operation {
     FraDistribution(FraDistributionOps),
     MintFra(MintFraOps),
     ConvertAccount(ConvertAccount),
+    BarToAbar(BarToAbar),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {

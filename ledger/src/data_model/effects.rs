@@ -600,6 +600,10 @@ impl TxnEffect {
                         update_memo.body.new_memo.clone(),
                     ));
                 }
+
+                Operation::BarToAbar(_bar_to_abar) => {
+                    unimplemented!()
+                }
             } // end -- match op {...}
             op_idx += 1;
         } // end -- for op in txn.body.operations.iter() {...}

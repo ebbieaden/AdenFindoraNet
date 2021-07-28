@@ -534,6 +534,11 @@ where
                     key: update_memo.pubkey,
                 });
             }
+            Operation::BarToAbar(bar_to_abar) => {
+                related_addresses.insert(XfrAddress {
+                    key: bar_to_abar.note.body.input.public_key,
+                });
+            }
         }
     }
     related_addresses
