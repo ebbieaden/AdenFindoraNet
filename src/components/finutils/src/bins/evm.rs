@@ -17,8 +17,8 @@ use tokio::runtime::Runtime;
 use txn_builder::BuildsTransactions;
 use zei::xfr::sig::XfrKeyPair;
 
-
-fn transfer_amount(amount: u64, address: String) -> Result<()> {
+/// transfer utxo assets to account(ed25519 or ecdsa address) balance.
+fn transfer_to_account(amount: u64, address: String) -> Result<()> {
     let mut builder = utils::new_tx_builder()?;
 
     let kp = get_keypair()?;
@@ -54,7 +54,8 @@ impl Keypair {
     }
 }
 
-fn refsnart_amount(
+/// transfer to uxto assets from account(ed25519 or ecdsa address) balance.
+fn transfer_from_account(
     amount: u64,
     address: String,
     eth_phrase: Option<&str>,
@@ -112,38 +113,48 @@ fn refsnart_amount(
 }
 
 fn run() -> Result<()> {
-    let transfer = SubCommand::with_name("transfer")
+    let deposit = SubCommand::with_name("deposit")
+        .about("Transfer FRA from Findora account to an Ethereum account address")
         .arg_from_usage(
-            "-b --balance=<Balance> transfer balance from utxo fra to account fra",
+            "-a --address=<Address> 'Ethereum address to receive FRA, eg:0xd3Bf...'",
         )
-        .arg_from_usage("-a --address=<Address> transfer target address");
+        .arg_from_usage("-b --balance=<Balance> 'Deposit FRA amount'");
 
-    let refsnart = SubCommand::with_name("refsnart")
-        .arg_from_usage(
-            "-b --balance=<Balance> transfer balance from account fra to utxo fra",
+    let withdraw = SubCommand::with_name("withdraw")
+        .about(
+            "Transfer FRA from an ethereum account address \
+         to the specified findora account address",
         )
-        .arg_from_usage("-a --address=<Address> transfer target address")
-        .arg_from_usage("-e --eth-key=[ETHKey] transfer target address");
+        .arg_from_usage(
+            "-a --address=<Address> 'Findora address to receive FRA, eg:fra1rkv...'",
+        )
+        .arg_from_usage("-b --balance=<Balance> 'Withdraw FRA amount'")
+        .arg_from_usage(
+            "-e --eth-key=[MNEMONIC] 'Ethereum account mnemonic phrase sign tx'",
+        );
 
     let matchs = App::new("fe")
         .version(crate_version!())
         .author(crate_authors!())
         .about("Findora evm compact operator tool")
-        .subcommand(transfer)
-        .subcommand(refsnart)
+        .subcommand(deposit)
+        .subcommand(withdraw)
         .get_matches();
 
-    if let Some(m) = matchs.subcommand_matches("transfer") {
+    if let Some(m) = matchs.subcommand_matches("deposit") {
         let amount = m.value_of("balance").c(d!())?;
         let address = m.value_of("address").c(d!())?;
-        transfer_amount(u64::from_str_radix(amount, 10).c(d!())?, String::from(address))?
+        transfer_to_account(
+            u64::from_str_radix(amount, 10).c(d!())?,
+            String::from(address),
+        )?
     }
 
-    if let Some(m) = matchs.subcommand_matches("refsnart") {
+    if let Some(m) = matchs.subcommand_matches("withdraw") {
         let amount = m.value_of("balance").c(d!())?;
         let address = m.value_of("address").c(d!())?;
         let eth_key = m.value_of("eth-key");
-        refsnart_amount(
+        transfer_from_account(
             u64::from_str_radix(amount, 10).c(d!())?,
             String::from(address),
             eth_key,

@@ -47,7 +47,7 @@ pub fn derive_event(input_struct: TokenStream) -> TokenStream {
                 #(
                     let mut pair = AbciPair::new();
                     pair.set_key(#keys.to_string().as_bytes().into());
-                    pair.set_value(input_struct.#idents.to_string().as_bytes().into());
+                    pair.set_value(format!("{:?}", input_struct.#idents).as_bytes().into());
                     attributes.push(pair);
                 )*
                 let mut event = AbciEvent::new();

@@ -1,7 +1,7 @@
 [package]
 name = "fp-core"
 version = "0.1.0"
-authors = ["Findora <tyler@findora.org>"]
+authors = ["Findora <admin@findora.org>"]
 edition = "2018"
 homepage = "https://findora.org/technology"
 repository = "https://github.com/findoranetwork/platform/"
@@ -9,8 +9,9 @@ description = "Findora Primitive core types"
 readme = "README.md"
 
 [dependencies]
-abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
+abci = { git = "https://github.com/FindoraNetwork/rust-abci.git", branch = "feat-findora" }
 base64 = "0.10"
+bech32 = "0.7.2"
 blake2-rfc = "0.2.18"
 byteorder = "1.4.3"
 ethereum-types = "0.11.0"
@@ -33,8 +34,7 @@ substrate-bip39 = "0.4.2"
 tiny-bip39 = "0.8"
 tiny-keccak = { version = "2.0", features = ["keccak"] }
 twox-hash = "1.6.0"
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
-bech32 = "0.7.2"
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.3a" }
 
 [dev-dependencies]
 hex-literal = "0.3.1"

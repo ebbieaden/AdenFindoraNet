@@ -12,8 +12,8 @@ use fp_core::{
     ensure, parameter_types,
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
-use fp_traits::account::AccountAsset;
-use ledger::data_model::Transaction as FindoraTransaction;
+use fp_traits::account::{AccountAsset, FeeCalculator};
+use ledger::data_model::{Transaction as FindoraTransaction, TX_FEE_MIN};
 use parking_lot::RwLock;
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
@@ -58,7 +58,17 @@ pub enum Action {
 
 impl module_template::Config for BaseApp {}
 
-impl module_account::Config for BaseApp {}
+pub struct StableTxFee;
+
+impl FeeCalculator for StableTxFee {
+    fn min_fee() -> u64 {
+        TX_FEE_MIN
+    }
+}
+
+impl module_account::Config for BaseApp {
+    type FeeCalculator = StableTxFee;
+}
 
 impl module_ethereum::Config for BaseApp {}
 

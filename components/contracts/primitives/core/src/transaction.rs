@@ -3,7 +3,7 @@ use crate::{
     crypto::{IdentifyAccount, Verify},
 };
 use abci::Event;
-use ruc::{eg, Result};
+use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -103,7 +103,7 @@ pub trait Applyable {
     fn validate<V: ValidateUnsigned<Call = Self::Call>>(
         &self,
         ctx: &Context,
-    ) -> Result<()>;
+    ) -> Result<Option<Self::Origin>>;
 
     /// Executes all necessary logic needed prior to execute and deconstructs into function call,
     /// index and sender.
@@ -139,18 +139,22 @@ pub trait ValidateUnsigned {
     fn validate_unsigned(call: &Self::Call, ctx: &Context) -> Result<()>;
 }
 
-impl<Address, Call> Applyable for CheckedTransaction<Address, Call> {
+impl<Address, Call> Applyable for CheckedTransaction<Address, Call>
+where
+    Address: Clone,
+{
     type Origin = Address;
     type Call = Call;
 
     fn validate<U: ValidateUnsigned<Call = Self::Call>>(
         &self,
         ctx: &Context,
-    ) -> Result<()> {
+    ) -> Result<Option<Self::Origin>> {
         if self.signed.is_some() {
-            Ok(())
+            Ok(self.signed.clone())
         } else {
-            U::validate_unsigned(&self.function, ctx)
+            U::validate_unsigned(&self.function, ctx)?;
+            Ok(None)
         }
     }
 

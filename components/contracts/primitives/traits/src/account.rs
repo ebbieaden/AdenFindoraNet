@@ -45,3 +45,8 @@ pub trait AccountAsset<Address> {
     /// Refund some balance from `who` account.
     fn refund(ctx: &Context, who: &Address, value: u128) -> Result<()>;
 }
+
+/// Outputs the current transaction fee.
+pub trait FeeCalculator {
+    fn min_fee() -> u64;
+}

@@ -12,6 +12,7 @@ use fp_core::{
     module::AppModule,
     transaction::{ActionResult, Executable},
 };
+use fp_events::*;
 use fp_evm::PrecompileSet;
 use fp_traits::{
     account::AccountAsset,
@@ -20,8 +21,8 @@ use fp_traits::{
         OnChargeEVMTransaction,
     },
 };
-use primitive_types::U256;
-use ruc::Result;
+use primitive_types::{H160, H256, U256};
+use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
@@ -72,6 +73,13 @@ pub mod storage {
     generate_storage!(EVM, AccountCodes => Map<H160, Vec<u8>>);
     // Storage root hash related to the contract account.
     generate_storage!(EVM, AccountStorages => DoubleMap<H160, H256, H256>);
+}
+
+#[derive(Event)]
+pub struct ContractLog {
+    pub address: H160,
+    pub topics: Vec<H256>,
+    pub data: Vec<u8>,
 }
 
 pub struct App<C> {

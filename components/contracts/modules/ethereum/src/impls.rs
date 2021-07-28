@@ -1,5 +1,5 @@
 use crate::storage::*;
-use crate::{App, Config, ExecExitReason, TransactionExecuted};
+use crate::{App, Config, TransactionExecuted};
 use ethereum_types::{Bloom, BloomInput, H64};
 use evm::ExitReason;
 use fp_core::{
@@ -9,9 +9,9 @@ use fp_core::{
 use fp_events::Event;
 use fp_evm::{CallOrCreateInfo, TransactionStatus};
 use fp_traits::evm::DecimalsMapping;
-use module_evm::Runner;
+use module_evm::{ContractLog, Runner};
 use primitive_types::{H160, H256, U256};
-use ruc::{eg, Result};
+use ruc::*;
 use sha3::{Digest, Keccak256};
 
 impl<C: Config> App<C> {
@@ -86,6 +86,8 @@ impl<C: Config> App<C> {
         ctx: &Context,
         transaction: ethereum::Transaction,
     ) -> Result<ActionResult> {
+        let mut events = vec![];
+
         let source = Self::recover_signer(&transaction)
             .ok_or_else(|| eg!("ExecuteTransaction: InvalidSignature"))?;
 
@@ -146,6 +148,17 @@ impl<C: Config> App<C> {
             ),
         };
 
+        for log in &status.clone().logs {
+            events.push(Event::emit_event(
+                App::<C>::name(),
+                ContractLog {
+                    address: log.address,
+                    topics: log.topics.clone(),
+                    data: log.data.clone(),
+                },
+            ));
+        }
+
         let receipt = ethereum::Receipt {
             state_root: match reason {
                 ExitReason::Succeed(_) => H256::from_low_u64_be(1),
@@ -161,20 +174,21 @@ impl<C: Config> App<C> {
         pending.push((transaction, status, receipt));
         Pending::put(ctx.store.clone(), pending);
 
-        let mut ar = ActionResult::default();
-        ar.data = serde_json::to_vec(&info).unwrap_or_default();
-        ar.gas_wanted = gas_limit.low_u64();
-        ar.gas_used = used_gas.low_u64();
-        ar.events = vec![Event::emit_event(
+        events.push(Event::emit_event(
             Self::name(),
             TransactionExecuted {
                 sender: source,
                 contract_address: contract_address.unwrap_or_default(),
                 transaction_hash,
-                reason: ExecExitReason(reason),
+                reason,
             },
-        )];
+        ));
 
+        let mut ar = ActionResult::default();
+        ar.data = serde_json::to_vec(&info).unwrap_or_default();
+        ar.gas_wanted = gas_limit.low_u64();
+        ar.gas_used = used_gas.low_u64();
+        ar.events = events;
         Ok(ar)
     }
 

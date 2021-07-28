@@ -1,6 +1,5 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
-use std::fmt::Formatter;
 
 #[derive(Event)]
 struct MockEvent {
@@ -8,16 +7,10 @@ struct MockEvent {
     value: u64,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct TestPair {
     key: String,
     val: String,
-}
-
-impl std::fmt::Display for TestPair {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "key: {}, val: {}", self.key, self.val)
-    }
 }
 
 #[derive(Event)]
@@ -41,7 +34,7 @@ fn test_emit_event() {
         vec![
             AbciPair {
                 key: "name".as_bytes().to_vec(),
-                value: "example".as_bytes().to_vec(),
+                value: serde_json::to_vec("example").unwrap(),
                 ..pair.clone()
             },
             AbciPair {

@@ -11,7 +11,7 @@ use fp_core::{context::Context, ensure};
 use fp_evm::{CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity};
 use fp_traits::evm::{DecimalsMapping, FeeCalculator, OnChargeEVMTransaction};
 use primitive_types::{H160, H256, U256};
-use ruc::{eg, Result};
+use ruc::*;
 use sha3::{Digest, Keccak256};
 use std::marker::PhantomData;
 
@@ -130,11 +130,6 @@ impl<C: Config> ActionRunner<C> {
                 log.data.len(),
                 log.data
             );
-            // Module::<T>::deposit_event(Event::<T>::Log(Log {
-            //     address: log.address,
-            //     topics: log.topics.clone(),
-            //     data: log.data.clone(),
-            // }));
         }
 
         Ok(ExecutionInfo {

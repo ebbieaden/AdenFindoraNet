@@ -114,7 +114,6 @@ impl Application for crate::BaseApp {
     fn deliver_tx(&mut self, req: &RequestDeliverTx) -> ResponseDeliverTx {
         let mut resp = ResponseDeliverTx::new();
         if let Ok(tx) = convert_unchecked_transaction(req.get_tx()) {
-            // TODO event
             let ctx = self
                 .retrieve_context(RunTxMode::Deliver, req.get_tx().to_vec())
                 .clone();

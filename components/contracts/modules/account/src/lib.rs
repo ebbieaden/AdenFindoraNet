@@ -5,21 +5,23 @@ mod impls;
 
 use abci::{RequestQuery, ResponseQuery};
 use fp_core::{
-    account::{FinerTransfer, MintOutput, TransferToUTXO},
+    account::{FinerTransfer, TransferToUTXO},
     context::Context,
     crypto::Address,
     ensure,
     module::AppModule,
     transaction::{ActionResult, Executable},
 };
-use fp_traits::account::AccountAsset;
+use fp_traits::account::{AccountAsset, FeeCalculator};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
 pub const MODULE_NAME: &str = "account";
 
-pub trait Config {}
+pub trait Config {
+    type FeeCalculator: FeeCalculator;
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
@@ -46,35 +48,6 @@ impl<C: Config> App<C> {
         App {
             phantom: Default::default(),
         }
-    }
-
-    fn add_mint(ctx: &Context, mut outputs: Vec<MintOutput>) -> Result<()> {
-        let ops = if let Some(mut ori_outputs) =
-            storage::MintOutputs::get(ctx.store.clone())
-        {
-            ori_outputs.append(&mut outputs);
-            ori_outputs
-        } else {
-            outputs
-        };
-        storage::MintOutputs::put(ctx.store.clone(), ops);
-        Ok(())
-    }
-
-    pub fn consume_mint(ctx: &Context, size: usize) -> Result<Vec<MintOutput>> {
-        let res = if let Some(mut outputs) = storage::MintOutputs::get(ctx.store.clone())
-        {
-            if outputs.len() <= size {
-                outputs
-            } else {
-                let vec2 = outputs.split_off(size - outputs.len());
-                storage::MintOutputs::put(ctx.store.clone(), vec2);
-                outputs
-            }
-        } else {
-            Vec::new()
-        };
-        Ok(res)
     }
 }
 

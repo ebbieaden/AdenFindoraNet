@@ -6,7 +6,7 @@ use fp_core::{
     crypto::Address,
     transaction::ActionResult,
 };
-use fp_traits::account::AccountAsset;
+use fp_traits::account::{AccountAsset, FeeCalculator};
 use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
 use std::collections::HashMap;
@@ -134,15 +134,13 @@ impl<C: Config> AccountAsset<Address> for App<C> {
     }
 }
 
-const MIN_GAS_PRICE: u64 = 1_0000_0000_0000_u64;
-
 impl<C: Config> App<C> {
     pub fn transfer_to_utxo(
         ctx: &Context,
         sender: Address,
         outputs: Vec<MintOutput>,
     ) -> Result<ActionResult> {
-        let mut asset_amount = MIN_GAS_PRICE;
+        let mut asset_amount = C::FeeCalculator::min_fee();
         let mut asset_map = HashMap::new();
         for output in &outputs {
             if output.asset == ASSET_TYPE_FRA {
@@ -156,7 +154,7 @@ impl<C: Config> App<C> {
             }
         }
 
-        log::info!(target: "account", "this tx's amount is: FRA: {}, OTHER: {:?}", asset_amount, asset_map);
+        log::debug!(target: "account", "this tx's amount is: FRA: {}, OTHER: {:?}", asset_amount, asset_map);
 
         let sa = Self::account_of(ctx, &sender).c(d!("no account!"))?;
 
@@ -183,5 +181,31 @@ impl<C: Config> App<C> {
         }
         Self::add_mint(ctx, outputs)?;
         Ok(ActionResult::default())
+    }
+
+    fn add_mint(ctx: &Context, mut outputs: Vec<MintOutput>) -> Result<()> {
+        let ops = if let Some(mut ori_outputs) = MintOutputs::get(ctx.store.clone()) {
+            ori_outputs.append(&mut outputs);
+            ori_outputs
+        } else {
+            outputs
+        };
+        MintOutputs::put(ctx.store.clone(), ops);
+        Ok(())
+    }
+
+    pub fn consume_mint(ctx: &Context, size: usize) -> Result<Vec<MintOutput>> {
+        let res = if let Some(mut outputs) = MintOutputs::get(ctx.store.clone()) {
+            if outputs.len() <= size {
+                outputs
+            } else {
+                let vec2 = outputs.split_off(size - outputs.len());
+                MintOutputs::put(ctx.store.clone(), vec2);
+                outputs
+            }
+        } else {
+            Vec::new()
+        };
+        Ok(res)
     }
 }

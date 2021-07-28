@@ -15,9 +15,8 @@ use fp_core::{
 use fp_events::*;
 use fp_traits::evm::{BlockHashMapping, DecimalsMapping, FeeCalculator};
 use primitive_types::{H160, H256, U256};
-use ruc::{eg, Result, RucResult};
+use ruc::*;
 use serde::{Deserialize, Serialize};
-use std::fmt::Formatter;
 use std::marker::PhantomData;
 use storage::*;
 
@@ -48,21 +47,12 @@ pub mod storage {
     generate_storage!(Ethereum, BlockHash => Map<U256, H256>);
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct ExecExitReason(pub evm::ExitReason);
-
-impl std::fmt::Display for ExecExitReason {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:#?}", self.0)
-    }
-}
-
 #[derive(Event)]
 pub struct TransactionExecuted {
     sender: H160,
     contract_address: H160,
     transaction_hash: H256,
-    reason: ExecExitReason,
+    reason: evm::ExitReason,
 }
 
 pub struct App<C> {

@@ -113,11 +113,7 @@ impl ModuleManager {
                     &ctx, mode, action, checked,
                 )
             }
-            _ => {
-                // TODO check gas if deliver_tx
-
-                Self::dispatch::<Action, BaseApp>(&ctx, mode, tx.function, checked)
-            }
+            _ => Self::dispatch::<Action, BaseApp>(&ctx, mode, tx.function, checked),
         }
     }
 
@@ -161,7 +157,14 @@ impl ModuleManager {
     {
         let origin_tx = convert_unsigned_transaction::<Call>(action, tx);
 
-        origin_tx.validate::<Module>(ctx)?;
+        if let Some(origin) = origin_tx.validate::<Module>(ctx)? {
+            let amount = module_account::App::<BaseApp>::balance(ctx, &origin);
+            let min_fee =
+                <BaseApp as module_account::Config>::FeeCalculator::min_fee() as u128;
+            if amount < min_fee {
+                return Err(eg!("Insufficient balance payment fee."));
+            }
+        }
 
         if mode == RunTxMode::Deliver {
             let ret = origin_tx.apply::<Module>(ctx)?;
