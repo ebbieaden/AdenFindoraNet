@@ -522,8 +522,8 @@ impl TransactionBuilder {
     pub fn add_operation_bar_to_abar(
         mut self,
         auth_key_pair: &XfrKeyPair,
-        abar_key_pair: &AXfrPubKey,
-        input_sid: TxoSID,
+        abar_pubkey: &AXfrPubKey,
+        txo_sid: TxoSID,
         input_record: &ClientAssetRecord,
         owner_memo: Option<OwnerMemo>,
         enc_key: &XPublicKey,
@@ -541,8 +541,8 @@ impl TransactionBuilder {
         self.get_builder_mut()
             .add_operation_bar_to_abar(
                 auth_key_pair,
-                &abar_key_pair.pub_key(),
-                input_sid,
+                &abar_pubkey,
+                txo_sid,
                 &oar,
                 enc_key,
             )
@@ -1370,7 +1370,7 @@ use rand::{thread_rng, Rng};
 use ring::pbkdf2;
 use std::num::NonZeroU32;
 use std::str;
-use zei::anon_xfr::keys::{AXfrKeyPair, AXfrPubKey};
+use zei::anon_xfr::keys::AXfrPubKey;
 
 #[wasm_bindgen]
 /// Returns bech32 encoded representation of an XfrPublicKey.

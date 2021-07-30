@@ -8,6 +8,7 @@ extern crate zei;
 extern crate serde_derive;
 
 use credentials::CredUserSecretKey;
+use crypto::basics::hybrid_encryption::XPublicKey;
 use curve25519_dalek::scalar::Scalar;
 use ledger::address::operation::ConvertAccount;
 use ledger::address::SmartAddress;
@@ -36,12 +37,14 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use tendermint::PrivateKey;
 use utils::SignatureOf;
+use zei::anon_xfr::bar_to_from_abar::gen_bar_to_abar_body;
+use zei::anon_xfr::keys::AXfrPubKey;
 use zei::api::anon_creds::{
     ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
     Credential,
 };
 use zei::serialization::ZeiFromToBytes;
-use zei::setup::PublicParams;
+use zei::setup::{PublicParams, UserParams, DEFAULT_BP_NUM_GENS};
 use zei::xfr::asset_record::{
     build_blind_asset_record, build_open_asset_record, open_blind_asset_record,
     AssetRecordType,
@@ -316,6 +319,13 @@ pub trait BuildsTransactions {
         asset_code: AssetTypeCode,
         new_memo: &str,
     ) -> &mut Self;
+    fn add_operation_bar_to_abar(
+        &mut self,
+        auth_key_pair: &XfrKeyPair,
+        abar_key_pair: &AXfrPubKey,
+        input_record: &OpenAssetRecord,
+        enc_key: &XPublicKey,
+    ) -> Result<&mut Self>;
     fn add_operation_delegation(
         &mut self,
         keypair: &XfrKeyPair,
@@ -862,6 +872,33 @@ impl BuildsTransactions for TransactionBuilder {
         let op = Operation::UpdateMemo(memo_update);
         self.txn.add_operation(op);
         self
+    }
+
+    fn add_operation_bar_to_abar(
+        &mut self,
+        auth_key_pair: &XfrKeyPair,
+        abar_pub_key: &AXfrPubKey,
+        txo_sid: TxoSID,
+        input_record: &OpenAssetRecord,
+        enc_key: &XPublicKey,
+    ) -> Result<&mut Self> {
+        let mut prng = ChaChaRng::from_seed([0u8; 32]);
+        let user_params =
+            UserParams::from_file_if_exists(1, 1, Some(1), DEFAULT_BP_NUM_GENS, None)
+                .unwrap();
+        let body = gen_bar_to_abar_body(
+            &mut prng,
+            &user_params,
+            input_record,
+            abar_pub_key,
+            enc_key,
+        )
+        .c(d!(PlatformError::ZeiError(None)))?;
+
+        let bar_to_abar = BarToAbar::new(body, auth_key_pair, user_params, txo_sid)?;
+        let op = Operation::BarToAbar(bar_to_abar);
+        self.txn.add_operation(op);
+        Ok(self)
     }
 
     fn add_operation_delegation(

@@ -55,6 +55,7 @@ use ruc::*;
 use std::ops::Deref;
 
 use crate::address::operation::ConvertAccount;
+use zei::setup::UserParams;
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -988,14 +989,16 @@ impl UpdateMemo {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BarToAbar {
     pub note: BarToAbarNote,
+    pub user_params: UserParams,
     pub txo_sid: TxoSID,
 }
 
 impl BarToAbar {
     pub fn new(
-        txo_sid: &TxoSID,
         bar_to_abar_body: BarToAbarBody,
         signing_key: &XfrKeyPair,
+        user_params: UserParams,
+        txo_sid: TxoSID,
     ) -> Result<BarToAbar> {
         // sign the body
         let msg = bincode::serialize(&bar_to_abar_body)
@@ -1008,7 +1011,8 @@ impl BarToAbar {
                 body: bar_to_abar_body,
                 signature,
             },
-            txo_sid: txo_sid.clone(),
+            user_params,
+            txo_sid,
         })
     }
 }

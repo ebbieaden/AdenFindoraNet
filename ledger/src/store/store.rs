@@ -26,6 +26,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use utils::HasInvariants;
 use utils::{HashOf, ProofOf, SignatureOf};
+use zei::anon_xfr::merkle_tree::MerkleTree;
 use zei::setup::PublicParams;
 use zei::xfr::lib::XfrNotePolicies;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
@@ -208,6 +209,8 @@ pub struct LedgerStatus {
 
     // All currently-unspent TXOs
     utxos: BTreeMap<TxoSID, Utxo>,
+
+    abar_store: MerkleTree,
 
     // All spent TXOs
     pub spent_utxos: HashMap<TxoSID, Utxo>,
@@ -441,6 +444,7 @@ impl LedgerStatus {
             txn_path: txn_path.to_owned(),
             utxo_map_path: utxo_map_path.to_owned(),
             utxos: BTreeMap::new(),
+            abar_store: MerkleTree::new(),
             spent_utxos: map! {},
             txo_to_txn_location: map! {},
             issuance_amounts: map! {},
@@ -1061,6 +1065,11 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
                         .insert(*sid, (txn_sid, OutputPosition(position)));
                 }
             }
+
+            for abar in block.output_abars {
+                self.status.abar_store.add_abar(&abar).c(d!())?;
+            }
+
             // this feels like the wrong place for this, but there's no other good place unless
             // we move the pulse into the StateCommitment, which seems like the wrong answer to
             // a consensus-specific hack.

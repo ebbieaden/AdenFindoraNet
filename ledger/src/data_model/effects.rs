@@ -21,6 +21,9 @@ use zei::xfr::lib::verify_xfr_body;
 use zei::xfr::sig::XfrPublicKey;
 // use zei::xfr::structs::{TracingPolicies, BlindAssetRecord, XfrAmount, XfrAssetType};
 use ruc::*;
+use zei::anon_xfr::bar_to_from_abar::verify_bar_to_abar_note;
+use zei::anon_xfr::structs::AnonBlindAssetRecord;
+use zei::setup::NodeParams;
 use zei::xfr::structs::{TracingPolicies, XfrAmount, XfrAssetType};
 
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
@@ -29,6 +32,8 @@ pub struct TxnEffect {
     pub txn: Transaction,
     // Internally-spent TXOs are None, UTXOs are Some(...)
     pub txos: Vec<Option<TxOutput>>,
+    // New ABAR to create
+    pub output_abars: Vec<AnonBlindAssetRecord>,
     // Which TXOs this consumes
     pub input_txos: HashMap<TxoSID, TxOutput>,
     // List of internally-spent TXOs. This does not include input txos;
@@ -79,6 +84,7 @@ impl TxnEffect {
         let mut txo_count: usize = 0;
         let mut op_idx: usize = 0;
         let mut txos: Vec<Option<TxOutput>> = Vec::new();
+        let mut output_abars: Vec<AnonBlindAssetRecord> = Vec::new();
         let mut internally_spent_txos = Vec::new();
         let mut input_txos: HashMap<TxoSID, TxOutput> = HashMap::new();
         let mut memo_updates = Vec::new();
@@ -601,8 +607,22 @@ impl TxnEffect {
                     ));
                 }
 
-                Operation::BarToAbar(_bar_to_abar) => {
-                    unimplemented!()
+                Operation::BarToAbar(bar_to_abar) => {
+                    let key = bar_to_abar.note.body.input.public_key;
+                    let node_params = NodeParams::from(bar_to_abar.user_params);
+
+                    verify_bar_to_abar_note(&node_params, &bar_to_abar.note, &key)
+                        .c(d!())?;
+
+                    input_txos.insert(
+                        bar_to_abar.txo_sid,
+                        TxOutput {
+                            id: None,
+                            record: bar_to_abar.note.body.input,
+                            lien: None,
+                        },
+                    );
+                    output_abars.push(bar_to_abar.note.body.output);
                 }
             } // end -- match op {...}
             op_idx += 1;
@@ -611,6 +631,7 @@ impl TxnEffect {
         let txn_effect = TxnEffect {
             txn,
             txos,
+            output_abars,
             input_txos,
             internally_spent_txos,
             new_asset_codes,
@@ -707,6 +728,8 @@ pub struct BlockEffect {
     // Internally-spent TXOs are None, UTXOs are Some(...)
     // Should line up element-wise with `txns`
     pub txos: Vec<Vec<Option<TxOutput>>>,
+    // New ABARs created
+    pub output_abars: Vec<AnonBlindAssetRecord>,
     // Which TXOs this consumes
     pub input_txos: HashMap<TxoSID, TxOutput>,
     // Which new asset types this defines
@@ -837,6 +860,10 @@ impl BlockEffect {
 
         for (code, _, memo) in txn_effect.memo_updates {
             self.memo_updates.insert(code, memo);
+        }
+
+        for abar in txn_effect.output_abars {
+            self.output_abars.push(abar);
         }
 
         Ok(temp_sid)
