@@ -110,7 +110,6 @@ where
             storage::store::Prefix::new(prefix_key.as_ref());
 
         // Iterate db
-        // Iterate db
         let mut kv_map = KVecMap::new();
         store.read().iterate(
             &prefix.begin(),

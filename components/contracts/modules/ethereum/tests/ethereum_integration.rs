@@ -2,23 +2,13 @@
 
 use abci::*;
 use baseapp::{Action, BaseApp, ChainId, UncheckedTransaction};
-use fp_core::crypto::Address;
+use ethereum_types::{H160, U256};
+use fp_mocks::*;
 use fp_traits::{
     account::AccountAsset,
     evm::{DecimalsMapping, FeeCalculator},
 };
-use fp_utils::{db::create_temp_db_path, ethereum::*};
-use lazy_static::lazy_static;
-use ledger::data_model::ASSET_TYPE_FRA;
-use primitive_types::{H160, U256};
-use std::sync::Mutex;
-
-lazy_static! {
-    static ref BASE_APP: Mutex<BaseApp> =
-        Mutex::new(BaseApp::new(create_temp_db_path().as_path()).unwrap());
-    static ref ALICE: KeyPair = generate_address(1);
-    static ref BOB: KeyPair = generate_address(2);
-}
+use fp_utils::ethereum::*;
 
 #[test]
 fn run_all_tests() {
@@ -33,14 +23,14 @@ fn run_all_tests() {
 fn build_transfer_transaction(to: H160, balance: u128) -> UncheckedTransaction {
     let tx = UnsignedTransaction {
         nonce: U256::zero(),
-        gas_price: <BaseApp as module_evm::Config>::FeeCalculator::min_gas_price(),
+        gas_price: <BaseApp as module_ethereum::Config>::FeeCalculator::min_gas_price(),
         gas_limit: U256::from(0x100000),
         action: ethereum::TransactionAction::Call(to),
         value: U256::from(balance),
         input: Vec::new(),
     };
 
-    let raw_tx = tx.sign(&ALICE.private_key, ChainId::get());
+    let raw_tx = tx.sign(&ALICE_ECDSA.private_key, ChainId::get());
     let function = Action::Ethereum(module_ethereum::Action::Transact(raw_tx));
     UncheckedTransaction::new_unsigned(function)
 }
@@ -48,11 +38,15 @@ fn build_transfer_transaction(to: H160, balance: u128) -> UncheckedTransaction {
 fn test_abci_check_tx() {
     let mut req = RequestCheckTx::new();
     let value =
-        <BaseApp as module_evm::Config>::DecimalsMapping::from_native_token(10.into())
-            .unwrap();
-    req.tx =
-        serde_json::to_vec(&build_transfer_transaction(BOB.address, value.as_u128()))
-            .unwrap();
+        <BaseApp as module_ethereum::Config>::DecimalsMapping::from_native_token(
+            10.into(),
+        )
+        .unwrap();
+    req.tx = serde_json::to_vec(&build_transfer_transaction(
+        BOB_ECDSA.address,
+        value.as_u128(),
+    ))
+    .unwrap();
     let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert!(
         resp.code == 1 && resp.log.contains("InvalidTransaction: InsufficientBalance"),
@@ -60,7 +54,7 @@ fn test_abci_check_tx() {
         resp.log
     );
 
-    test_mint_balance(&ALICE.account_id, 2000000, 2);
+    test_mint_balance(&ALICE_ECDSA.account_id, 2000000, 2);
 
     let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert_eq!(
@@ -82,11 +76,15 @@ fn test_abci_begin_block() {
 fn test_abci_deliver_tx() {
     let mut req = RequestDeliverTx::new();
     let value =
-        <BaseApp as module_evm::Config>::DecimalsMapping::from_native_token(10.into())
-            .unwrap();
-    req.tx =
-        serde_json::to_vec(&build_transfer_transaction(BOB.address, value.as_u128()))
-            .unwrap();
+        <BaseApp as module_ethereum::Config>::DecimalsMapping::from_native_token(
+            10.into(),
+        )
+        .unwrap();
+    req.tx = serde_json::to_vec(&build_transfer_transaction(
+        BOB_ECDSA.address,
+        value.as_u128(),
+    ))
+    .unwrap();
     let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
     assert_eq!(
         resp.code, 0,
@@ -100,7 +98,7 @@ fn test_abci_deliver_tx() {
     assert_eq!(
         module_account::App::<BaseApp>::balance(
             &BASE_APP.lock().unwrap().deliver_state,
-            &ALICE.account_id
+            &ALICE_ECDSA.account_id
         ),
         2000000 - 21000 - 10
     );
@@ -108,7 +106,7 @@ fn test_abci_deliver_tx() {
     assert_eq!(
         module_account::App::<BaseApp>::balance(
             &BASE_APP.lock().unwrap().deliver_state,
-            &BOB.account_id
+            &BOB_ECDSA.account_id
         ),
         10
     );
@@ -121,8 +119,7 @@ fn test_abci_end_block() {
 }
 
 fn test_abci_commit() {
-    let resp = BASE_APP.lock().unwrap().commit(&RequestCommit::new());
-    println!("root hash: {}", hex::encode(resp.data));
+    let _ = BASE_APP.lock().unwrap().commit(&RequestCommit::new());
     assert_eq!(
         BASE_APP
             .lock()
@@ -142,40 +139,12 @@ fn test_abci_query() {
         .create_query_context(3, false)
         .unwrap();
     assert_eq!(
-        module_account::App::<BaseApp>::balance(&ctx, &ALICE.account_id),
+        module_account::App::<BaseApp>::balance(&ctx, &ALICE_ECDSA.account_id),
         2000000 - 21000 - 10
     );
 
     assert_eq!(
-        module_account::App::<BaseApp>::balance(&ctx, &BOB.account_id),
+        module_account::App::<BaseApp>::balance(&ctx, &BOB_ECDSA.account_id),
         10
     );
-}
-
-fn test_mint_balance(who: &Address, balance: u128, height: u64) {
-    assert!(
-        module_account::App::<BaseApp>::mint(
-            &BASE_APP.lock().unwrap().deliver_state,
-            who,
-            balance,
-            ASSET_TYPE_FRA
-        )
-        .is_ok()
-    );
-    BASE_APP
-        .lock()
-        .unwrap()
-        .deliver_state
-        .store
-        .clone()
-        .write()
-        .commit(height)
-        .unwrap();
-
-    let ctx = BASE_APP
-        .lock()
-        .unwrap()
-        .create_query_context(height, false)
-        .unwrap();
-    assert_eq!(module_account::App::<BaseApp>::balance(&ctx, who), balance);
 }

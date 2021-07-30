@@ -4,7 +4,7 @@ mod genesis;
 pub mod impls;
 pub mod runtime;
 
-use evm::Config as EvmConfig;
+use ethereum_types::U256;
 use fp_core::{
     context::Context,
     crypto::Address,
@@ -12,16 +12,11 @@ use fp_core::{
     module::AppModule,
     transaction::{ActionResult, Executable},
 };
-use fp_events::*;
-use fp_evm::PrecompileSet;
+use fp_evm::{Call, Create, Create2, PrecompileSet};
 use fp_traits::{
     account::AccountAsset,
-    evm::{
-        AddressMapping, BlockHashMapping, DecimalsMapping, FeeCalculator,
-        OnChargeEVMTransaction,
-    },
+    evm::{AddressMapping, BlockHashMapping, DecimalsMapping, FeeCalculator},
 };
-use primitive_types::{H160, H256, U256};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -30,9 +25,8 @@ pub use runtime::*;
 
 pub const MODULE_NAME: &str = "evm";
 
-static ISTANBUL_CONFIG: EvmConfig = EvmConfig::istanbul();
-
 pub trait Config {
+    /// Account module interface to read/write account assets.
     type AccountAsset: AccountAsset<Address>;
     /// Mapping from address to account id.
     type AddressMapping: AddressMapping;
@@ -46,16 +40,8 @@ pub trait Config {
     type DecimalsMapping: DecimalsMapping;
     /// Calculator for current gas price.
     type FeeCalculator: FeeCalculator;
-    /// To handle fee deduction for EVM transactions.
-    type OnChargeTransaction: OnChargeEVMTransaction;
     /// Precompiles associated with this EVM engine.
     type Precompiles: PrecompileSet;
-    /// EVM execution runner.
-    type Runner: Runner;
-    /// EVM config used in the module.
-    fn config() -> &'static EvmConfig {
-        &ISTANBUL_CONFIG
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,20 +52,13 @@ pub enum Action {
 }
 
 pub mod storage {
+    use ethereum_types::{H160, H256};
     use fp_storage::*;
-    use primitive_types::{H160, H256};
 
     // The code corresponding to the contract account.
     generate_storage!(EVM, AccountCodes => Map<H160, Vec<u8>>);
     // Storage root hash related to the contract account.
     generate_storage!(EVM, AccountStorages => DoubleMap<H160, H256, H256>);
-}
-
-#[derive(Event)]
-pub struct ContractLog {
-    pub address: H160,
-    pub topics: Vec<H256>,
-    pub data: Vec<u8>,
 }
 
 pub struct App<C> {

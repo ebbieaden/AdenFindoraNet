@@ -4,6 +4,8 @@ mod genesis;
 mod impls;
 
 use abci::{RequestEndBlock, ResponseEndBlock};
+use ethereum_types::{H160, H256, U256};
+use evm::Config as EvmConfig;
 use fp_core::{
     context::Context,
     crypto::Address,
@@ -13,8 +15,11 @@ use fp_core::{
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
 use fp_events::*;
-use fp_traits::evm::{BlockHashMapping, DecimalsMapping, FeeCalculator};
-use primitive_types::{H160, H256, U256};
+use fp_evm::Runner;
+use fp_traits::{
+    account::AccountAsset,
+    evm::{AddressMapping, BlockHashMapping, DecimalsMapping, FeeCalculator},
+};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -22,7 +27,28 @@ use storage::*;
 
 pub const MODULE_NAME: &str = "ethereum";
 
-pub trait Config: module_evm::Config {}
+static ISTANBUL_CONFIG: EvmConfig = EvmConfig::istanbul();
+
+pub trait Config {
+    /// Account module interface to read/write account assets.
+    type AccountAsset: AccountAsset<Address>;
+    /// Mapping from address to account id.
+    type AddressMapping: AddressMapping;
+    /// The block gas limit. Can be a simple constant, or an adjustment algorithm in another pallet.
+    type BlockGasLimit: Get<U256>;
+    /// Chain ID of EVM.
+    type ChainId: Get<u64>;
+    /// Mapping from eth decimals to native token decimals.
+    type DecimalsMapping: DecimalsMapping;
+    /// Calculator for current gas price.
+    type FeeCalculator: FeeCalculator;
+    /// EVM execution runner.
+    type Runner: Runner;
+    /// EVM config used in the module.
+    fn config() -> &'static EvmConfig {
+        &ISTANBUL_CONFIG
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
@@ -31,9 +57,9 @@ pub enum Action {
 
 pub mod storage {
     use ethereum::{Block, Receipt, Transaction};
+    use ethereum_types::{H256, U256};
     use fp_evm::TransactionStatus;
     use fp_storage::*;
-    use primitive_types::{H256, U256};
 
     // Current building block's transactions and receipts.
     generate_storage!(Ethereum, Pending => Value<Vec<(Transaction, TransactionStatus, Receipt)>>);
@@ -53,6 +79,13 @@ pub struct TransactionExecuted {
     contract_address: H160,
     transaction_hash: H256,
     reason: evm::ExitReason,
+}
+
+#[derive(Event)]
+pub struct ContractLog {
+    pub address: H160,
+    pub topics: Vec<H256>,
+    pub data: Vec<u8>,
 }
 
 pub struct App<C> {
@@ -120,19 +153,21 @@ impl<C: Config> ValidateUnsigned for App<C> {
             return Err(eg!("InvalidTransaction: Payment"));
         }
 
-        let account_data = module_evm::App::<C>::account_basic(ctx, &origin);
+        let account_id = C::AddressMapping::into_account_id(origin);
+        let nonce = U256::from(C::AccountAsset::nonce(ctx, &account_id));
+        let balance = U256::from(C::AccountAsset::balance(ctx, &account_id));
 
-        if transaction.nonce < account_data.nonce {
+        if transaction.nonce < nonce {
             return Err(eg!("InvalidTransaction: Outdated"));
         }
 
         let fee = transaction.gas_price.saturating_mul(transaction.gas_limit);
         let total_payment = transaction.value.saturating_add(fee);
         let total_payment = C::DecimalsMapping::into_native_token(total_payment);
-        if account_data.balance < total_payment {
+        if balance < total_payment {
             return Err(eg!(format!(
                 "InvalidTransaction: InsufficientBalance, expected:{}, actual:{}",
-                total_payment, account_data.balance
+                total_payment, balance
             )));
         }
 

@@ -6,6 +6,7 @@ use ethereum::{
 };
 use ethereum_types::{H160, H256, H512, H64, U256, U64};
 use fp_evm::TransactionStatus;
+use fp_evm::{Call, Create, Runner};
 use fp_rpc_core::types::{
     Block, BlockNumber, BlockTransactions, Bytes, CallRequest, Filter, FilterChanges,
     FilteredParams, Index, Log, PeerCount, Receipt, Rich, RichBlock, SyncStatus,
@@ -18,7 +19,6 @@ use fp_traits::evm::{
 use fp_utils::ethereum::{sign_transaction_message, KeyPair};
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use log::debug;
-use module_evm::{Call, Create, Runner};
 use parking_lot::RwLock;
 use sha3::{Digest, Keccak256};
 use std::collections::BTreeMap;
@@ -213,7 +213,7 @@ impl EthApi for EthApiImpl {
         };
         let data = data.map(|d| d.0).unwrap_or_default();
 
-        let mut config = <BaseApp as module_evm::Config>::config().clone();
+        let mut config = <BaseApp as module_ethereum::Config>::config().clone();
         config.estimate = true;
 
         let ctx = self
@@ -233,11 +233,12 @@ impl EthApi for EthApiImpl {
                     nonce,
                 };
 
-                let info =
-                    <BaseApp as module_evm::Config>::Runner::call(&ctx, call, &config)
-                        .map_err(|err| {
-                        internal_err(format!("evm runner call error: {:?}", err))
-                    })?;
+                let info = <BaseApp as module_ethereum::Config>::Runner::call(
+                    &ctx, call, &config,
+                )
+                .map_err(|err| {
+                    internal_err(format!("evm runner call error: {:?}", err))
+                })?;
                 debug!(target: "eth_rpc", "evm runner call result: {:?}", info);
 
                 error_on_execution_failure(&info.exit_reason, &info.value)?;
@@ -254,7 +255,7 @@ impl EthApi for EthApiImpl {
                     nonce,
                 };
 
-                let info = <BaseApp as module_evm::Config>::Runner::create(
+                let info = <BaseApp as module_ethereum::Config>::Runner::create(
                     &ctx, create, &config,
                 )
                 .map_err(|err| {
@@ -511,7 +512,7 @@ impl EthApi for EthApiImpl {
 
         let data = data.map(|d| d.0).unwrap_or_default();
 
-        let mut config = <BaseApp as module_evm::Config>::config().clone();
+        let mut config = <BaseApp as module_ethereum::Config>::config().clone();
         config.estimate = true;
 
         let ctx = self
@@ -532,11 +533,12 @@ impl EthApi for EthApiImpl {
                     nonce: None,
                 };
 
-                let info =
-                    <BaseApp as module_evm::Config>::Runner::call(&ctx, call, &config)
-                        .map_err(|err| {
-                        internal_err(format!("evm runner call error: {:?}", err))
-                    })?;
+                let info = <BaseApp as module_ethereum::Config>::Runner::call(
+                    &ctx, call, &config,
+                )
+                .map_err(|err| {
+                    internal_err(format!("evm runner call error: {:?}", err))
+                })?;
                 debug!(target: "eth_rpc", "evm runner call result: {:?}", info);
 
                 error_on_execution_failure(&info.exit_reason, &info.value)?;
@@ -553,7 +555,7 @@ impl EthApi for EthApiImpl {
                     nonce: None,
                 };
 
-                let info = <BaseApp as module_evm::Config>::Runner::create(
+                let info = <BaseApp as module_ethereum::Config>::Runner::create(
                     &ctx, create, &config,
                 )
                 .map_err(|err| {

@@ -1,16 +1,14 @@
 use crate::storage::*;
-use crate::{App, Config, TransactionExecuted};
-use ethereum_types::{Bloom, BloomInput, H64};
+use crate::{App, Config, ContractLog, TransactionExecuted};
+use ethereum_types::{Bloom, BloomInput, H160, H256, H64, U256};
 use evm::ExitReason;
 use fp_core::{
     context::Context, crypto::secp256k1_ecdsa_recover, macros::Get,
     module::AppModuleBasic, transaction::ActionResult,
 };
 use fp_events::Event;
-use fp_evm::{CallOrCreateInfo, TransactionStatus};
+use fp_evm::{CallOrCreateInfo, Runner, TransactionStatus};
 use fp_traits::evm::DecimalsMapping;
-use module_evm::{ContractLog, Runner};
-use primitive_types::{H160, H256, U256};
 use ruc::*;
 use sha3::{Digest, Keccak256};
 
@@ -207,7 +205,7 @@ impl<C: Config> App<C> {
             ethereum::TransactionAction::Call(target) => {
                 let res = C::Runner::call(
                     ctx,
-                    module_evm::Call {
+                    fp_evm::Call {
                         source: from,
                         target,
                         input: input.clone(),
@@ -224,7 +222,7 @@ impl<C: Config> App<C> {
             ethereum::TransactionAction::Create => {
                 let res = C::Runner::create(
                     ctx,
-                    module_evm::Create {
+                    fp_evm::Create {
                         source: from,
                         init: input.clone(),
                         value,

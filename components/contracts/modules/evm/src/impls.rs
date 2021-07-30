@@ -1,12 +1,12 @@
 use crate::storage::*;
 use crate::{App, Config};
+use ethereum_types::{H160, H256, U256};
 use fp_core::context::Context;
 use fp_evm::Account;
 use fp_traits::{
     account::AccountAsset,
     evm::{AddressMapping, OnChargeEVMTransaction},
 };
-use primitive_types::{H160, H256, U256};
 use ruc::Result;
 
 impl<C: Config> App<C> {

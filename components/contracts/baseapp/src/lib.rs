@@ -13,7 +13,10 @@ use fp_core::{
     ensure, parameter_types,
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
-use fp_traits::account::{AccountAsset, FeeCalculator};
+use fp_traits::{
+    account::{AccountAsset, FeeCalculator},
+    evm::{EthereumAddressMapping, EthereumDecimalsMapping},
+};
 use ledger::data_model::{Transaction as FindoraTransaction, TX_FEE_MIN};
 use parking_lot::RwLock;
 use primitive_types::{H160, H256, U256};
@@ -71,22 +74,29 @@ impl module_account::Config for BaseApp {
     type FeeCalculator = StableTxFee;
 }
 
-impl module_ethereum::Config for BaseApp {}
-
 parameter_types! {
     pub const ChainId: u64 = 523;
     pub BlockGasLimit: U256 = U256::from(u32::max_value());
 }
 
+impl module_ethereum::Config for BaseApp {
+    type AccountAsset = module_account::App<Self>;
+    type AddressMapping = EthereumAddressMapping;
+    type BlockGasLimit = BlockGasLimit;
+    type ChainId = ChainId;
+    type DecimalsMapping = EthereumDecimalsMapping;
+    type FeeCalculator = ();
+    type Runner = module_evm::runtime::runner::ActionRunner<Self>;
+}
+
 impl module_evm::Config for BaseApp {
     type AccountAsset = module_account::App<Self>;
-    type AddressMapping = fp_traits::evm::EthereumAddressMapping;
+    type AddressMapping = EthereumAddressMapping;
     type BlockGasLimit = BlockGasLimit;
     type BlockHashMapping = module_ethereum::App<Self>;
     type ChainId = ChainId;
-    type DecimalsMapping = fp_traits::evm::EthereumDecimalsMapping;
+    type DecimalsMapping = EthereumDecimalsMapping;
     type FeeCalculator = ();
-    type OnChargeTransaction = module_evm::App<Self>;
     type Precompiles = (
         evm_precompile_basic::ECRecover,
         evm_precompile_basic::Sha256,
@@ -97,7 +107,6 @@ impl module_evm::Config for BaseApp {
         evm_precompile_sha3fips::Sha3FIPS256,
         evm_precompile_sha3fips::Sha3FIPS512,
     );
-    type Runner = module_evm::runtime::runner::ActionRunner<Self>;
 }
 
 impl BaseApp {

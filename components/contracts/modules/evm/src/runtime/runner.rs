@@ -1,16 +1,13 @@
 use super::stack::FindoraStackState;
-use crate::{
-    runtime::{Call, Create, Create2, Runner},
-    App, Config,
-};
+use crate::{App, Config};
+use ethereum_types::{H160, H256, U256};
 use evm::{
     executor::{StackExecutor, StackSubstateMetadata},
     ExitReason,
 };
 use fp_core::{context::Context, ensure};
-use fp_evm::{CallInfo, CreateInfo, ExecutionInfo, PrecompileSet, Vicinity};
+use fp_evm::*;
 use fp_traits::evm::{DecimalsMapping, FeeCalculator, OnChargeEVMTransaction};
-use primitive_types::{H160, H256, U256};
 use ruc::*;
 use sha3::{Digest, Keccak256};
 use std::marker::PhantomData;
@@ -81,10 +78,8 @@ impl<C: Config> ActionRunner<C> {
             ensure!(source_account.balance >= total_payment, "BalanceLow");
 
             // Deduct fee from the `source` account.
-            C::OnChargeTransaction::withdraw_fee(ctx, &source, total_fee)?;
+            App::<C>::withdraw_fee(ctx, &source, total_fee)?;
         }
-
-        // TODO commit before executive?
 
         // Execute the EVM call.
         let (reason, retv) = f(&mut executor);
@@ -104,9 +99,7 @@ impl<C: Config> ActionRunner<C> {
         if !config.estimate {
             let actual_fee = C::DecimalsMapping::into_native_token(actual_fee);
             // Refund fees to the `source` account if deducted more before,
-            C::OnChargeTransaction::correct_and_deposit_fee(
-                ctx, &source, actual_fee, total_fee,
-            )?;
+            App::<C>::correct_and_deposit_fee(ctx, &source, actual_fee, total_fee)?;
         }
 
         let state = executor.into_state();

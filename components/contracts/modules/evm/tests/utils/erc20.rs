@@ -1,10 +1,9 @@
 use super::solidity::*;
 use baseapp::BaseApp;
 use ethereum::TransactionAction;
-use ethereum_types::H160;
+use ethereum_types::{H160, U256};
 use fp_traits::evm::FeeCalculator;
 use fp_utils::ethereum::UnsignedTransaction;
-use primitive_types::U256;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 

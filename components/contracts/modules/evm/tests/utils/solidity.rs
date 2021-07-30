@@ -1,5 +1,5 @@
 use ethabi::Contract;
-use primitive_types::H160;
+use ethereum_types::H160;
 use std::fs;
 use std::path::Path;
 use std::process::Command;

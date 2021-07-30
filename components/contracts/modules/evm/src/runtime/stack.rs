@@ -1,4 +1,5 @@
 use crate::{storage::*, AddressMapping, App, Config};
+use ethereum_types::{H160, H256, U256};
 use evm::{
     backend::Backend,
     executor::{StackState, StackSubstateMetadata},
@@ -7,7 +8,6 @@ use evm::{
 use fp_core::{context::Context, macros::Get};
 use fp_evm::{Log, Vicinity};
 use fp_traits::{account::AccountAsset, evm::BlockHashMapping};
-use primitive_types::{H160, H256, U256};
 use std::{collections::btree_set::BTreeSet, marker::PhantomData, mem};
 
 pub struct FindoraStackSubstate<'context, 'config> {
