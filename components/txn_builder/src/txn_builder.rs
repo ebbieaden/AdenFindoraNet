@@ -323,6 +323,7 @@ pub trait BuildsTransactions {
         &mut self,
         auth_key_pair: &XfrKeyPair,
         abar_key_pair: &AXfrPubKey,
+        txo_sid: TxoSID,
         input_record: &OpenAssetRecord,
         enc_key: &XPublicKey,
     ) -> Result<&mut Self>;
@@ -884,7 +885,7 @@ impl BuildsTransactions for TransactionBuilder {
     ) -> Result<&mut Self> {
         let mut prng = ChaChaRng::from_seed([0u8; 32]);
         let user_params =
-            UserParams::from_file_if_exists(1, 1, Some(1), DEFAULT_BP_NUM_GENS, None)
+            UserParams::from_file_if_exists(1, 1, Some(41), DEFAULT_BP_NUM_GENS, None)
                 .unwrap();
         let body = gen_bar_to_abar_body(
             &mut prng,
@@ -895,7 +896,8 @@ impl BuildsTransactions for TransactionBuilder {
         )
         .c(d!(PlatformError::ZeiError(None)))?;
 
-        let bar_to_abar = BarToAbar::new(body, auth_key_pair, user_params, txo_sid)?;
+        let bar_to_abar = BarToAbar::new(body, auth_key_pair, txo_sid)?;
+
         let op = Operation::BarToAbar(bar_to_abar);
         self.txn.add_operation(op);
         Ok(self)

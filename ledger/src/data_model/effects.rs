@@ -23,7 +23,7 @@ use zei::xfr::sig::XfrPublicKey;
 use ruc::*;
 use zei::anon_xfr::bar_to_from_abar::verify_bar_to_abar_note;
 use zei::anon_xfr::structs::AnonBlindAssetRecord;
-use zei::setup::NodeParams;
+use zei::setup::{NodeParams, UserParams};
 use zei::xfr::structs::{TracingPolicies, XfrAmount, XfrAssetType};
 
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
@@ -609,7 +609,8 @@ impl TxnEffect {
 
                 Operation::BarToAbar(bar_to_abar) => {
                     let key = bar_to_abar.note.body.input.public_key;
-                    let node_params = NodeParams::from(bar_to_abar.user_params);
+                    let user_params = UserParams::eq_committed_vals_params();
+                    let node_params = NodeParams::from(user_params);
 
                     verify_bar_to_abar_note(&node_params, &bar_to_abar.note, &key)
                         .c(d!())?;
@@ -618,11 +619,11 @@ impl TxnEffect {
                         bar_to_abar.txo_sid,
                         TxOutput {
                             id: None,
-                            record: bar_to_abar.note.body.input,
+                            record: bar_to_abar.note.body.input.clone(),
                             lien: None,
                         },
                     );
-                    output_abars.push(bar_to_abar.note.body.output);
+                    output_abars.push(bar_to_abar.note.body.output.clone());
                 }
             } // end -- match op {...}
             op_idx += 1;

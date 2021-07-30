@@ -1066,7 +1066,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
                 }
             }
 
-            for abar in block.output_abars {
+            for abar in block.output_abars.iter() {
                 self.status.abar_store.add_abar(&abar).c(d!())?;
             }
 

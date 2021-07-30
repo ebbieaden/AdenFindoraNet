@@ -42,8 +42,8 @@ tiny-keccak = "1.4.2"
 unicode-normalization = "0.1.13"
 utils = { path = "../libs/utils" }
 wasm-bindgen = { version = "0.2.50", features = ["serde-serialize"]  }
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", branch = "bar2abar_integration" }
-zeiutils = { package = "utils", git = "ssh://git@github.com/FindoraNetwork/zei", branch = "bar2abar_integration" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "b2a_integ" }
+zeiutils = { package = "utils", git = "ssh://git@github.com/FindoraNetwork/zei", tag = "b2a_integ" }
 sparse_merkle_tree = { path = "../libs/ads/sparse_merkle_tree" }
 time = "0.2.26"
 wallet = { path = "../components/wallet" }
