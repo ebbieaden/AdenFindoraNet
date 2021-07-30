@@ -1,4 +1,5 @@
 mod app;
+mod extensions;
 mod modules;
 mod types;
 
@@ -7,7 +8,7 @@ use abci::Header;
 use fp_core::account::SmartAccount;
 use fp_core::{
     account::MintOutput,
-    context::Context,
+    context::{Context, RunTxMode},
     crypto::Address,
     ensure, parameter_types,
     transaction::{ActionResult, Executable, ValidateUnsigned},
@@ -122,14 +123,14 @@ impl BaseApp {
 impl ValidateUnsigned for BaseApp {
     type Call = Action;
 
-    fn pre_execute(call: &Self::Call, _ctx: &Context) -> Result<()> {
+    fn pre_execute(_ctx: &Context, call: &Self::Call) -> Result<()> {
         #[allow(unreachable_patterns)]
         match call {
             _ => Ok(()),
         }
     }
 
-    fn validate_unsigned(call: &Self::Call, _ctx: &Context) -> Result<()> {
+    fn validate_unsigned(_ctx: &Context, call: &Self::Call) -> Result<()> {
         #[allow(unreachable_patterns)]
         match call {
             _ => Err(eg!(
@@ -179,7 +180,6 @@ impl BaseApp {
         ctx.header = self.check_state.header.clone();
         ctx.header_hash = self.check_state.header_hash.clone();
         ctx.chain_id = self.check_state.header.chain_id.clone();
-        ctx.check_tx = true;
         Ok(ctx)
     }
 
@@ -195,20 +195,7 @@ impl BaseApp {
             &mut self.check_state
         };
         ctx.tx = tx_bytes;
-        match mode {
-            RunTxMode::Check => {
-                ctx.check_tx = true;
-                ctx.recheck_tx = false;
-            }
-            RunTxMode::ReCheck => {
-                ctx.check_tx = true;
-                ctx.recheck_tx = true;
-            }
-            _ => {
-                ctx.check_tx = false;
-                ctx.recheck_tx = false;
-            }
-        }
+        ctx.run_mode = mode;
         ctx
     }
 
@@ -229,19 +216,17 @@ impl BaseApp {
     }
 
     fn set_deliver_state(&mut self, header: Header, header_hash: Vec<u8>) {
-        self.deliver_state.check_tx = false;
-        self.deliver_state.recheck_tx = false;
         self.deliver_state.chain_id = header.chain_id.clone();
         self.deliver_state.header = header;
         self.deliver_state.header_hash = header_hash;
+        self.deliver_state.run_mode = RunTxMode::None;
     }
 
     fn set_check_state(&mut self, header: Header, header_hash: Vec<u8>) {
-        self.check_state.check_tx = true;
-        self.check_state.recheck_tx = false;
         self.check_state.chain_id = header.chain_id.clone();
         self.check_state.header = header;
         self.check_state.header_hash = header_hash;
+        self.check_state.run_mode = RunTxMode::None;
     }
 
     pub fn deliver_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {

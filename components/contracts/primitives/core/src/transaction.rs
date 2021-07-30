@@ -3,17 +3,10 @@ use crate::{
     crypto::{IdentifyAccount, Verify},
 };
 use abci::Event;
+use impl_trait_for_tuples::impl_for_tuples;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-
-/// A type that can be used in structures.
-pub trait Member:
-    Send + Sync + Sized + Debug + Eq + PartialEq + Clone + 'static
-{
-}
-
-impl<T: Send + Sync + Sized + Debug + Eq + PartialEq + Clone + 'static> Member for T {}
 
 /// A action (module function and argument values) that can be executed.
 pub trait Executable {
@@ -30,19 +23,79 @@ pub trait Executable {
     ) -> Result<ActionResult>;
 }
 
+/// Means by which a transaction may be extended.
+pub trait SignedExtension: Sized {
+    /// The type which encodes the sender identity.
+    type AccountId;
+    /// The type that encodes information that can be passed from pre_execute to post_execute.
+    type Pre: Default;
+
+    /// Validate a signed transaction for the transaction queue.
+    fn validate(&self, _ctx: &Context, _who: &Self::AccountId) -> Result<()> {
+        Ok(())
+    }
+
+    /// Do any pre-flight stuff for a signed transaction.
+    ///
+    /// For example: pre-pay tx fee, increase nonce...
+    fn pre_execute(self, ctx: &Context, who: &Self::AccountId) -> Result<Self::Pre> {
+        self.validate(ctx, who)?;
+        Ok(Self::Pre::default())
+    }
+
+    /// Do any post-flight stuff for an transaction.
+    ///
+    /// For example: if the tx fee is left, the excess fee will be refunded.
+    fn post_execute(
+        _ctx: &Context,
+        _pre: Self::Pre,
+        _result: &ActionResult,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[impl_for_tuples(1, 12)]
+impl<Address> SignedExtension for Tuple {
+    for_tuples!( where #( Tuple: SignedExtension<AccountId=Address> )* );
+    type AccountId = Address;
+    for_tuples!( type Pre = ( #( Tuple::Pre ),* ); );
+
+    fn validate(&self, ctx: &Context, who: &Self::AccountId) -> Result<()> {
+        for_tuples!( #( Tuple.validate(ctx, who)?; )* );
+        Ok(())
+    }
+
+    fn pre_execute(self, ctx: &Context, who: &Self::AccountId) -> Result<Self::Pre> {
+        Ok(for_tuples!( ( #( Tuple.pre_execute(ctx, who)? ),* ) ))
+    }
+
+    fn post_execute(ctx: &Context, pre: Self::Pre, result: &ActionResult) -> Result<()> {
+        for_tuples!( #( Tuple::post_execute(ctx, pre.Tuple, result)?; )* );
+        Ok(())
+    }
+}
+
 /// This is unchecked and so can contain a signature.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct UncheckedTransaction<Address, Call, Signature> {
+pub struct UncheckedTransaction<Address, Call, Signature, Extra> {
     /// The signature is to use the Address sign the function if this is a signed transaction.
-    pub signature: Option<(Address, Signature)>,
+    pub signature: Option<(Address, Signature, Extra)>,
     /// The function that should be called.
     pub function: Call,
 }
 
-impl<Address, Call, Signature> UncheckedTransaction<Address, Call, Signature> {
-    pub fn new_signed(function: Call, signed: Address, signature: Signature) -> Self {
+impl<Address, Call, Signature, Extra: SignedExtension>
+    UncheckedTransaction<Address, Call, Signature, Extra>
+{
+    pub fn new_signed(
+        function: Call,
+        signed: Address,
+        signature: Signature,
+        extra: Extra,
+    ) -> Self {
         Self {
-            signature: Some((signed, signature)),
+            signature: Some((signed, signature, extra)),
             function,
         }
     }
@@ -55,23 +108,26 @@ impl<Address, Call, Signature> UncheckedTransaction<Address, Call, Signature> {
     }
 }
 
-impl<Address, Call, Signature> UncheckedTransaction<Address, Call, Signature>
+impl<Address, Call, Signature, Extra>
+    UncheckedTransaction<Address, Call, Signature, Extra>
 where
-    Call: Serialize,
+    Call: Serialize + Clone,
     Signature: Verify,
     <Signature as Verify>::Signer: IdentifyAccount<AccountId = Address>,
+    Extra: SignedExtension<AccountId = Address> + Serialize + Clone,
 {
-    pub fn check(self) -> Result<CheckedTransaction<Address, Call>> {
+    pub fn check(self) -> Result<CheckedTransaction<Address, Call, Extra>> {
         Ok(match self.signature {
-            Some((signed, signature)) => {
-                let msg = serde_json::to_vec(&self.function).unwrap();
+            Some((signed, signature, extra)) => {
+                let msg =
+                    serde_json::to_vec(&(self.function.clone(), extra.clone())).unwrap();
 
                 if !signature.verify(msg.as_slice(), &signed) {
                     return Err(eg!("bad transaction signature"));
                 }
 
                 CheckedTransaction {
-                    signed: Some(signed),
+                    signed: Some((signed, extra)),
                     function: self.function,
                 }
             }
@@ -85,9 +141,9 @@ where
 
 /// It has been checked and is good, particularly with regards to the signature.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CheckedTransaction<Address, Call> {
+pub struct CheckedTransaction<Address, Call, Extra> {
     /// The function signer, if anyone
-    pub signed: Option<Address>,
+    pub signed: Option<(Address, Extra)>,
 
     /// The function that should be called.
     pub function: Call,
@@ -103,7 +159,7 @@ pub trait Applyable {
     fn validate<V: ValidateUnsigned<Call = Self::Call>>(
         &self,
         ctx: &Context,
-    ) -> Result<Option<Self::Origin>>;
+    ) -> Result<()>;
 
     /// Executes all necessary logic needed prior to execute and deconstructs into function call,
     /// index and sender.
@@ -129,19 +185,20 @@ pub trait ValidateUnsigned {
     /// Validate the call right before execute.
     ///
     /// Changes made to storage WILL be persisted if the call returns `Ok`.
-    fn pre_execute(call: &Self::Call, ctx: &Context) -> Result<()> {
-        Self::validate_unsigned(call, ctx)
+    fn pre_execute(ctx: &Context, call: &Self::Call) -> Result<()> {
+        Self::validate_unsigned(ctx, call)
     }
 
     /// Return the validity of the call
     ///
     /// Changes made to storage should be discarded by caller.
-    fn validate_unsigned(call: &Self::Call, ctx: &Context) -> Result<()>;
+    fn validate_unsigned(ctx: &Context, call: &Self::Call) -> Result<()>;
 }
 
-impl<Address, Call> Applyable for CheckedTransaction<Address, Call>
+impl<Address, Call, Extra> Applyable for CheckedTransaction<Address, Call, Extra>
 where
     Address: Clone,
+    Extra: SignedExtension<AccountId = Address> + Clone,
 {
     type Origin = Address;
     type Call = Call;
@@ -149,12 +206,11 @@ where
     fn validate<U: ValidateUnsigned<Call = Self::Call>>(
         &self,
         ctx: &Context,
-    ) -> Result<Option<Self::Origin>> {
-        if self.signed.is_some() {
-            Ok(self.signed.clone())
+    ) -> Result<()> {
+        if let Some((ref sender, ref extra)) = self.signed.clone() {
+            extra.validate(ctx, sender)
         } else {
-            U::validate_unsigned(&self.function, ctx)?;
-            Ok(None)
+            U::validate_unsigned(ctx, &self.function)
         }
     }
 
@@ -163,14 +219,26 @@ where
         U: ValidateUnsigned<Call = Self::Call>,
         U: Executable<Origin = Self::Origin, Call = Self::Call>,
     {
-        let maybe_who = if let Some(id) = self.signed {
-            Some(id)
+        let (maybe_who, pre) = if let Some((sender, extra)) = self.signed {
+            let pre = Extra::pre_execute(extra, ctx, &sender)?;
+            (Some(sender), pre)
         } else {
-            U::pre_execute(&self.function, ctx)?;
-            None
+            U::pre_execute(ctx, &self.function)?;
+            (None, Default::default())
         };
+        ctx.store.write().commit_session();
 
-        U::execute(maybe_who, self.function, ctx)
+        match U::execute(maybe_who, self.function, ctx) {
+            Ok(res) => {
+                Extra::post_execute(ctx, pre, &res)?;
+                ctx.store.write().commit_session();
+                Ok(res)
+            }
+            Err(e) => {
+                ctx.store.write().discard_session();
+                Err(e)
+            }
+        }
     }
 }
 

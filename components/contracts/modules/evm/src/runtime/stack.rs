@@ -39,8 +39,9 @@ impl<'context, 'config> FindoraStackSubstate<'context, 'config> {
 
         self.parent = Some(Box::new(entering));
 
-        // TODO
-        // sp_io::storage::start_transaction();
+        // start_transaction();
+        //TODO commit nonce
+        self.ctx.store.clone().write().commit_session();
     }
 
     pub fn exit_commit(&mut self) -> Result<(), ExitError> {
@@ -51,8 +52,6 @@ impl<'context, 'config> FindoraStackSubstate<'context, 'config> {
         self.logs.append(&mut exited.logs);
         self.deletes.append(&mut exited.deletes);
 
-        // TODO
-        // sp_io::storage::commit_transaction();
         self.ctx.store.clone().write().commit_session();
         Ok(())
     }
@@ -62,8 +61,6 @@ impl<'context, 'config> FindoraStackSubstate<'context, 'config> {
         mem::swap(&mut exited, self);
         self.metadata.swallow_revert(exited.metadata)?;
 
-        // TODO
-        // sp_io::storage::rollback_transaction();
         self.ctx.store.clone().write().discard_session();
         Ok(())
     }
@@ -73,8 +70,6 @@ impl<'context, 'config> FindoraStackSubstate<'context, 'config> {
         mem::swap(&mut exited, self);
         self.metadata.swallow_discard(exited.metadata)?;
 
-        // TODO
-        // sp_io::storage::rollback_transaction();
         self.ctx.store.clone().write().discard_session();
         Ok(())
     }

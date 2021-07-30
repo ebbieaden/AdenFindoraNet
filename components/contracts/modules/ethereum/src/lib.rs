@@ -101,7 +101,7 @@ impl<C: Config> Executable for App<C> {
 impl<C: Config> ValidateUnsigned for App<C> {
     type Call = Action;
 
-    fn validate_unsigned(call: &Self::Call, ctx: &Context) -> Result<()> {
+    fn validate_unsigned(ctx: &Context, call: &Self::Call) -> Result<()> {
         let Action::Transact(transaction) = call;
         if let Some(chain_id) = transaction.signature.chain_id() {
             if chain_id != C::ChainId::get() {

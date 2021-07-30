@@ -5,7 +5,7 @@
 #![deny(warnings)]
 
 use crate::wasm_data_model::*;
-use baseapp::{Action, UncheckedTransaction};
+use baseapp::{Action, CheckFee, CheckNonce, SignedExtra, UncheckedTransaction};
 use credentials::{
     credential_commit, credential_issuer_key_gen, credential_open_commitment,
     credential_reveal, credential_sign, credential_user_key_gen, credential_verify,
@@ -636,7 +636,11 @@ impl TransactionBuilder {
     }
 }
 
-fn generate_action(amount: u64, address: XfrPublicKey, nonce: u64) -> Action {
+fn generate_extra(nonce: u64, fee: Option<u64>) -> SignedExtra {
+    (CheckNonce::new(nonce), CheckFee::new(fee))
+}
+
+fn generate_action(amount: u64, address: XfrPublicKey) -> Action {
     let output = MintOutput {
         target: address,
         amount,
@@ -644,7 +648,6 @@ fn generate_action(amount: u64, address: XfrPublicKey, nonce: u64) -> Action {
     };
 
     let action = AccountAction::TransferToUTXO(TransferToUTXO {
-        nonce,
         outputs: vec![output],
     });
 
@@ -659,14 +662,15 @@ pub fn balance_from_account_to_utxo_by_xfr(
     kp: XfrKeyPair,
     nonce: u64,
 ) -> Result<String, JsValue> {
-    let account_of = generate_action(amount, address, nonce);
-
-    let msg = serde_json::to_vec(&account_of).map_err(error_to_jsvalue)?;
+    let action = generate_action(amount, address);
+    let extra = generate_extra(nonce, None);
+    let msg = serde_json::to_vec(&(action.clone(), extra.clone()))
+        .map_err(error_to_jsvalue)?;
 
     let signature = MultiSignature::from(kp.get_sk_ref().sign(&msg, kp.get_pk_ref()));
     let signer = Address32::from(kp.get_pk());
 
-    let tx = UncheckedTransaction::new_signed(account_of, signer, signature);
+    let tx = UncheckedTransaction::new_signed(action, signer, signature, extra);
 
     let res = serde_json::to_string(&tx).map_err(error_to_jsvalue)?;
 
@@ -684,14 +688,15 @@ pub fn balance_from_account_to_utxo_by_eth(
         .map_err(error_to_jsvalue)?
         .0;
 
-    let account_of = generate_action(amount, address, nonce);
-
-    let msg = serde_json::to_vec(&account_of).map_err(error_to_jsvalue)?;
+    let action = generate_action(amount, address);
+    let extra = generate_extra(nonce, None);
+    let msg = serde_json::to_vec(&(action.clone(), extra.clone()))
+        .map_err(error_to_jsvalue)?;
 
     let signature = MultiSignature::from(kp.sign(&msg));
     let signer = Address32::from(kp.public());
 
-    let tx = UncheckedTransaction::new_signed(account_of, signer, signature);
+    let tx = UncheckedTransaction::new_signed(action, signer, signature, extra);
 
     let res = serde_json::to_string(&tx).map_err(error_to_jsvalue)?;
 

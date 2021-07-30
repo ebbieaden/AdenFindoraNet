@@ -7,9 +7,10 @@ use fp_core::{
     module::AppModule,
     transaction::{ActionResult, Applyable, Executable, ValidateUnsigned},
 };
-use ledger::address::operation::check_convert_tx;
-use ledger::data_model::Transaction as FindoraTransaction;
-use ruc::Result;
+use ledger::{
+    address::operation::check_convert_tx, data_model::Transaction as FindoraTransaction,
+};
+use ruc::*;
 
 pub struct ModuleManager {
     // Ordered module list
@@ -98,22 +99,21 @@ impl ModuleManager {
     pub fn process_tx(
         &mut self,
         mut ctx: Context,
-        mode: RunTxMode,
         tx: UncheckedTransaction,
     ) -> Result<ActionResult> {
         let checked = tx.clone().check()?;
-        // add match field if tx is unsigned transaction
         match tx.function.clone() {
             Action::Ethereum(action) => {
+                // handle unsigned transaction, set specified module.
                 let module_ethereum::Action::Transact(eth_tx) = action.clone();
                 ctx.tx = serde_json::to_vec(&eth_tx)
                     .map_err(|e| eg!(format!("Serialize ethereum tx err: {}", e)))?;
 
                 Self::dispatch::<module_ethereum::Action, module_ethereum::App<BaseApp>>(
-                    &ctx, mode, action, checked,
+                    &ctx, action, checked,
                 )
             }
-            _ => Self::dispatch::<Action, BaseApp>(&ctx, mode, tx.function, checked),
+            _ => Self::dispatch::<Action, BaseApp>(&ctx, tx.function, checked),
         }
     }
 
@@ -143,11 +143,9 @@ impl ModuleManager {
     }
 }
 
-// support functions
 impl ModuleManager {
     fn dispatch<Call, Module>(
         ctx: &Context,
-        mode: RunTxMode,
         action: Call,
         tx: CheckedTransaction,
     ) -> Result<ActionResult>
@@ -157,21 +155,11 @@ impl ModuleManager {
     {
         let origin_tx = convert_unsigned_transaction::<Call>(action, tx);
 
-        if let Some(origin) = origin_tx.validate::<Module>(ctx)? {
-            let amount = module_account::App::<BaseApp>::balance(ctx, &origin);
-            let min_fee =
-                <BaseApp as module_account::Config>::FeeCalculator::min_fee() as u128;
-            if amount < min_fee {
-                return Err(eg!("Insufficient balance payment fee."));
-            }
-        }
+        origin_tx.validate::<Module>(ctx)?;
 
-        if mode == RunTxMode::Deliver {
-            let ret = origin_tx.apply::<Module>(ctx)?;
-            ctx.store.write().commit_session();
-            Ok(ret)
-        } else {
-            Ok(ActionResult::default())
+        if RunTxMode::Deliver == ctx.run_mode {
+            return origin_tx.apply::<Module>(ctx);
         }
+        Ok(ActionResult::default())
     }
 }

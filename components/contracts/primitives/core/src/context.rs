@@ -9,6 +9,19 @@ use storage::{
 
 pub type Store = State<FinDB>;
 
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
+pub enum RunTxMode {
+    None = 0,
+    /// Check a transaction
+    Check = 1,
+    /// Recheck a (pending) transaction after a commit
+    ReCheck = 2,
+    /// Simulate a transaction
+    Simulate = 3,
+    /// Deliver a transaction
+    Deliver = 4,
+}
+
 #[derive(Clone)]
 pub struct Context {
     pub store: Arc<RwLock<Store>>,
@@ -16,9 +29,7 @@ pub struct Context {
     pub header_hash: Vec<u8>,
     pub chain_id: String,
     pub tx: Vec<u8>,
-    pub check_tx: bool,
-    // if recheckTx == true, then checkTx must also be true
-    pub recheck_tx: bool,
+    pub run_mode: RunTxMode,
 }
 
 impl Context {
@@ -29,8 +40,7 @@ impl Context {
             header_hash: vec![],
             chain_id: "".to_string(),
             tx: vec![],
-            check_tx: false,
-            recheck_tx: false,
+            run_mode: RunTxMode::None,
         }
     }
 }
@@ -64,11 +74,7 @@ impl Context {
         self.tx.clone()
     }
 
-    pub fn is_check_tx(&self) -> bool {
-        self.check_tx
-    }
-
-    pub fn is_recheck_tx(&self) -> bool {
-        self.recheck_tx
+    pub fn run_mode(&self) -> RunTxMode {
+        self.run_mode
     }
 }

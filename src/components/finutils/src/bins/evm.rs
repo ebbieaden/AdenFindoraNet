@@ -1,4 +1,4 @@
-use baseapp::Action;
+use baseapp::{Action, CheckFee, CheckNonce};
 use clap::{crate_authors, crate_version, App, SubCommand};
 use fintools::fns::get_keypair;
 use fintools::fns::utils;
@@ -90,16 +90,15 @@ fn transfer_from_account(
     let nonce = serde_json::from_slice::<u64>(query_ret.value.as_slice()).unwrap();
 
     let account_call = AccountAction::TransferToUTXO(TransferToUTXO {
-        nonce,
         outputs: vec![output],
     });
-    let account_of = Action::Account(account_call);
-
-    let msg = serde_json::to_vec(&account_of).unwrap();
+    let action = Action::Account(account_call);
+    let extra = (CheckNonce::new(nonce), CheckFee::new(None));
+    let msg = serde_json::to_vec(&(action.clone(), extra.clone())).unwrap();
 
     let signature = kp.sign(msg.as_slice());
 
-    let tx = UncheckedTransaction::new_signed(account_of, signer, signature);
+    let tx = UncheckedTransaction::new_signed(action, signer, signature, extra);
 
     let txn = serde_json::to_vec(&tx).unwrap();
 

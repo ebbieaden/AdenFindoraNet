@@ -28,14 +28,12 @@ pub struct MintOutput {
 /// Findora or Ethereum account address balance transfer to utxo.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransferToUTXO {
-    pub nonce: u64,
     pub outputs: Vec<MintOutput>,
 }
 
 /// Findora native account address balance transfer to another account address.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinerTransfer {
-    pub nonce: u64,
     pub to: Address,
     pub amount: u128,
 }

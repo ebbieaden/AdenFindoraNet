@@ -9,7 +9,7 @@ description = "Findora template module for value store"
 readme = "README.md"
 
 [dependencies]
-abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
+abci = { git = "https://github.com/FindoraNetwork/rust-abci.git", branch = "feat-findora" }
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 serde = { version = "1.0.124", features = ["derive"] }
 serde_json = "1.0"
@@ -19,9 +19,6 @@ fp-core = { path = "../../primitives/core" }
 fp-storage = { path = "../../primitives/storage" }
 
 [dev-dependencies]
-baseapp = { path = "../../baseapp" }
-fp-utils = { path = "../../primitives/utils" }
-hex = "0.4.2"
-lazy_static = "1.4.0"
-rand_chacha = "0.2.0"
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
+fp-mocks = { path = "../../primitives/mocks" }
+fp-traits = { path = "../../primitives/traits" }
+module-account = { path = "../../modules/account" }

@@ -8,7 +8,6 @@ use fp_core::{
     account::{FinerTransfer, TransferToUTXO},
     context::Context,
     crypto::Address,
-    ensure,
     module::AppModule,
     transaction::{ActionResult, Executable},
 };
@@ -123,8 +122,6 @@ impl<C: Config> Executable for App<C> {
         match call {
             Action::Transfer(action) => {
                 if let Some(sender) = origin {
-                    ensure!(action.nonce == Self::nonce(ctx, &sender), "InvalidNonce");
-                    Self::inc_nonce(ctx, &sender)?;
                     Self::transfer(ctx, &sender, &action.to, action.amount)?;
                     Ok(ActionResult::default())
                 } else {
@@ -133,8 +130,6 @@ impl<C: Config> Executable for App<C> {
             }
             Action::TransferToUTXO(action) => {
                 if let Some(sender) = origin {
-                    ensure!(action.nonce == Self::nonce(ctx, &sender), "InvalidNonce");
-                    Self::inc_nonce(ctx, &sender)?;
                     Self::transfer_to_utxo(ctx, sender, action.outputs)
                 } else {
                     Err(eg!("invalid transaction origin"))

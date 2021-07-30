@@ -1,6 +1,6 @@
-use crate::{types::convert_unchecked_transaction, RunTxMode};
+use crate::types::convert_unchecked_transaction;
 use abci::*;
-use fp_core::context::Context;
+use fp_core::context::{Context, RunTxMode};
 use log::{debug, error};
 use ruc::{pnk, RucResult};
 
@@ -62,10 +62,10 @@ impl Application for crate::BaseApp {
         if let Ok(tx) = convert_unchecked_transaction(req.get_tx()) {
             let check_fn = |mode: RunTxMode| {
                 let ctx = self.retrieve_context(mode, req.get_tx().to_vec()).clone();
-                if let Err(e) = self.modules.process_tx(ctx, mode, tx) {
-                    error!(target: "baseapp", "Ethereum transaction check error: {}", e);
+                if let Err(e) = self.modules.process_tx(ctx, tx) {
+                    debug!(target: "baseapp", "Transaction check error: {}", e);
                     resp.set_code(1);
-                    resp.set_log(format!("Ethereum transaction check error: {}", e));
+                    resp.set_log(format!("Transaction check error: {}", e));
                 }
             };
             match req.get_field_type() {
@@ -118,7 +118,7 @@ impl Application for crate::BaseApp {
                 .retrieve_context(RunTxMode::Deliver, req.get_tx().to_vec())
                 .clone();
 
-            let ret = self.modules.process_tx(ctx, RunTxMode::Deliver, tx);
+            let ret = self.modules.process_tx(ctx, tx);
             match ret {
                 Ok(ar) => {
                     debug!(target: "baseapp", "deliver tx succeed result: {:?}", ar);

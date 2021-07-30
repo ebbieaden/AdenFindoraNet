@@ -6,33 +6,26 @@ use fp_core::{
     transaction,
 };
 use primitive_types::{H160, H256};
-use ruc::{eg, Result};
+use ruc::*;
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
-pub enum RunTxMode {
-    /// Check a transaction
-    Check = 0,
-    /// Recheck a (pending) transaction after a commit
-    ReCheck = 1,
-    /// Simulate a transaction
-    Simulate = 2,
-    /// Deliver a transaction
-    Deliver = 3,
-}
+pub use crate::extensions::*;
+
+pub type SignedExtra = (CheckNonce, CheckFee);
 
 /// Unchecked transaction type as expected by this application.
 pub type UncheckedTransaction =
-    transaction::UncheckedTransaction<Address, Action, Signature>;
+    transaction::UncheckedTransaction<Address, Action, Signature, SignedExtra>;
 
 /// Transaction type that has already been checked.
-pub type CheckedTransaction = transaction::CheckedTransaction<Address, Action>;
+pub type CheckedTransaction =
+    transaction::CheckedTransaction<Address, Action, SignedExtra>;
 
 /// Convert base action to sub module action within CheckedTransaction
 /// if tx is unsigned transaction.
 pub fn convert_unsigned_transaction<A>(
     action: A,
     tx: CheckedTransaction,
-) -> transaction::CheckedTransaction<Address, A> {
+) -> transaction::CheckedTransaction<Address, A, SignedExtra> {
     transaction::CheckedTransaction {
         signed: tx.signed,
         function: action,
