@@ -36,15 +36,19 @@ impl SmartAddress {
         }
     }
 
-    pub fn from_string(s: String) -> Result<Self> {
+    pub fn from_string(s: &str) -> Result<Self> {
         if s.len() == 42 && &s[..2] == "0x" {
             // is Ethereum address
             let address_hex = &s[2..];
             let inner = <[u8; 20]>::from_hex(address_hex).c(d!())?;
             Ok(SmartAddress::Ethereum(H160(inner)))
         } else {
-            let address = wallet::public_key_from_base64(&s)?;
-            Ok(SmartAddress::Xfr(address))
+            if let Ok(address) = wallet::public_key_from_base64(&s) {
+                Ok(SmartAddress::Xfr(address))
+            } else {
+                let address = wallet::public_key_from_bech32(&s)?;
+                Ok(SmartAddress::Xfr(address))
+            }
         }
     }
 

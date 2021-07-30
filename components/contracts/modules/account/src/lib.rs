@@ -64,6 +64,17 @@ impl<C: Config> AppModule for App<C> {
             return resp;
         }
         match path[0] {
+            "info" => {
+                let data = serde_json::from_slice::<Address>(req.data.as_slice());
+                if data.is_err() {
+                    resp.code = 1;
+                    resp.log = String::from("account: query nonce with invalid params");
+                    return resp;
+                }
+                let info = Self::account_of(&ctx, &data.unwrap()).unwrap_or_default();
+                resp.value = serde_json::to_vec(&info).unwrap();
+                resp
+            }
             "nonce" => {
                 let data = serde_json::from_slice::<Address>(req.data.as_slice());
                 if data.is_err() {

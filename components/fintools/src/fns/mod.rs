@@ -17,22 +17,25 @@ use ledger::{
     },
 };
 use ruc::*;
-use std::fs;
+use std::{env, fs};
 use tendermint::PrivateKey;
 use txn_builder::BuildsTransactions;
 use zei::xfr::sig::{XfrKeyPair, XfrSecretKey};
 
+pub mod evm;
 pub mod utils;
 
-const CFG_PATH: &str = "/tmp/.____fns_config____";
-
 lazy_static! {
+    static ref CFG_PATH: String = format!(
+        "{}/.____fns_config____",
+        ruc::info!(env::var("HOME")).unwrap_or_else(|_| "/tmp/".to_owned())
+    );
     static ref MNEMONIC: Option<String> = fs::read_to_string(&*MNEMONIC_FILE).ok();
-    static ref MNEMONIC_FILE: String = format!("{}/mnemonic", CFG_PATH);
+    static ref MNEMONIC_FILE: String = format!("{}/mnemonic", &*CFG_PATH);
     static ref TD_KEY: Option<String> = fs::read_to_string(&*TD_KEY_FILE).ok();
-    static ref TD_KEY_FILE: String = format!("{}/tendermint_keys", CFG_PATH);
+    static ref TD_KEY_FILE: String = format!("{}/tendermint_keys", &*CFG_PATH);
     static ref SERV_ADDR: Option<String> = fs::read_to_string(&*SERV_ADDR_FILE).ok();
-    static ref SERV_ADDR_FILE: String = format!("{}/serv_addr", CFG_PATH);
+    static ref SERV_ADDR_FILE: String = format!("{}/serv_addr", &*CFG_PATH);
 }
 
 pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<()> {
@@ -150,7 +153,7 @@ pub fn claim(am: Option<&str>) -> Result<()> {
     utils::send_tx(&builder.take_transaction()).c(d!())
 }
 
-pub fn show() -> Result<()> {
+pub fn show(basic: bool) -> Result<()> {
     let kp = get_keypair().c(d!())?;
 
     let serv_addr = ruc::info!(get_serv_addr()).map(|i| {
@@ -168,30 +171,47 @@ pub fn show() -> Result<()> {
         );
     });
 
+    let self_balance = ruc::info!(utils::get_balance(&kp)).map(|i| {
+        println!("\x1b[31;01mBalance:\x1b[00m\n{} FRA units\n", i);
+    });
+
+    if basic {
+        return Ok(());
+    }
+
     let td_pubkey = ruc::info!(get_td_pubkey()).map(|i| {
         println!(
             "\x1b[31;01mValidator Node Addr:\x1b[00m\n{}\n",
             td_pubkey_to_td_addr(&i)
         );
+        i
     });
 
-    let self_balance = ruc::info!(utils::get_balance(&kp)).map(|i| {
-        println!("\x1b[31;01mNode Balance:\x1b[00m\n{} FRA units\n", i);
-    });
+    if let Ok(tpk) = td_pubkey.as_ref() {
+        let res = utils::get_validator_detail(&td_pubkey_to_td_addr(tpk))
+            .c(d!("Validator not found"))
+            .and_then(|di| {
+                serde_json::to_string_pretty(&di).c(d!("server returned invalid data"))
+            })
+            .map(|i| {
+                println!("\x1b[31;01mYour Staking:\x1b[00m\n{}\n", i);
+            });
+        ruc::info_omit!(res);
+    }
 
     let delegation_info = utils::get_delegation_info(kp.get_pk_ref())
-        .c(d!("fail to connect to server"))
+        .c(d!())
         .and_then(|di| {
             serde_json::to_string_pretty(&di).c(d!("server returned invalid data"))
         });
     let delegation_info = ruc::info!(delegation_info).map(|i| {
-        println!("\x1b[31;01mYour Staking:\x1b[00m\n{}\n", i);
+        println!("\x1b[31;01mYour Delegation:\x1b[00m\n{}\n", i);
     });
 
     if [
         serv_addr,
         xfr_account,
-        td_pubkey,
+        td_pubkey.map(|_| ()),
         self_balance,
         delegation_info,
     ]
@@ -209,7 +229,7 @@ pub fn setup(
     owner_mnemonic_path: Option<&str>,
     validator_key_path: Option<&str>,
 ) -> Result<()> {
-    fs::create_dir_all(CFG_PATH).c(d!("fail to create config path"))?;
+    fs::create_dir_all(&*CFG_PATH).c(d!("fail to create config path"))?;
 
     if let Some(sa) = serv_addr {
         fs::write(&*SERV_ADDR_FILE, sa).c(d!("fail to cache 'serv-addr'"))?;
@@ -313,5 +333,5 @@ fn convert_commission_rate(cr: f64) -> Result<[u64; 2]> {
 
 /// Return the built version.
 pub fn version() -> &'static str {
-    concat!(env!("VERGEN_SHA_SHORT"), " ", env!("VERGEN_BUILD_DATE"))
+    concat!(env!("VERGEN_SHA"), " ", env!("VERGEN_BUILD_DATE"))
 }

@@ -199,8 +199,10 @@ impl Verify for MultiSignature {
             //     _ => false,
             // },
             Self::Ecdsa(ref sig) => {
-                let mut msg_hashed = [0u8; 32];
-                msg_hashed.copy_from_slice(msg);
+                // let mut msg_hashed = [0u8; 32];
+                // msg_hashed.copy_from_slice(msg);
+
+                let msg_hashed = keccak_256(msg);
                 match secp256k1_ecdsa_recover(sig.as_ref(), &msg_hashed) {
                     Ok(pubkey) => {
                         Address32::from(H160::from(H256::from_slice(
@@ -363,7 +365,7 @@ mod tests {
         let signer = MultiSigner::from(alice.address());
         let sig = MultiSignature::from(sig);
         assert!(
-            sig.verify(keccak_256(b"hello").as_ref(), &signer.into_account()),
+            sig.verify(b"hello", &signer.into_account()),
             "ecdsa signature verify failed"
         );
     }

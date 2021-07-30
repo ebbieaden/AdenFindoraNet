@@ -27,6 +27,8 @@
 
 use clap::{crate_authors, App, ArgGroup, SubCommand};
 use fintools::fns;
+use fintools::fns::evm::*;
+use fp_core::ecdsa::Pair as EthPair;
 use ruc::*;
 use std::fmt;
 
@@ -63,7 +65,8 @@ fn run() -> Result<()> {
         .arg_from_usage("-n, --amount=[Amount] 'how much `FRA unit`s to claim'")
         .about("Claim accumulated FRA rewards");
     let subcmd_show = SubCommand::with_name("show")
-        .about("View Validator status and accumulated rewards");
+        .about("View Validator status and accumulated rewards")
+        .arg_from_usage("-b, --basic 'Show basic account info'");
     let subcmd_setup = SubCommand::with_name("setup")
         .arg_from_usage(
             "-S, --serv-addr=[URL/IP] 'a fullnode address of Findora Network'",
@@ -88,6 +91,34 @@ fn run() -> Result<()> {
         .about("Transfer tokens from one address to another");
     //let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
+    let subcmd_gen_eth_key = SubCommand::with_name("gen-eth-key")
+        .about("Generate a random Ethereum address/private key Pair with Mnemonic");
+
+    let subcmd_account_info = SubCommand::with_name("account")
+        .about("Return user contract account information")
+        .arg_from_usage(
+            "-a --address=[Address] 'Findora account(eg:fra1rkv...) or Ethereum address(g:0xd3Bf...)'",
+        );
+
+    let subcmd_deposit = SubCommand::with_name("contract-deposit")
+        .about("Transfer FRA from a Findora account to the specified Ethereum address")
+        .arg_from_usage(
+            "-a --address=[Address] 'Ethereum address to receive FRA, eg:0xd3Bf...'",
+        )
+        .arg_from_usage("-b --balance=<Balance> 'Deposit FRA amount'");
+
+    let subcmd_withdraw = SubCommand::with_name("contract-withdraw")
+        .about(
+            "Transfer FRA from an Ethereum address to the specified Findora account",
+        )
+        .arg_from_usage(
+            "-a --address=[Address] 'Findora account to receive FRA, eg:fra1rkv...'",
+        )
+        .arg_from_usage("-b --balance=<Balance> 'Withdraw FRA amount'")
+        .arg_from_usage(
+            "-e --eth-key=[MNEMONIC] 'Ethereum account mnemonic phrase sign withdraw tx'",
+        );
+
     let matches = App::new("fns")
         .version(fns::version())
         .author(crate_authors!())
@@ -99,6 +130,10 @@ fn run() -> Result<()> {
         .subcommand(subcmd_show)
         .subcommand(subcmd_setup)
         .subcommand(subcmd_transfer)
+        .subcommand(subcmd_gen_eth_key)
+        .subcommand(subcmd_account_info)
+        .subcommand(subcmd_deposit)
+        .subcommand(subcmd_withdraw)
         //.subcommand(subcmd_set_initial_validators)
         .get_matches();
 
@@ -134,8 +169,9 @@ fn run() -> Result<()> {
     } else if let Some(m) = matches.subcommand_matches("claim") {
         let am = m.value_of("amount");
         fns::claim(am).c(d!())?;
-    } else if matches.subcommand_matches("show").is_some() {
-        fns::show().c(d!())?;
+    } else if let Some(m) = matches.subcommand_matches("show") {
+        let basic = m.is_present("basic");
+        fns::show(basic).c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("setup") {
         let sa = m.value_of("serv-addr");
         let om = m.value_of("owner-mnemonic-path");
@@ -164,6 +200,32 @@ fn run() -> Result<()> {
         }
     } else if matches.is_present("set-initial-validators") {
         fns::set_initial_validators().c(d!())?;
+    } else if matches.is_present("gen-eth-key") {
+        let (pair, phrase, _) = EthPair::generate_with_phrase(None);
+        let kp = hex::encode(pair.seed());
+        println!(
+            "\x1b[31;01mMnemonic:\x1b[00m {}\n\x1b[31;01mPrivateKey:\x1b[00m {}\n\x1b[31;01mAddress:\x1b[00m {:?}\n",
+            phrase,
+            kp,
+            pair.address()
+        );
+    } else if let Some(m) = matches.subcommand_matches("account") {
+        let address = m.value_of("address");
+        let (account, info) = contract_account_info(address)?;
+        println!("AccountId: {}\n{:#?}\n", account, info);
+    } else if let Some(m) = matches.subcommand_matches("contract-deposit") {
+        let amount = m.value_of("balance").c(d!())?;
+        let address = m.value_of("address");
+        transfer_to_account(u64::from_str_radix(amount, 10).c(d!())?, address)?
+    } else if let Some(m) = matches.subcommand_matches("contract-withdraw") {
+        let amount = m.value_of("balance").c(d!())?;
+        let address = m.value_of("address");
+        let eth_key = m.value_of("eth-key");
+        transfer_from_account(
+            u64::from_str_radix(amount, 10).c(d!())?,
+            address,
+            eth_key,
+        )?
     } else {
         println!("{}", matches.usage());
     }

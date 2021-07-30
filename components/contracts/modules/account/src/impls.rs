@@ -6,7 +6,7 @@ use fp_core::{
     crypto::Address,
     transaction::ActionResult,
 };
-use fp_traits::account::{AccountAsset, FeeCalculator};
+use fp_traits::account::AccountAsset;
 use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
 use std::collections::HashMap;
@@ -140,7 +140,7 @@ impl<C: Config> App<C> {
         sender: Address,
         outputs: Vec<MintOutput>,
     ) -> Result<ActionResult> {
-        let mut asset_amount = C::FeeCalculator::min_fee();
+        let mut asset_amount = 0;
         let mut asset_map = HashMap::new();
         for output in &outputs {
             if output.asset == ASSET_TYPE_FRA {

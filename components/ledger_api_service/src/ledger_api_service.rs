@@ -1,4 +1,5 @@
 #![deny(warnings)]
+#![allow(clippy::needless_borrow)]
 
 extern crate actix_rt;
 extern crate actix_web;
@@ -9,8 +10,7 @@ mod response;
 
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
-// use ledger::address::store::BalanceStore;
-use baseapp::BaseApp;
+use baseapp::{BaseApp, BaseProvider};
 use ledger::address::SmartAddress;
 use ledger::staking::{DelegationRwdDetail, TendermintAddr};
 use ledger::{
@@ -42,7 +42,7 @@ async fn ping() -> actix_web::Result<String> {
 async fn version() -> actix_web::Result<String> {
     Ok(format!(
         "Build: {} {}",
-        option_env!("VERGEN_SHA_SHORT_EXTERN").unwrap_or(env!("VERGEN_SHA_SHORT")),
+        option_env!("VERGEN_SHA_EXTERN").unwrap_or(env!("VERGEN_SHA")),
         env!("VERGEN_BUILD_DATE")
     ))
 }
@@ -366,19 +366,34 @@ where
             .iter()
             .flat_map(|(tendermint_addr, pk)| {
                 validator_data.get_powered_validator_by_id(pk).map(|v| {
+                    let rank = if v.td_power == 0 {
+                        validator_data.body.len()
+                    } else {
+                        let mut power_list = validator_data
+                            .body
+                            .values()
+                            .map(|v| v.td_power)
+                            .collect::<Vec<_>>();
+                        power_list.sort_unstable();
+                        power_list.len() - power_list.binary_search(&v.td_power).unwrap()
+                    };
                     Validator::new(
                         tendermint_addr.clone(),
-                        v.td_power,
-                        v.get_commission_rate(),
+                        Staking::get_block_rewards_rate(&*read),
+                        rank as u64,
                         staking.delegation_has_addr(&pk),
+                        &v,
                     )
                 })
             })
             .collect();
-        return Ok(web::Json(ValidatorList::new(validators_list)));
+        return Ok(web::Json(ValidatorList::new(
+            staking.cur_height() as u64,
+            validators_list,
+        )));
     };
 
-    Ok(web::Json(ValidatorList::new(vec![])))
+    Ok(web::Json(ValidatorList::new(0, vec![])))
 }
 
 #[derive(Deserialize, Debug)]
@@ -555,19 +570,6 @@ where
     Err(error::ErrorNotFound("not exists"))
 }
 
-async fn query_account_model_balance(
-    data: web::Data<Arc<RwLock<BaseApp>>>,
-    address: web::Path<String>,
-) -> actix_web::Result<impl Responder> {
-    let sa = SmartAddress::from_string(address.to_string())
-        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    let account_base_app = data.read();
-    let balance = account_base_app
-        .account_of(sa.into())
-        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    Ok(web::Json(response::Response::new_success(Some(balance))))
-}
-
 async fn query_delegation_info<SA>(
     data: web::Data<Arc<RwLock<SA>>>,
     address: web::Path<String>,
@@ -667,6 +669,19 @@ where
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))
         .map(|pk| web::Json(data.read().get_owned_utxos(&pk)))
+}
+
+async fn query_account_model_balance(
+    data: web::Data<Arc<RwLock<BaseApp>>>,
+    address: web::Path<String>,
+) -> actix_web::Result<impl Responder> {
+    let sa = SmartAddress::from_string(&address)
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    let account_base_app = data.read();
+    let balance = account_base_app
+        .account_of(&sa.into(), None)
+        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+    Ok(web::Json(response::Response::new_success(Some(balance))))
 }
 
 enum AccessApi {

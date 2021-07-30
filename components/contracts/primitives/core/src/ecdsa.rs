@@ -284,7 +284,7 @@ impl<'a> TryFrom<&'a Signature> for (libsecp256k1::Signature, libsecp256k1::Reco
 }
 
 /// A key pair.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Pair {
     public: PublicKey,
     secret: SecretKey,
