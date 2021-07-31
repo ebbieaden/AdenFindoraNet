@@ -3,10 +3,9 @@ use super::get_serv_addr;
 use super::utils;
 use baseapp::{Action, CheckFee, CheckNonce};
 use fp_core::account::{MintOutput, SmartAccount, TransferToUTXO};
-use fp_core::crypto::{Address, Address32, MultiSignature};
-use fp_core::ecdsa::Pair;
+use fp_core::crypto::{Address, MultiSignature, MultiSigner};
 use fp_core::transaction::UncheckedTransaction;
-use ledger::address::SmartAddress;
+use fp_utils::ecdsa::SecpPair;
 use ledger::data_model::ASSET_TYPE_FRA;
 use ledger::data_model::BLACK_HOLE_PUBKEY_STAKING;
 use module_account::Action as AccountAction;
@@ -29,8 +28,8 @@ pub fn transfer_to_account(amount: u64, address: Option<&str>) -> Result<()> {
         false,
     )?;
     let target_address = match address {
-        Some(s) => SmartAddress::from_string(s).c(d!())?,
-        None => SmartAddress::Xfr(kp.get_pk()),
+        Some(s) => MultiSigner::from_str(s).c(d!())?,
+        None => MultiSigner::Xfr(kp.get_pk()),
     };
     builder
         .add_operation(transfer_op)
@@ -41,7 +40,7 @@ pub fn transfer_to_account(amount: u64, address: Option<&str>) -> Result<()> {
 
 pub enum Keypair {
     ED25519(XfrKeyPair),
-    ECDSA(Pair),
+    ECDSA(SecpPair),
 }
 
 impl Keypair {
@@ -81,11 +80,11 @@ pub fn transfer_from_account(
     };
 
     let (signer, kp) = if let Some(key_path) = eth_phrase {
-        let kp = Pair::from_phrase(key_path, None)?.0;
-        let signer = Address32::from(kp.address());
+        let kp = SecpPair::from_phrase(key_path, None)?.0;
+        let signer = Address::from(kp.address());
         (signer, Keypair::ECDSA(kp))
     } else {
-        let signer = Address32::from(fra_kp.get_pk());
+        let signer = Address::from(fra_kp.get_pk());
         (signer, Keypair::ED25519(fra_kp))
     };
 
@@ -130,8 +129,8 @@ pub fn contract_account_info(address: Option<&str>) -> Result<(Address, SmartAcc
     let fra_kp = get_keypair()?;
 
     let address = match address {
-        Some(s) => SmartAddress::from_string(s).c(d!())?,
-        None => SmartAddress::Xfr(fra_kp.get_pk()),
+        Some(s) => MultiSigner::from_str(s).c(d!())?,
+        None => MultiSigner::Xfr(fra_kp.get_pk()),
     };
     let account: Address = address.into();
 

@@ -2,7 +2,7 @@ mod eth;
 
 use baseapp::BaseApp;
 use evm::{ExitError, ExitReason};
-use fp_utils::ethereum::generate_address;
+use fp_utils::ecdsa::SecpPair;
 use jsonrpc_core::{Error, ErrorCode};
 use jsonrpc_http_server::{
     AccessControlAllowOrigin, DomainsValidation, RestApi, ServerBuilder,
@@ -23,7 +23,7 @@ pub fn start_service(
 ) {
     let mut io = jsonrpc_core::IoHandler::default();
 
-    let signers = vec![generate_address(1)];
+    let signers = vec![SecpPair::generate_with_phrase(None).0];
     io.extend_with(EthApiServer::to_delegate(EthApiImpl::new(
         url_tdmt,
         account_base_app,

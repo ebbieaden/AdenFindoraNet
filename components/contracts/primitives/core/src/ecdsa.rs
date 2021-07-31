@@ -1,5 +1,5 @@
 use crate::hashing::keccak_256;
-use bip39::{Language, Mnemonic, MnemonicType};
+use bip39::{Language, Mnemonic, MnemonicType, Seed as BipSeed};
 use libsecp256k1::{PublicKey, SecretKey};
 use primitive_types::{H160, H256};
 use rand::{rngs::OsRng, RngCore};
@@ -9,7 +9,7 @@ use sha3::{Digest, Keccak256};
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
-use substrate_bip39::seed_from_entropy;
+use tiny_hderive::bip32::ExtendedPrivKey;
 
 /// A secret seed (which is bytewise essentially equivalent to a SecretKey).
 ///
@@ -134,8 +134,8 @@ impl TryFrom<&[u8]> for Public {
     }
 }
 
-impl From<Pair> for Public {
-    fn from(x: Pair) -> Self {
+impl From<SecpPair> for Public {
+    fn from(x: SecpPair) -> Self {
         x.public()
     }
 }
@@ -283,14 +283,14 @@ impl<'a> TryFrom<&'a Signature> for (libsecp256k1::Signature, libsecp256k1::Reco
     }
 }
 
-/// A key pair.
-#[derive(Debug, Clone)]
-pub struct Pair {
+/// A secp256k1 key pair.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct SecpPair {
     public: PublicKey,
     secret: SecretKey,
 }
 
-impl Pair {
+impl SecpPair {
     /// Get the seed for this key.
     pub fn seed(&self) -> Seed {
         self.secret.serialize()
@@ -305,7 +305,7 @@ impl Pair {
     /// Generate new secure (random) key pair and provide the recovery phrase.
     ///
     /// You can recover the same key later with `from_phrase`.
-    pub fn generate_with_phrase(password: Option<&str>) -> (Pair, String, Seed) {
+    pub fn generate_with_phrase(password: Option<&str>) -> (SecpPair, String, Seed) {
         let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
         let phrase = mnemonic.phrase();
         let (pair, seed) = Self::from_phrase(phrase, password)
@@ -317,23 +317,21 @@ impl Pair {
     pub fn from_phrase(
         phrase: &str,
         password: Option<&str>,
-    ) -> ruc::Result<(Pair, Seed)> {
-        let big_seed = seed_from_entropy(
-            Mnemonic::from_phrase(phrase, Language::English)
-                .map_err(|_| eg!("InvalidPhrase"))?
-                .entropy(),
-            password.unwrap_or(""),
-        )
-        .map_err(|_| eg!("InvalidSeed"))?;
+    ) -> ruc::Result<(SecpPair, Seed)> {
+        let mnemonic = Mnemonic::from_phrase(phrase, Language::English)
+            .map_err(|_| eg!("InvalidPhrase"))?;
+        let bs = BipSeed::new(&mnemonic, password.unwrap_or(""));
+        let ext = ExtendedPrivKey::derive(bs.as_bytes(), "m/44'/60'/0'/0/0")
+            .map_err(|_| eg!("InvalidSeed"))?;
         let mut seed = Seed::default();
-        seed.copy_from_slice(&big_seed[0..32]);
-        Self::from_seed_slice(&big_seed[0..32]).map(|x| (x, seed))
+        seed.copy_from_slice(&bs.as_bytes()[0..32]);
+        Self::from_seed_slice(&ext.secret()).map(|x| (x, seed))
     }
 
     /// Make a new key pair from secret seed material.
     ///
     /// You should never need to use this; generate(), generate_with_phrase
-    pub fn from_seed(seed: &Seed) -> Pair {
+    pub fn from_seed(seed: &Seed) -> SecpPair {
         Self::from_seed_slice(&seed[..]).expect("seed has valid length; qed")
     }
 
@@ -341,11 +339,11 @@ impl Pair {
     /// will return `None`.
     ///
     /// You should never need to use this; generate(), generate_with_phrase
-    pub fn from_seed_slice(seed_slice: &[u8]) -> ruc::Result<Pair> {
+    pub fn from_seed_slice(seed_slice: &[u8]) -> ruc::Result<SecpPair> {
         let secret =
             SecretKey::parse_slice(seed_slice).map_err(|_| eg!("InvalidSeedLength"))?;
         let public = PublicKey::from_secret_key(&secret);
-        Ok(Pair { public, secret })
+        Ok(SecpPair { public, secret })
     }
 
     /// Get the public key.
@@ -398,7 +396,7 @@ mod test {
 
     #[test]
     fn test_vector_should_work() {
-        let pair = Pair::from_seed(&hex!(
+        let pair = SecpPair::from_seed(&hex!(
             "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
         ));
         let public = pair.public();
@@ -414,22 +412,22 @@ mod test {
         );
         let signature = Signature::from_raw(signature);
         assert_eq!(pair.sign(&message[..]), signature);
-        assert!(Pair::verify(&signature, &message[..], &public));
+        assert!(SecpPair::verify(&signature, &message[..], &public));
     }
 
     #[test]
     fn generated_pair_should_work() {
-        let (pair, _) = Pair::generate();
+        let (pair, _) = SecpPair::generate();
         let public = pair.public();
         let message = b"Something important";
         let signature = pair.sign(&message[..]);
-        assert!(Pair::verify(&signature, &message[..], &public));
-        assert!(!Pair::verify(&signature, b"Something else", &public));
+        assert!(SecpPair::verify(&signature, &message[..], &public));
+        assert!(!SecpPair::verify(&signature, b"Something else", &public));
     }
 
     #[test]
     fn seeded_pair_should_work() {
-        let pair = Pair::from_seed(b"12345678901234567890123456789012");
+        let pair = SecpPair::from_seed(b"12345678901234567890123456789012");
         let public = pair.public();
         assert_eq!(
 			public,
@@ -442,37 +440,37 @@ mod test {
         );
         let signature = pair.sign(&message[..]);
         println!("Correct signature: {:?}", signature);
-        assert!(Pair::verify(&signature, &message[..], &public));
-        assert!(!Pair::verify(&signature, "Other message", &public));
+        assert!(SecpPair::verify(&signature, &message[..], &public));
+        assert!(!SecpPair::verify(&signature, "Other message", &public));
     }
 
     #[test]
     fn generate_with_phrase_recovery_possible() {
-        let (pair1, phrase, _) = Pair::generate_with_phrase(None);
-        let (pair2, _) = Pair::from_phrase(&phrase, None).unwrap();
+        let (pair1, phrase, _) = SecpPair::generate_with_phrase(None);
+        let (pair2, _) = SecpPair::from_phrase(&phrase, None).unwrap();
 
         assert_eq!(pair1.public(), pair2.public());
     }
 
     #[test]
     fn generate_with_password_phrase_recovery_possible() {
-        let (pair1, phrase, _) = Pair::generate_with_phrase(Some("password"));
-        let (pair2, _) = Pair::from_phrase(&phrase, Some("password")).unwrap();
+        let (pair1, phrase, _) = SecpPair::generate_with_phrase(Some("password"));
+        let (pair2, _) = SecpPair::from_phrase(&phrase, Some("password")).unwrap();
 
         assert_eq!(pair1.public(), pair2.public());
     }
 
     #[test]
     fn password_does_something() {
-        let (pair1, phrase, _) = Pair::generate_with_phrase(Some("password"));
-        let (pair2, _) = Pair::from_phrase(&phrase, None).unwrap();
+        let (pair1, phrase, _) = SecpPair::generate_with_phrase(Some("password"));
+        let (pair2, _) = SecpPair::from_phrase(&phrase, None).unwrap();
 
         assert_ne!(pair1.public(), pair2.public());
     }
 
     #[test]
     fn public_serialization_works() {
-        let pair = Pair::from_seed(b"12345678901234567890123456789012");
+        let pair = SecpPair::from_seed(b"12345678901234567890123456789012");
         let pk = Public::from(pair);
         let serialized_public = serde_json::to_string(&pk).unwrap();
         let public = serde_json::from_str::<Public>(&serialized_public).unwrap();
@@ -481,14 +479,14 @@ mod test {
 
     #[test]
     fn signature_serialization_works() {
-        let pair = Pair::from_seed(b"12345678901234567890123456789012");
+        let pair = SecpPair::from_seed(b"12345678901234567890123456789012");
         let message = b"Something important";
         let signature = pair.sign(&message[..]);
         let serialized_signature = serde_json::to_string(&signature).unwrap();
         // Signature is 65 bytes, so 130 chars + 2 quote chars
         assert_eq!(serialized_signature.len(), 132);
         let signature = serde_json::from_str(&serialized_signature).unwrap();
-        assert!(Pair::verify(&signature, &message[..], &pair.public()));
+        assert!(SecpPair::verify(&signature, &message[..], &pair.public()));
     }
 
     #[test]
@@ -506,7 +504,7 @@ mod test {
 
     #[test]
     fn sign_prehashed_works() {
-        let (pair, _, _) = Pair::generate_with_phrase(Some("password"));
+        let (pair, _, _) = SecpPair::generate_with_phrase(Some("password"));
 
         // `msg` shouldn't be mangled
         let msg = [0u8; 32];

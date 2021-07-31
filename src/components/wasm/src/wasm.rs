@@ -16,9 +16,9 @@ use credentials::{
 use cryptohash::sha256;
 use fp_core::{
     account::{MintOutput, TransferToUTXO},
-    crypto::{Address32, MultiSignature},
-    ecdsa::Pair,
+    crypto::{Address, MultiSignature, MultiSigner},
 };
+use fp_utils::ecdsa::SecpPair;
 use ledger::{
     data_model::{
         AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
@@ -33,6 +33,7 @@ use ledger::{
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::{d, err::RucResult};
+use std::str::FromStr;
 use txn_builder::{
     BuildsTransactions, FeeInput as PlatformFeeInput, FeeInputs as PlatformFeeInputs,
     PolicyChoice, TransactionBuilder as PlatformTransactionBuilder,
@@ -50,7 +51,6 @@ use zei::xfr::structs::{
     AssetRecordTemplate, AssetType as ZeiAssetType, XfrBody, ASSET_TYPE_LENGTH,
 };
 
-use ledger::address::SmartAddress;
 use module_account::Action as AccountAction;
 
 mod util;
@@ -580,7 +580,7 @@ impl TransactionBuilder {
         keypair: &XfrKeyPair,
         s: String,
     ) -> Result<TransactionBuilder, JsValue> {
-        let sa = SmartAddress::from_string(&s)
+        let sa = MultiSigner::from_str(&s)
             .c(d!())
             .map_err(error_to_jsvalue)?;
         self.get_builder_mut()
@@ -669,7 +669,7 @@ pub fn balance_from_account_to_utxo_by_xfr(
         .map_err(error_to_jsvalue)?;
 
     let signature = MultiSignature::from(kp.get_sk_ref().sign(&msg, kp.get_pk_ref()));
-    let signer = Address32::from(kp.get_pk());
+    let signer = Address::from(kp.get_pk());
 
     let tx = UncheckedTransaction::new_signed(action, signer, signature, extra);
 
@@ -685,7 +685,7 @@ pub fn balance_from_account_to_utxo_by_eth(
     kp_phrase: String,
     nonce: u64,
 ) -> Result<String, JsValue> {
-    let kp = Pair::from_phrase(&kp_phrase, None)
+    let kp = SecpPair::from_phrase(&kp_phrase, None)
         .map_err(error_to_jsvalue)?
         .0;
 
@@ -695,7 +695,7 @@ pub fn balance_from_account_to_utxo_by_eth(
         .map_err(error_to_jsvalue)?;
 
     let signature = MultiSignature::from(kp.sign(&msg));
-    let signer = Address32::from(kp.public());
+    let signer = Address::from(kp.public());
 
     let tx = UncheckedTransaction::new_signed(action, signer, signature, extra);
 

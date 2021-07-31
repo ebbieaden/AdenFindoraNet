@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn ecdsa_sign_verify_work() {
-        let (alice, _) = ecdsa::Pair::generate();
+        let (alice, _) = ecdsa::SecpPair::generate();
         let sig = alice.sign(b"hello");
         let signer = MultiSigner::from(alice.address());
         let sig = MultiSignature::from(sig);

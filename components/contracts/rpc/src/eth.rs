@@ -16,10 +16,11 @@ use fp_rpc_core::{EthApi, EthFilterApi, NetApi, Web3Api};
 use fp_traits::evm::{
     AddressMapping, DecimalsMapping, EthereumAddressMapping, FeeCalculator,
 };
-use fp_utils::ethereum::{sign_transaction_message, KeyPair};
+use fp_utils::ecdsa::SecpPair;
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use log::debug;
 use parking_lot::RwLock;
+use ruc::eg;
 use sha3::{Digest, Keccak256};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -28,7 +29,7 @@ use tokio::runtime::Runtime;
 
 pub struct EthApiImpl {
     account_base_app: Arc<RwLock<BaseApp>>,
-    signers: Vec<KeyPair>,
+    signers: Vec<SecpPair>,
     tm_client: HttpClient,
 }
 
@@ -36,7 +37,7 @@ impl EthApiImpl {
     pub fn new(
         url: String,
         account_base_app: Arc<RwLock<BaseApp>>,
-        signers: Vec<KeyPair>,
+        signers: Vec<SecpPair>,
     ) -> Self {
         Self {
             account_base_app,
@@ -62,7 +63,7 @@ impl EthApi for EthApiImpl {
     fn accounts(&self) -> Result<Vec<H160>> {
         let mut accounts = Vec::new();
         for signer in self.signers.iter() {
-            accounts.push(signer.address.clone());
+            accounts.push(signer.address().clone());
         }
         Ok(accounts)
     }
@@ -137,8 +138,8 @@ impl EthApi for EthApiImpl {
 
         let mut transaction = None;
         for signer in &self.signers {
-            if signer.address == from {
-                match sign_transaction_message(message, &signer.private_key)
+            if signer.address() == from {
+                match sign_transaction_message(message, &H256::from(signer.seed()))
                     .map_err(|e| internal_err(e))
                 {
                     Ok(tx) => transaction = Some(tx),
@@ -888,6 +889,36 @@ impl EthFilterApi for EthFilterApiImpl {
         println!("invoked: fn uninstall_filter");
         Err(internal_err("Method not available18."))
     }
+}
+
+pub fn sign_transaction_message(
+    message: ethereum::TransactionMessage,
+    private_key: &H256,
+) -> ruc::Result<ethereum::Transaction> {
+    let signing_message = libsecp256k1::Message::parse_slice(&message.hash()[..])
+        .map_err(|_| eg!("invalid signing message"))?;
+    let secret = &libsecp256k1::SecretKey::parse_slice(&private_key[..])
+        .map_err(|_| eg!("invalid secret"))?;
+    let (signature, recid) = libsecp256k1::sign(&signing_message, secret);
+
+    let v = match message.chain_id {
+        None => 27 + recid.serialize() as u64,
+        Some(chain_id) => 2 * chain_id + 35 + recid.serialize() as u64,
+    };
+    let rs = signature.serialize();
+    let r = H256::from_slice(&rs[0..32]);
+    let s = H256::from_slice(&rs[32..64]);
+
+    Ok(ethereum::Transaction {
+        nonce: message.nonce,
+        gas_price: message.gas_price,
+        gas_limit: message.gas_limit,
+        action: message.action,
+        value: message.value,
+        input: message.input.clone(),
+        signature: ethereum::TransactionSignature::new(v, r, s)
+            .ok_or(eg!("signer generated invalid signature"))?,
+    })
 }
 
 fn rich_block_build(
