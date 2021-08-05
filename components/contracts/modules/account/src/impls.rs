@@ -76,13 +76,12 @@ impl<C: Config> AccountAsset<Address> for App<C> {
         if asset == ASSET_TYPE_FRA {
             target_account.balance =
                 target_account.balance.checked_add(balance).c(d!())?;
+        } else if let Some(amount) = target_account.assets.get_mut(&asset) {
+            *amount = (*amount).checked_add(balance).c(d!())?;
         } else {
-            if let Some(amount) = target_account.assets.get_mut(&asset) {
-                *amount = (*amount).checked_add(balance).c(d!())?;
-            } else {
-                target_account.assets.insert(asset, balance);
-            }
+            target_account.assets.insert(asset, balance);
         }
+
         AccountStore::insert(ctx.store.clone(), target, &target_account);
         Ok(())
     }
@@ -145,12 +144,10 @@ impl<C: Config> App<C> {
         for output in &outputs {
             if output.asset == ASSET_TYPE_FRA {
                 asset_amount += output.amount;
+            } else if let Some(amount) = asset_map.get_mut(&output.asset) {
+                *amount += output.amount;
             } else {
-                if let Some(amount) = asset_map.get_mut(&output.asset) {
-                    *amount += output.amount;
-                } else {
-                    asset_map.insert(output.asset, output.amount);
-                }
+                asset_map.insert(output.asset, output.amount);
             }
         }
 
@@ -163,8 +160,8 @@ impl<C: Config> App<C> {
         }
 
         for (k, v) in asset_map.iter() {
-            if let Some(asset_balance) = sa.assets.get(&k) {
-                if asset_balance < &(v.clone() as u128) {
+            if let Some(asset_balance) = sa.assets.get(k) {
+                if asset_balance < &(*v as u128) {
                     return Err(eg!("insufficient balance"));
                 }
             } else {
@@ -196,13 +193,13 @@ impl<C: Config> App<C> {
 
     pub fn consume_mint(ctx: &Context, size: usize) -> Result<Vec<MintOutput>> {
         let res = if let Some(mut outputs) = MintOutputs::get(ctx.store.clone()) {
-            if outputs.len() <= size {
-                outputs
-            } else {
+            if outputs.len() > size {
                 let vec2 = outputs.split_off(size - outputs.len());
                 MintOutputs::put(ctx.store.clone(), vec2);
-                outputs
+            } else {
+                MintOutputs::put(ctx.store.clone(), Vec::new());
             }
+            outputs
         } else {
             Vec::new()
         };
