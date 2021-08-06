@@ -7,18 +7,17 @@ pub mod runtime;
 use ethereum_types::U256;
 use fp_core::{
     context::Context,
-    crypto::Address,
     macros::Get,
     module::AppModule,
     transaction::{ActionResult, Executable},
 };
-use fp_evm::{Call, Create, Create2, PrecompileSet};
+use fp_evm::PrecompileSet;
 use fp_traits::{
     account::AccountAsset,
     evm::{AddressMapping, BlockHashMapping, DecimalsMapping, FeeCalculator},
 };
+use fp_types::{actions::evm::Action, crypto::Address};
 use ruc::*;
-use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
 pub use runtime::*;
@@ -42,13 +41,6 @@ pub trait Config {
     type FeeCalculator: FeeCalculator;
     /// Precompiles associated with this EVM engine.
     type Precompiles: PrecompileSet;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Action {
-    Call(Call),
-    Create(Create),
-    Create2(Create2),
 }
 
 pub mod storage {

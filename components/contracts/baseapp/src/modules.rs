@@ -1,16 +1,23 @@
 use super::*;
 use abci::{RequestBeginBlock, RequestEndBlock, RequestQuery, ResponseEndBlock};
 use fp_core::{
-    account::MintOutput,
     context::Context,
-    crypto::Address,
     module::AppModule,
-    transaction::{ActionResult, Applyable, Executable, ValidateUnsigned},
+    transaction::{
+        ActionResult, Applyable, Executable, SignedExtension, ValidateUnsigned,
+    },
+};
+use fp_types::{
+    actions,
+    actions::account::MintOutput,
+    assemble::{convert_unsigned_transaction, CheckedTransaction, UncheckedTransaction},
+    crypto::Address,
 };
 use ledger::{
     address::operation::check_convert_tx, data_model::Transaction as FindoraTransaction,
 };
 use ruc::*;
+use serde::Serialize;
 
 pub struct ModuleManager {
     // Ordered module list
@@ -96,24 +103,32 @@ impl ModuleManager {
         resp
     }
 
-    pub fn process_tx(
+    pub fn process_tx<
+        Extra: Clone + Serialize + SignedExtension<AccountId = Address>,
+    >(
         &mut self,
         mut ctx: Context,
-        tx: UncheckedTransaction,
+        tx: UncheckedTransaction<Extra>,
     ) -> Result<ActionResult> {
         let checked = tx.clone().check()?;
         match tx.function.clone() {
-            Action::Ethereum(action) => {
+            actions::Action::Ethereum(action) => {
                 // handle unsigned transaction, set specified module.
-                let module_ethereum::Action::Transact(eth_tx) = action.clone();
+                let actions::ethereum::Action::Transact(eth_tx) = action.clone();
                 ctx.tx = serde_json::to_vec(&eth_tx)
                     .map_err(|e| eg!(format!("Serialize ethereum tx err: {}", e)))?;
 
-                Self::dispatch::<module_ethereum::Action, module_ethereum::App<BaseApp>>(
-                    &ctx, action, checked,
-                )
+                Self::dispatch::<
+                    actions::ethereum::Action,
+                    module_ethereum::App<BaseApp>,
+                    Extra,
+                >(&ctx, action, checked)
             }
-            _ => Self::dispatch::<Action, BaseApp>(&ctx, tx.function, checked),
+            _ => Self::dispatch::<actions::Action, BaseApp, Extra>(
+                &ctx,
+                tx.function,
+                checked,
+            ),
         }
     }
 
@@ -144,16 +159,17 @@ impl ModuleManager {
 }
 
 impl ModuleManager {
-    fn dispatch<Call, Module>(
+    fn dispatch<Call, Module, Extra>(
         ctx: &Context,
         action: Call,
-        tx: CheckedTransaction,
+        tx: CheckedTransaction<Extra>,
     ) -> Result<ActionResult>
     where
         Module: ValidateUnsigned<Call = Call>,
         Module: Executable<Origin = Address, Call = Call>,
+        Extra: SignedExtension<AccountId = Address> + Clone,
     {
-        let origin_tx = convert_unsigned_transaction::<Call>(action, tx);
+        let origin_tx = convert_unsigned_transaction::<Call, Extra>(action, tx);
 
         origin_tx.validate::<Module>(ctx)?;
 

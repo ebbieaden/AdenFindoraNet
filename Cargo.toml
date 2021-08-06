@@ -29,6 +29,7 @@ members = [
     "components/contracts/primitives/mocks",
     "components/contracts/primitives/storage",
     "components/contracts/primitives/traits",
+    "components/contracts/primitives/types",
     "components/contracts/primitives/rpc-core",
     "components/contracts/primitives/utils",
     "components/contracts/rpc",

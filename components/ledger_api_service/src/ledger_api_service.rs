@@ -6,12 +6,13 @@ extern crate actix_web;
 extern crate ledger;
 extern crate serde_json;
 
-mod response;
+pub mod response;
 
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpResponse, HttpServer, Responder};
-use baseapp::{BaseApp, BaseProvider};
-use ledger::address::SmartAddress;
+use baseapp::BaseApp;
+use fp_traits::base::BaseProvider;
+use fp_types::crypto::MultiSigner;
 use ledger::staking::{DelegationRwdDetail, TendermintAddr};
 use ledger::{
     data_model::*,
@@ -22,7 +23,9 @@ use log::info;
 use log::warn;
 use parking_lot::RwLock;
 use ruc::*;
+use serde::Serialize;
 use serde_derive::Deserialize;
+use std::str::FromStr;
 use std::{collections::BTreeMap, mem, sync::Arc};
 use utils::{HashOf, NetworkRoute, SignatureOf};
 use zei::xfr::{sig::XfrPublicKey, structs::OwnerMemo};
@@ -434,6 +437,98 @@ where
 }
 
 #[derive(Deserialize, Debug)]
+struct ValidatorDelegationQueryParams {
+    address: TendermintAddr,
+    epoch_size: u32,
+    epoch_cnt: u8,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct ValidatorDelegation {
+    return_rate: [u128; 2],
+    self_delegation: u64,
+    delegated: u64,
+}
+
+async fn get_validator_delegation_history<SA>(
+    data: web::Data<Arc<RwLock<SA>>>,
+    web::Query(info): web::Query<ValidatorDelegationQueryParams>,
+) -> actix_web::Result<web::Json<Vec<ValidatorDelegation>>>
+where
+    SA: LedgerAccess,
+{
+    let read = data.read();
+    let staking = read.get_staking();
+
+    let v_id = staking
+        .validator_td_addr_to_app_pk(info.address.as_ref())
+        .c(d!())
+        .map_err(error::ErrorBadRequest)?;
+    let v_self_delegation = staking
+        .delegation_get(&v_id)
+        .ok_or_else(|| error::ErrorBadRequest("not exists"))?;
+
+    let mut history = vec![];
+
+    let self_delegation = v_self_delegation
+        .entries
+        .iter()
+        .filter(|(k, _)| **k == v_id)
+        .map(|(_, n)| n)
+        .sum();
+    let delegated = v_self_delegation.delegators.values().sum::<u64>();
+
+    history.push(ValidatorDelegation {
+        return_rate: Staking::get_block_rewards_rate(&*read),
+        delegated,
+        self_delegation,
+    });
+
+    let h = staking.cur_height();
+    let epoch_size = info.epoch_size as u64;
+    (1..=info.epoch_cnt as u64)
+        .into_iter()
+        .filter_map(|i| {
+            if h >= i * epoch_size
+                && h - i * epoch_size >= v_self_delegation.start_height
+            {
+                Some(h - i * epoch_size)
+            } else {
+                None
+            }
+        })
+        .for_each(|h| {
+            history.push(ValidatorDelegation {
+                return_rate: *staking
+                    .query_block_rewards_rate(&h)
+                    .unwrap_or(&history.last().unwrap().return_rate), //unwrap is safe here
+                delegated: {
+                    if v_self_delegation.delegation_amount.is_empty()
+                        || v_self_delegation
+                            .delegation_amount
+                            .iter()
+                            .take(1)
+                            .all(|(&i, _)| i > h)
+                    {
+                        0
+                    } else {
+                        *v_self_delegation
+                            .delegation_amount
+                            .get(&h)
+                            .unwrap_or(&history.last().unwrap().delegated)
+                    }
+                },
+                self_delegation: *v_self_delegation
+                    .self_delegation_detail
+                    .get(&h)
+                    .unwrap_or(&history.last().unwrap().self_delegation),
+            })
+        });
+
+    Ok(web::Json(history))
+}
+
+#[derive(Deserialize, Debug)]
 struct DelegatorQueryParams {
     address: String,
     page: usize,
@@ -541,6 +636,7 @@ where
                         * (1 + staking.cur_height() - v_self_delegation.start_height)
                             as u128,
                 ];
+
                 let resp = ValidatorDetail {
                     addr: addr.into_inner(),
                     is_online: v.signed_last_block,
@@ -554,7 +650,7 @@ where
                         .map(|(_, n)| n)
                         .sum(),
                     fra_rewards: v_self_delegation.rwd_amount,
-                    memo: v.memo.clone().unwrap_or_default(),
+                    memo: v.memo.clone(),
                     start_height: v_self_delegation.start_height,
                     cur_height: staking.cur_height(),
                     block_signed_cnt: v.signed_cnt,
@@ -671,17 +767,17 @@ where
         .map(|pk| web::Json(data.read().get_owned_utxos(&pk)))
 }
 
-async fn query_account_model_balance(
+async fn query_smart_account(
     data: web::Data<Arc<RwLock<BaseApp>>>,
     address: web::Path<String>,
 ) -> actix_web::Result<impl Responder> {
-    let sa = SmartAddress::from_string(&address)
+    let user = MultiSigner::from_str(&address)
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
     let account_base_app = data.read();
-    let balance = account_base_app
-        .account_of(&sa.into(), None)
+    let sa = account_base_app
+        .account_of(&user.into(), None)
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
-    Ok(web::Json(response::Response::new_success(Some(balance))))
+    Ok(web::Json(response::Response::new_success(Some(sa))))
 }
 
 enum AccessApi {
@@ -890,6 +986,10 @@ where
             web::resource("/delegation_rewards")
                 .route(web::get().to(get_delegation_reward::<SA>)),
         )
+        .service(
+            web::resource("/validator_delegation")
+                .route(web::get().to(get_validator_delegation_history::<SA>)),
+        )
         .route(
             &StakingAccessRoutes::ValidatorDetail.with_arg_template("NodeAddress"),
             web::get().to(query_validator_detail::<SA>),
@@ -919,7 +1019,7 @@ impl RestfulApiService {
                 .set_route::<LA>(AccessApi::Staking)
                 .route(
                     "/account/balance/{address}",
-                    web::get().to(query_account_model_balance),
+                    web::get().to(query_smart_account),
                 )
         })
         .bind(&format!("{}:{}", host, port))

@@ -1,14 +1,14 @@
 use crate::hashing::keccak_256;
 use bip39::{Language, Mnemonic, MnemonicType, Seed as BipSeed};
+use core::cmp::Ordering;
+use core::convert::{TryFrom, TryInto};
+use core::hash::{Hash, Hasher};
 use libsecp256k1::{PublicKey, SecretKey};
 use primitive_types::{H160, H256};
 use rand::{rngs::OsRng, RngCore};
 use ruc::eg;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use sha3::{Digest, Keccak256};
-use std::cmp::Ordering;
-use std::convert::{TryFrom, TryInto};
-use std::hash::{Hash, Hasher};
 use tiny_hderive::bip32::ExtendedPrivKey;
 
 /// A secret seed (which is bytewise essentially equivalent to a SecretKey).
@@ -384,7 +384,7 @@ impl SecpPair {
     }
 
     /// Return a vec filled with raw data.
-    pub fn to_raw_vec(&self) -> Vec<u8> {
+    pub fn to_raw_vec(self) -> Vec<u8> {
         self.seed().to_vec()
     }
 }

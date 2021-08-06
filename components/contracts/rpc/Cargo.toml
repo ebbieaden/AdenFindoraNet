@@ -42,6 +42,7 @@ module-evm = { path = "../modules/evm"}
 fp-core = { path = "../primitives/core" }
 fp-evm = { path = "../primitives/evm" }
 fp-traits = { path = "../primitives/traits" }
+fp-types = { path = "../primitives/types" }
 fp-utils = { path = "../primitives/utils" }
 
 [features]

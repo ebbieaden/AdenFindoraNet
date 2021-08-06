@@ -1,5 +1,5 @@
 use crate::{error_on_execution_failure, internal_err};
-use baseapp::{BaseApp, BaseProvider, UncheckedTransaction};
+use baseapp::{extensions::SignedExtra, BaseApp};
 use ethereum::{
     Block as EthereumBlock, Transaction as EthereumTransaction,
     TransactionMessage as EthereumTransactionMessage,
@@ -13,9 +13,11 @@ use fp_rpc_core::types::{
     Transaction, TransactionRequest, Work,
 };
 use fp_rpc_core::{EthApi, EthFilterApi, NetApi, Web3Api};
-use fp_traits::evm::{
-    AddressMapping, DecimalsMapping, EthereumAddressMapping, FeeCalculator,
+use fp_traits::{
+    base::BaseProvider,
+    evm::{AddressMapping, DecimalsMapping, EthereumAddressMapping, FeeCalculator},
 };
+use fp_types::{actions, assemble::UncheckedTransaction};
 use fp_utils::ecdsa::SecpPair;
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use log::debug;
@@ -63,7 +65,7 @@ impl EthApi for EthApiImpl {
     fn accounts(&self) -> Result<Vec<H160>> {
         let mut accounts = Vec::new();
         for signer in self.signers.iter() {
-            accounts.push(signer.address().clone());
+            accounts.push(signer.address());
         }
         Ok(accounts)
     }
@@ -75,7 +77,7 @@ impl EthApi for EthApiImpl {
             None
         };
 
-        let account_id = EthereumAddressMapping::into_account_id(address);
+        let account_id = EthereumAddressMapping::convert_to_account_id(address);
         if let Ok(sa) = self.account_base_app.read().account_of(&account_id, ctx) {
             Ok(
                 <BaseApp as module_evm::Config>::DecimalsMapping::from_native_token(
@@ -98,7 +100,7 @@ impl EthApi for EthApiImpl {
                 };
 
                 match accounts.get(0) {
-                    Some(account) => account.clone(),
+                    Some(account) => *account,
                     None => {
                         return Box::new(future::result(Err(internal_err(
                             "no signer available",
@@ -123,11 +125,11 @@ impl EthApi for EthApiImpl {
 
         let message = ethereum::TransactionMessage {
             nonce,
-            gas_price: request.gas_price.unwrap_or(
-                <BaseApp as module_evm::Config>::FeeCalculator::min_gas_price(),
+            gas_price: request.gas_price.unwrap_or_else(
+                <BaseApp as module_evm::Config>::FeeCalculator::min_gas_price,
             ),
-            gas_limit: request.gas.unwrap_or(U256::max_value()),
-            value: request.value.unwrap_or(U256::zero()),
+            gas_limit: request.gas.unwrap_or_else(U256::max_value),
+            value: request.value.unwrap_or_else(U256::zero),
             input: request.data.map(|s| s.into_vec()).unwrap_or_default(),
             action: match request.to {
                 Some(to) => ethereum::TransactionAction::Call(to),
@@ -140,7 +142,7 @@ impl EthApi for EthApiImpl {
         for signer in &self.signers {
             if signer.address() == from {
                 match sign_transaction_message(message, &H256::from(signer.seed()))
-                    .map_err(|e| internal_err(e))
+                    .map_err(internal_err)
                 {
                     Ok(tx) => transaction = Some(tx),
                     Err(e) => return Box::new(future::result(Err(e))),
@@ -160,9 +162,11 @@ impl EthApi for EthApiImpl {
         let transaction_hash =
             H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
         let function =
-            baseapp::Action::Ethereum(module_ethereum::Action::Transact(transaction));
-        let txn = serde_json::to_vec(&UncheckedTransaction::new_unsigned(function))
-            .map_err(|e| internal_err(e));
+            actions::Action::Ethereum(actions::ethereum::Action::Transact(transaction));
+        let txn = serde_json::to_vec(
+            &UncheckedTransaction::<SignedExtra>::new_unsigned(function),
+        )
+        .map_err(internal_err);
         if let Err(e) = txn {
             return Box::new(future::result(Err(e)));
         }
@@ -196,9 +200,10 @@ impl EthApi for EthApiImpl {
             nonce,
         } = request;
 
-        let value = <BaseApp as module_evm::Config>::DecimalsMapping::into_native_token(
-            value.unwrap_or_default(),
-        );
+        let value =
+            <BaseApp as module_evm::Config>::DecimalsMapping::convert_to_native_token(
+                value.unwrap_or_default(),
+            );
 
         // use given gas limit or query current block's limit
         let gas_limit = match gas {
@@ -277,14 +282,14 @@ impl EthApi for EthApiImpl {
     }
 
     fn author(&self) -> Result<H160> {
-        let proposer = self
-            .account_base_app
-            .read()
-            .check_state
-            .header
-            .proposer_address
-            .clone();
-        Ok(H160::from_slice(&proposer[0..20]))
+        Ok(H160::from_slice(
+            &self
+                .account_base_app
+                .read()
+                .check_state
+                .header
+                .get_proposer_address()[0..20],
+        ))
     }
 
     fn is_mining(&self) -> Result<bool> {
@@ -303,7 +308,7 @@ impl EthApi for EthApiImpl {
             .chain_state
             .read()
             .height()
-            .map_err(|e| internal_err(e))?;
+            .map_err(internal_err)?;
         Ok(U256::from(height))
     }
 
@@ -324,7 +329,7 @@ impl EthApi for EthApiImpl {
         match (block, statuses) {
             (Some(block), Some(statuses)) => Ok(Some(rich_block_build(
                 block,
-                statuses.into_iter().map(|s| Some(s)).collect(),
+                statuses.into_iter().map(Some).collect(),
                 Some(hash),
                 full,
             ))),
@@ -361,7 +366,7 @@ impl EthApi for EthApiImpl {
 
                 Ok(Some(rich_block_build(
                     block,
-                    statuses.into_iter().map(|s| Some(s)).collect(),
+                    statuses.into_iter().map(Some).collect(),
                     Some(hash),
                     full,
                 )))
@@ -376,7 +381,9 @@ impl EthApi for EthApiImpl {
         number: Option<BlockNumber>,
     ) -> Result<U256> {
         let account_id =
-            <BaseApp as module_evm::Config>::AddressMapping::into_account_id(address);
+            <BaseApp as module_evm::Config>::AddressMapping::convert_to_account_id(
+                address,
+            );
 
         let ctx = if let Some(BlockNumber::Pending) = number {
             Some(self.account_base_app.read().check_state.clone())
@@ -387,7 +394,7 @@ impl EthApi for EthApiImpl {
             .account_base_app
             .read()
             .account_of(&account_id, ctx)
-            .map_err(|e| internal_err(e))?;
+            .map_err(internal_err)?;
         Ok(U256::from(sa.nonce))
     }
 
@@ -449,7 +456,7 @@ impl EthApi for EthApiImpl {
             .account_base_app
             .read()
             .account_code_at(address)
-            .unwrap_or(vec![])
+            .unwrap_or_default()
             .into())
     }
 
@@ -465,9 +472,11 @@ impl EthApi for EthApiImpl {
         let transaction_hash =
             H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
         let function =
-            baseapp::Action::Ethereum(module_ethereum::Action::Transact(transaction));
-        let txn = serde_json::to_vec(&UncheckedTransaction::new_unsigned(function))
-            .map_err(|e| internal_err(e));
+            actions::Action::Ethereum(actions::ethereum::Action::Transact(transaction));
+        let txn = serde_json::to_vec(
+            &UncheckedTransaction::<SignedExtra>::new_unsigned(function),
+        )
+        .map_err(internal_err);
         if let Err(e) = txn {
             return Box::new(future::result(Err(e)));
         }
@@ -505,9 +514,10 @@ impl EthApi for EthApiImpl {
             nonce: _,
         } = request;
 
-        let value = <BaseApp as module_evm::Config>::DecimalsMapping::into_native_token(
-            value.unwrap_or_default(),
-        );
+        let value =
+            <BaseApp as module_evm::Config>::DecimalsMapping::convert_to_native_token(
+                value.unwrap_or_default(),
+            );
 
         let gas_limit = <BaseApp as module_evm::Config>::BlockGasLimit::get();
 
@@ -678,7 +688,7 @@ impl EthApi for EthApiImpl {
                 );
                 let receipt = receipts[index.unwrap()].clone();
                 let status = statuses[index.unwrap()].clone();
-                let mut cumulative_receipts = receipts.clone();
+                let mut cumulative_receipts = receipts;
                 cumulative_receipts.truncate((status.transaction_index + 1) as usize);
 
                 return Ok(Some(Receipt {
@@ -699,7 +709,7 @@ impl EthApi for EthApiImpl {
                     contract_address: status.contract_address,
                     logs: {
                         let mut pre_receipts_log_index = None;
-                        if cumulative_receipts.len() > 0 {
+                        if !cumulative_receipts.is_empty() {
                             cumulative_receipts.truncate(cumulative_receipts.len() - 1);
                             pre_receipts_log_index = Some(
                                 cumulative_receipts
@@ -755,7 +765,7 @@ impl EthApi for EthApiImpl {
 
     fn logs(&self, filter: Filter) -> Result<Vec<Log>> {
         let mut ret: Vec<Log> = Vec::new();
-        if let Some(hash) = filter.block_hash.clone() {
+        if let Some(hash) = filter.block_hash {
             let block = self.account_base_app.read().current_block();
             let statuses = self.account_base_app.read().current_transaction_statuses();
 
@@ -815,7 +825,7 @@ impl NetApi for NetApiImpl {
 
     fn version(&self) -> Result<String> {
         let chain_id = <BaseApp as module_evm::Config>::ChainId::get();
-        Ok(String::from(chain_id.to_string()))
+        Ok(chain_id.to_string())
     }
 }
 
@@ -915,7 +925,7 @@ pub fn sign_transaction_message(
         gas_limit: message.gas_limit,
         action: message.action,
         value: message.value,
-        input: message.input.clone(),
+        input: message.input,
         signature: ethereum::TransactionSignature::new(v, r, s)
             .ok_or(eg!("signer generated invalid signature"))?,
     })
@@ -1006,10 +1016,8 @@ fn transaction_build(
     Transaction {
         hash: H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice()),
         nonce: transaction.nonce,
-        block_hash: block.as_ref().map_or(None, |block| {
-            Some(H256::from_slice(
-                Keccak256::digest(&rlp::encode(&block.header)).as_slice(),
-            ))
+        block_hash: block.as_ref().map(|block| {
+            H256::from_slice(Keccak256::digest(&rlp::encode(&block.header)).as_slice())
         }),
         block_number: block.as_ref().map(|block| block.header.number),
         transaction_index: status
@@ -1039,11 +1047,9 @@ fn transaction_build(
         gas_price: transaction.gas_price,
         gas: transaction.gas_limit,
         input: Bytes(transaction.clone().input),
-        creates: status
-            .as_ref()
-            .map_or(None, |status| status.contract_address),
+        creates: status.as_ref().and_then(|status| status.contract_address),
         raw: Bytes(rlp::encode(&transaction).to_vec()),
-        public_key: pubkey.as_ref().map(|pk| H512::from(pk)),
+        public_key: pubkey.as_ref().map(H512::from),
         chain_id: transaction.signature.chain_id().map(U64::from),
         standard_v: U256::from(transaction.signature.standard_v()),
         v: U256::from(transaction.signature.v()),
@@ -1062,7 +1068,7 @@ pub fn public_key(transaction: &EthereumTransaction) -> ruc::Result<[u8; 64]> {
         &EthereumTransactionMessage::from(transaction.clone()).hash()[..],
     );
 
-    fp_core::crypto::secp256k1_ecdsa_recover(&sig, &msg)
+    fp_types::crypto::secp256k1_ecdsa_recover(&sig, &msg)
 }
 
 fn filter_block_logs<'a>(
@@ -1077,11 +1083,10 @@ fn filter_block_logs<'a>(
         H256::from_slice(Keccak256::digest(&rlp::encode(&block.header)).as_slice());
     for status in transaction_statuses.iter() {
         let logs = status.logs.clone();
-        let mut transaction_log_index: u32 = 0;
         let transaction_hash = status.transaction_hash;
-        for ethereum_log in logs {
+        for (transaction_log_index, ethereum_log) in logs.into_iter().enumerate() {
             let mut log = Log {
-                address: ethereum_log.address.clone(),
+                address: ethereum_log.address,
                 topics: ethereum_log.topics.clone(),
                 data: Bytes(ethereum_log.data.clone()),
                 block_hash: None,
@@ -1093,29 +1098,33 @@ fn filter_block_logs<'a>(
                 removed: false,
             };
             let mut add: bool = true;
-            if let (Some(_), Some(_)) = (filter.address.clone(), filter.topics.clone()) {
-                if !params.filter_address(&log) || !params.filter_topics(&log) {
-                    add = false;
+            match (filter.address.clone(), filter.topics.clone()) {
+                (Some(_), Some(_)) => {
+                    if !params.filter_address(&log) || !params.filter_topics(&log) {
+                        add = false;
+                    }
                 }
-            } else if let Some(_) = filter.address {
-                if !params.filter_address(&log) {
-                    add = false;
+                (Some(_), None) => {
+                    if !params.filter_address(&log) {
+                        add = false;
+                    }
                 }
-            } else if let Some(_) = &filter.topics {
-                if !params.filter_topics(&log) {
-                    add = false;
+                (None, Some(_)) => {
+                    if !params.filter_topics(&log) {
+                        add = false;
+                    }
                 }
+                (None, None) => {}
             }
             if add {
                 log.block_hash = Some(block_hash);
-                log.block_number = Some(block.header.number.clone());
+                log.block_number = Some(block.header.number);
                 log.transaction_hash = Some(transaction_hash);
                 log.transaction_index = Some(U256::from(status.transaction_index));
                 log.log_index = Some(U256::from(block_log_index));
                 log.transaction_log_index = Some(U256::from(transaction_log_index));
                 ret.push(log);
             }
-            transaction_log_index += 1;
             block_log_index += 1;
         }
     }

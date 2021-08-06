@@ -1,10 +1,14 @@
 mod utils;
 
 use abci::*;
-use baseapp::{Action, BaseApp, ChainId, UncheckedTransaction};
+use baseapp::{BaseApp, ChainId};
 use ethereum_types::{H160, H256, U256};
 use fp_evm::{Call, CallOrCreateInfo, Runner};
 use fp_mocks::*;
+use fp_types::{
+    actions::ethereum::Action as EthereumAction, actions::Action,
+    assemble::UncheckedTransaction,
+};
 use module_evm::storage::*;
 use utils::*;
 
@@ -12,11 +16,11 @@ fn build_erc20_deploy_transaction(
     name: &str,
     symbol: &str,
     nonce: U256,
-) -> (UncheckedTransaction, ethabi::Contract) {
+) -> (UncheckedTransaction<()>, ethabi::Contract) {
     let constructor = ERC20Constructor::load();
     let tx = constructor.deploy(name, symbol, nonce);
     let raw_tx = tx.sign(&ALICE_ECDSA.private_key, ChainId::get());
-    let function = Action::Ethereum(module_ethereum::Action::Transact(raw_tx));
+    let function = Action::Ethereum(EthereumAction::Transact(raw_tx));
     (
         UncheckedTransaction::new_unsigned(function),
         constructor.0.abi,
@@ -28,10 +32,10 @@ fn build_erc20_mint_transaction(
     recipient: H160,
     amount: U256,
     nonce: U256,
-) -> UncheckedTransaction {
+) -> UncheckedTransaction<()> {
     let tx = contract.mint(recipient, amount, nonce);
     let raw_tx = tx.sign(&ALICE_ECDSA.private_key, ChainId::get());
-    let function = Action::Ethereum(module_ethereum::Action::Transact(raw_tx));
+    let function = Action::Ethereum(EthereumAction::Transact(raw_tx));
     UncheckedTransaction::new_unsigned(function)
 }
 
@@ -42,10 +46,10 @@ fn build_erc20_transfer_transaction(
     nonce: U256,
     value: U256,
     signer: H256,
-) -> UncheckedTransaction {
+) -> UncheckedTransaction<()> {
     let tx = contract.transfer(recipient, amount, nonce, value);
     let raw_tx = tx.sign(&signer, ChainId::get());
-    let function = Action::Ethereum(module_ethereum::Action::Transact(raw_tx));
+    let function = Action::Ethereum(EthereumAction::Transact(raw_tx));
     UncheckedTransaction::new_unsigned(function)
 }
 
@@ -53,10 +57,10 @@ fn build_erc20_balance_of_transaction(
     contract: ERC20,
     address: H160,
     nonce: U256,
-) -> UncheckedTransaction {
+) -> UncheckedTransaction<()> {
     let tx = contract.balance_of(address, nonce);
     let raw_tx = tx.sign(&ALICE_ECDSA.private_key, ChainId::get());
-    let function = Action::Ethereum(module_ethereum::Action::Transact(raw_tx));
+    let function = Action::Ethereum(EthereumAction::Transact(raw_tx));
     UncheckedTransaction::new_unsigned(function)
 }
 

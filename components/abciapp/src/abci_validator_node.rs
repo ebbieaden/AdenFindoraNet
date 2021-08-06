@@ -6,7 +6,7 @@ use ruc::*;
 pub mod abci;
 
 fn main() {
-    fp_utils::logging::init_logging(None);
+    utils::logging::init_logging(None);
 
     pnk!(abci::run());
 }

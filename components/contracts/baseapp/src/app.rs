@@ -1,8 +1,9 @@
-use crate::types::convert_unchecked_transaction;
+use crate::extensions::SignedExtra;
 use abci::*;
 use fp_core::context::{Context, RunTxMode};
+use fp_types::assemble::convert_unchecked_transaction;
 use log::{debug, error};
-use ruc::{pnk, RucResult};
+use ruc::*;
 
 impl Application for crate::BaseApp {
     /// info implements the ABCI interface.
@@ -59,10 +60,10 @@ impl Application for crate::BaseApp {
     /// check_tx implements the ABCI interface and executes a tx in Check/ReCheck mode.
     fn check_tx(&mut self, req: &RequestCheckTx) -> ResponseCheckTx {
         let mut resp = ResponseCheckTx::new();
-        if let Ok(tx) = convert_unchecked_transaction(req.get_tx()) {
+        if let Ok(tx) = convert_unchecked_transaction::<SignedExtra>(req.get_tx()) {
             let check_fn = |mode: RunTxMode| {
                 let ctx = self.retrieve_context(mode, req.get_tx().to_vec()).clone();
-                if let Err(e) = self.modules.process_tx(ctx, tx) {
+                if let Err(e) = self.modules.process_tx::<SignedExtra>(ctx, tx) {
                     debug!(target: "baseapp", "Transaction check error: {}", e);
                     resp.set_code(1);
                     resp.set_log(format!("Transaction check error: {}", e));
@@ -86,8 +87,8 @@ impl Application for crate::BaseApp {
         init_header.time = req.time.clone();
 
         // initialize the deliver state and check state with a correct header
-        self.set_deliver_state(init_header.clone(), vec![]);
-        self.set_check_state(init_header, vec![]);
+        Self::update_state(&mut self.deliver_state, init_header.clone(), vec![]);
+        Self::update_state(&mut self.check_state, init_header, vec![]);
 
         // TODO init genesis about consensus and validators
 
@@ -101,7 +102,8 @@ impl Application for crate::BaseApp {
         // Initialize the DeliverTx state. If this is the first block, it should
         // already be initialized in InitChain. Otherwise app.deliverState will be
         // nil, since it is reset on Commit.
-        self.set_deliver_state(
+        Self::update_state(
+            &mut self.deliver_state,
             req.header.as_ref().unwrap_or_default().clone(),
             req.hash.clone(),
         );
@@ -113,12 +115,12 @@ impl Application for crate::BaseApp {
 
     fn deliver_tx(&mut self, req: &RequestDeliverTx) -> ResponseDeliverTx {
         let mut resp = ResponseDeliverTx::new();
-        if let Ok(tx) = convert_unchecked_transaction(req.get_tx()) {
+        if let Ok(tx) = convert_unchecked_transaction::<SignedExtra>(req.get_tx()) {
             let ctx = self
                 .retrieve_context(RunTxMode::Deliver, req.get_tx().to_vec())
                 .clone();
 
-            let ret = self.modules.process_tx(ctx, tx);
+            let ret = self.modules.process_tx::<SignedExtra>(ctx, tx);
             match ret {
                 Ok(ar) => {
                     debug!(target: "baseapp", "deliver tx succeed result: {:?}", ar);
@@ -171,7 +173,7 @@ impl Application for crate::BaseApp {
             ));
 
         // Reset the Check state to the latest committed.
-        self.set_check_state(header, header_hash);
+        Self::update_state(&mut self.check_state, header.clone(), header_hash);
 
         // Reset the deliver state
         self.deliver_state = Context::new(self.chain_state.clone());

@@ -1,7 +1,5 @@
-use fp_core::{
-    context::Context,
-    crypto::{Address, Address32},
-};
+use fp_core::context::Context;
+use fp_types::crypto::Address;
 use primitive_types::{H160, H256, U256};
 use ruc::Result;
 use std::convert::TryFrom;
@@ -17,7 +15,7 @@ impl AddressMapping for EthereumAddressMapping {
     fn into_account_id(address: H160) -> Address {
         let mut data = [0u8; 32];
         data[0..20].copy_from_slice(&address[..]);
-        Address32::try_from(&data[..]).unwrap()
+        Address::try_from(&data[..]).unwrap()
     }
 }
 

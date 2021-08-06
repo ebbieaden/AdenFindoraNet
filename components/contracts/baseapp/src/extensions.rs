@@ -1,13 +1,15 @@
 use crate::BaseApp;
 use fp_core::{
     context::{Context, RunTxMode},
-    crypto::Address,
     transaction::{ActionResult, SignedExtension},
 };
 use fp_traits::account::{AccountAsset, FeeCalculator};
+use fp_types::crypto::Address;
 use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
 use serde::{Deserialize, Serialize};
+
+pub type SignedExtra = (CheckNonce, CheckFee);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CheckNonce(u64);

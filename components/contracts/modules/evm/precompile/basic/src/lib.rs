@@ -56,7 +56,7 @@ impl LinearCostPrecompile for ECRecover {
         sig[32..64].copy_from_slice(&input[96..128]);
         sig[64] = input[63];
 
-        let result = match fp_core::crypto::secp256k1_ecdsa_recover(&sig, &msg) {
+        let result = match fp_types::crypto::secp256k1_ecdsa_recover(&sig, &msg) {
             Ok(pubkey) => {
                 let mut address = fp_core::hashing::keccak_256(&pubkey);
                 address[0..12].copy_from_slice(&[0u8; 12]);
@@ -127,7 +127,7 @@ impl LinearCostPrecompile for ECRecoverPublicKey {
         sig[32..64].copy_from_slice(&input[96..128]);
         sig[64] = input[63];
 
-        let pubkey = fp_core::crypto::secp256k1_ecdsa_recover(&sig, &msg)
+        let pubkey = fp_types::crypto::secp256k1_ecdsa_recover(&sig, &msg)
             .map_err(|_| ExitError::Other("Public key recover failed".into()))?;
 
         Ok((ExitSucceed::Returned, pubkey.to_vec()))

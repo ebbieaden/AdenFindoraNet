@@ -15,3 +15,5 @@ ripemd160 = "0.9"
 # primitives
 fp-core = { path = "../../../../primitives/core" }
 fp-evm = { path = "../../../../primitives/evm" }
+fp-types = { path = "../../../../primitives/types" }
+fp-utils = { path = "../../../../primitives/utils" }

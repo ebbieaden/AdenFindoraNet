@@ -1,14 +1,19 @@
 use super::get_keypair;
 use super::get_serv_addr;
 use super::utils;
-use baseapp::{Action, CheckFee, CheckNonce};
-use fp_core::account::{MintOutput, SmartAccount, TransferToUTXO};
-use fp_core::crypto::{Address, MultiSignature, MultiSigner};
-use fp_core::transaction::UncheckedTransaction;
+use baseapp::extensions::{CheckFee, CheckNonce};
+use fp_core::account::SmartAccount;
+use fp_types::{
+    actions::{
+        account::{Action as AccountAction, MintOutput, TransferToUTXO},
+        Action,
+    },
+    crypto::{Address, MultiSignature, MultiSigner},
+    transaction::UncheckedTransaction,
+};
 use fp_utils::ecdsa::SecpPair;
 use ledger::data_model::ASSET_TYPE_FRA;
 use ledger::data_model::BLACK_HOLE_PUBKEY_STAKING;
-use module_account::Action as AccountAction;
 use ruc::*;
 use std::str::FromStr;
 use tendermint_rpc::Client;

@@ -8,7 +8,6 @@ use ethereum_types::{H160, H256, U256};
 use evm::Config as EvmConfig;
 use fp_core::{
     context::Context,
-    crypto::Address,
     ensure,
     macros::Get,
     module::AppModule,
@@ -20,8 +19,8 @@ use fp_traits::{
     account::AccountAsset,
     evm::{AddressMapping, BlockHashMapping, DecimalsMapping, FeeCalculator},
 };
+use fp_types::{actions::ethereum::Action, crypto::Address};
 use ruc::*;
-use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use storage::*;
 
@@ -48,11 +47,6 @@ pub trait Config {
     fn config() -> &'static EvmConfig {
         &ISTANBUL_CONFIG
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Action {
-    Transact(ethereum::Transaction),
 }
 
 pub mod storage {

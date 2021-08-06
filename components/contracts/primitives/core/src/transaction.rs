@@ -1,11 +1,8 @@
-use crate::{
-    context::Context,
-    crypto::{IdentifyAccount, Verify},
-};
+use crate::context::Context;
 use abci::Event;
+use fp_types::transaction::CheckedTransaction;
 use impl_trait_for_tuples::impl_for_tuples;
 use ruc::*;
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 /// A action (module function and argument values) that can be executed.
@@ -74,79 +71,6 @@ impl<Address> SignedExtension for Tuple {
         for_tuples!( #( Tuple::post_execute(ctx, pre.Tuple, result)?; )* );
         Ok(())
     }
-}
-
-/// This is unchecked and so can contain a signature.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct UncheckedTransaction<Address, Call, Signature, Extra> {
-    /// The signature is to use the Address sign the function if this is a signed transaction.
-    pub signature: Option<(Address, Signature, Extra)>,
-    /// The function that should be called.
-    pub function: Call,
-}
-
-impl<Address, Call, Signature, Extra: SignedExtension>
-    UncheckedTransaction<Address, Call, Signature, Extra>
-{
-    pub fn new_signed(
-        function: Call,
-        signed: Address,
-        signature: Signature,
-        extra: Extra,
-    ) -> Self {
-        Self {
-            signature: Some((signed, signature, extra)),
-            function,
-        }
-    }
-
-    pub fn new_unsigned(function: Call) -> Self {
-        Self {
-            signature: None,
-            function,
-        }
-    }
-}
-
-impl<Address, Call, Signature, Extra>
-    UncheckedTransaction<Address, Call, Signature, Extra>
-where
-    Call: Serialize + Clone,
-    Signature: Verify,
-    <Signature as Verify>::Signer: IdentifyAccount<AccountId = Address>,
-    Extra: SignedExtension<AccountId = Address> + Serialize + Clone,
-{
-    pub fn check(self) -> Result<CheckedTransaction<Address, Call, Extra>> {
-        Ok(match self.signature {
-            Some((signed, signature, extra)) => {
-                let msg =
-                    serde_json::to_vec(&(self.function.clone(), extra.clone())).unwrap();
-
-                if !signature.verify(msg.as_slice(), &signed) {
-                    return Err(eg!("bad transaction signature"));
-                }
-
-                CheckedTransaction {
-                    signed: Some((signed, extra)),
-                    function: self.function,
-                }
-            }
-            None => CheckedTransaction {
-                signed: None,
-                function: self.function,
-            },
-        })
-    }
-}
-
-/// It has been checked and is good, particularly with regards to the signature.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CheckedTransaction<Address, Call, Extra> {
-    /// The function signer, if anyone
-    pub signed: Option<(Address, Extra)>,
-
-    /// The function that should be called.
-    pub function: Call,
 }
 
 /// An "executable" action used by the transaction.

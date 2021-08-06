@@ -2,6 +2,7 @@
 use abci::*;
 use fp_mocks::*;
 use fp_traits::account::{AccountAsset, FeeCalculator};
+use fp_types::{actions::template::Action as TemplateAction, actions::Action};
 use module_template::ValueStore;
 use std::convert::TryInto;
 
@@ -33,16 +34,29 @@ fn test_abci_init_chain() {
     let _ = BASE_APP.lock().unwrap().init_chain(&req);
 
     assert_eq!(
-        BASE_APP.lock().unwrap().deliver_state.chain_id(),
+        BASE_APP
+            .lock()
+            .unwrap()
+            .deliver_state
+            .block_header()
+            .get_chain_id(),
         req.chain_id
     );
-    assert_eq!(BASE_APP.lock().unwrap().deliver_state.block_height(), 0);
+    assert_eq!(
+        BASE_APP
+            .lock()
+            .unwrap()
+            .deliver_state
+            .block_header()
+            .get_height(),
+        0
+    );
 }
 
 fn test_abci_check_tx() {
     let mut req = RequestCheckTx::new();
 
-    let function = Action::Template(module_template::Action::SetValue(10));
+    let function = Action::Template(TemplateAction::SetValue(10));
     req.tx =
         serde_json::to_vec(&build_signed_transaction(function, &ALICE_XFR, 0)).unwrap();
     let resp = BASE_APP.lock().unwrap().check_tx(&req);
@@ -78,7 +92,7 @@ fn test_abci_begin_block() {
 
 fn test_abci_deliver_tx() {
     let mut req = RequestDeliverTx::new();
-    let function = Action::Template(module_template::Action::SetValue(10));
+    let function = Action::Template(TemplateAction::SetValue(10));
     req.tx =
         serde_json::to_vec(&build_signed_transaction(function, &ALICE_XFR, 0)).unwrap();
     let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
@@ -146,7 +160,7 @@ fn test_abci_query() {
 fn test_abci_check_tx_with_bad_nonce() {
     let mut req = RequestCheckTx::new();
 
-    let function = Action::Template(module_template::Action::SetValue(10));
+    let function = Action::Template(TemplateAction::SetValue(10));
     req.tx =
         serde_json::to_vec(&build_signed_transaction(function, &ALICE_XFR, 0)).unwrap();
     let resp = BASE_APP.lock().unwrap().check_tx(&req);

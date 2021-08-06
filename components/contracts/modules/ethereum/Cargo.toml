@@ -25,6 +25,7 @@ fp-events = { path = "../../primitives/events" }
 fp-evm = { path = "../../primitives/evm" }
 fp-storage = { path = "../../primitives/storage" }
 fp-traits = { path = "../../primitives/traits" }
+fp-types = { path = "../../primitives/types" }
 
 [dev-dependencies]
 baseapp = { path = "../../baseapp" }

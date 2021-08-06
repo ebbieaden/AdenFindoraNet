@@ -1,32 +1,28 @@
 mod app;
-mod extensions;
+pub mod extensions;
 mod modules;
-mod types;
 
 use crate::modules::ModuleManager;
 use abci::Header;
 use fp_core::account::SmartAccount;
 use fp_core::{
-    account::MintOutput,
     context::{Context, RunTxMode},
-    crypto::Address,
     ensure, parameter_types,
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
 use fp_traits::{
     account::{AccountAsset, FeeCalculator},
+    base::BaseProvider,
     evm::{EthereumAddressMapping, EthereumDecimalsMapping},
 };
+use fp_types::{actions::account::MintOutput, actions::Action, crypto::Address};
 use ledger::data_model::{Transaction as FindoraTransaction, TX_FEE_MIN};
 use parking_lot::RwLock;
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
-
-pub use types::*;
 
 const APP_NAME: &str = "findora";
 const APP_DB_NAME: &str = "findora_db";
@@ -50,14 +46,6 @@ pub struct BaseApp {
     pub deliver_state: Context,
     /// Ordered module set
     pub modules: ModuleManager,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Action {
-    Account(module_account::Action),
-    Ethereum(module_ethereum::Action),
-    Evm(module_evm::Action),
-    Template(module_template::Action),
 }
 
 impl module_template::Config for BaseApp {}
@@ -185,10 +173,9 @@ impl BaseApp {
             ));
         }
 
-        let mut ctx = Context::new(self.chain_state.clone());
-        ctx.header = self.check_state.header.clone();
-        ctx.header_hash = self.check_state.header_hash.clone();
-        ctx.chain_id = self.check_state.header.chain_id.clone();
+        let mut ctx =
+            Context::copy_with_new_store(&self.check_state, self.chain_state.clone());
+        ctx.run_mode = RunTxMode::None;
         Ok(ctx)
     }
 
@@ -224,18 +211,11 @@ impl BaseApp {
         Ok(())
     }
 
-    fn set_deliver_state(&mut self, header: Header, header_hash: Vec<u8>) {
-        self.deliver_state.chain_id = header.chain_id.clone();
-        self.deliver_state.header = header;
-        self.deliver_state.header_hash = header_hash;
-        self.deliver_state.run_mode = RunTxMode::None;
-    }
-
-    fn set_check_state(&mut self, header: Header, header_hash: Vec<u8>) {
-        self.check_state.chain_id = header.chain_id.clone();
-        self.check_state.header = header;
-        self.check_state.header_hash = header_hash;
-        self.check_state.run_mode = RunTxMode::None;
+    fn update_state(ctx: &mut Context, header: Header, header_hash: Vec<u8>) {
+        ctx.run_mode = RunTxMode::None;
+        ctx.header_hash = header_hash;
+        ctx.header = header;
+        ctx.tx = vec![];
     }
 
     pub fn deliver_findora_tx(&mut self, tx: &FindoraTransaction) -> Result<()> {

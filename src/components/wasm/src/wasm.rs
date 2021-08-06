@@ -6,7 +6,6 @@
 #![allow(clippy::needless_borrow)]
 
 use crate::wasm_data_model::*;
-use baseapp::{Action, CheckFee, CheckNonce, SignedExtra, UncheckedTransaction};
 use credentials::{
     credential_commit, credential_issuer_key_gen, credential_open_commitment,
     credential_reveal, credential_sign, credential_user_key_gen, credential_verify,
@@ -14,8 +13,10 @@ use credentials::{
     CredUserPublicKey, CredUserSecretKey, Credential as PlatformCredential,
 };
 use cryptohash::sha256;
-use fp_core::{
-    account::{MintOutput, TransferToUTXO},
+use fp_types::{
+    actions::account::{Action as AccountAction, MintOutput, TransferToUTXO},
+    actions::Action,
+    assemble::{CheckFee, CheckNonce, SignedExtra, UncheckedTransaction},
     crypto::{Address, MultiSignature, MultiSigner},
 };
 use fp_utils::ecdsa::SecpPair;
@@ -50,8 +51,6 @@ use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSecretKey};
 use zei::xfr::structs::{
     AssetRecordTemplate, AssetType as ZeiAssetType, XfrBody, ASSET_TYPE_LENGTH,
 };
-
-use module_account::Action as AccountAction;
 
 mod util;
 mod wasm_data_model;

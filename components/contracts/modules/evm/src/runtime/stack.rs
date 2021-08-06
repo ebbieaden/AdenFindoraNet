@@ -147,7 +147,7 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 
     fn block_number(&self) -> U256 {
-        U256::from(self.ctx.block_height())
+        U256::from(self.ctx.header.get_height())
     }
 
     fn block_coinbase(&self) -> H160 {
@@ -155,7 +155,7 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 
     fn block_timestamp(&self) -> U256 {
-        U256::from(self.ctx.block_time().get_seconds())
+        U256::from(self.ctx.header.get_time().get_seconds())
     }
 
     fn block_difficulty(&self) -> U256 {

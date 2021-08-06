@@ -16,8 +16,8 @@ serde_json = "1.0"
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.3a" }
 
 # primitives
-fp-core = { path = "../core" }
 fp-traits = { path = "../traits" }
+fp-types = { path = "../types" }
 fp-utils = { path = "../utils" }
 
 # modules

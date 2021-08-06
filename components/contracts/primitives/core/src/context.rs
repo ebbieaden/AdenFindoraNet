@@ -1,11 +1,11 @@
 use abci::Header;
-pub use parking_lot::RwLock;
-use protobuf::well_known_types::Timestamp;
-pub use std::sync::Arc;
 use storage::{
     db::FinDB,
     state::{ChainState, State},
 };
+
+pub use parking_lot::RwLock;
+pub use std::sync::Arc;
 
 pub type Store = State<FinDB>;
 
@@ -25,22 +25,30 @@ pub enum RunTxMode {
 #[derive(Clone)]
 pub struct Context {
     pub store: Arc<RwLock<Store>>,
+    pub run_mode: RunTxMode,
     pub header: Header,
     pub header_hash: Vec<u8>,
-    pub chain_id: String,
     pub tx: Vec<u8>,
-    pub run_mode: RunTxMode,
 }
 
 impl Context {
     pub fn new(cs: Arc<RwLock<ChainState<FinDB>>>) -> Self {
         Context {
             store: Arc::new(RwLock::new(Store::new(cs))),
+            run_mode: RunTxMode::None,
             header: Default::default(),
             header_hash: vec![],
-            chain_id: "".to_string(),
             tx: vec![],
-            run_mode: RunTxMode::None,
+        }
+    }
+
+    pub fn copy_with_new_store(
+        ctx: &Context,
+        cs: Arc<RwLock<ChainState<FinDB>>>,
+    ) -> Self {
+        Context {
+            store: Arc::new(RwLock::new(Store::new(cs))),
+            ..ctx.clone()
         }
     }
 }
@@ -50,31 +58,19 @@ impl Context {
         self.store.clone()
     }
 
-    pub fn block_header(&self) -> Header {
-        self.header.clone()
+    pub fn run_mode(&self) -> RunTxMode {
+        self.run_mode
+    }
+
+    pub fn block_header(&self) -> &Header {
+        &self.header
     }
 
     pub fn header_hash(&self) -> Vec<u8> {
         self.header_hash.clone()
     }
 
-    pub fn block_height(&self) -> i64 {
-        self.header.get_height()
-    }
-
-    pub fn block_time(&self) -> &Timestamp {
-        self.header.get_time()
-    }
-
-    pub fn chain_id(&self) -> String {
-        self.chain_id.clone()
-    }
-
     pub fn tx(&self) -> Vec<u8> {
         self.tx.clone()
-    }
-
-    pub fn run_mode(&self) -> RunTxMode {
-        self.run_mode
     }
 }

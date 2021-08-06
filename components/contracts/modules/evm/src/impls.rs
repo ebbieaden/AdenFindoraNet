@@ -59,7 +59,7 @@ impl<C: Config> App<C> {
     /// Get the block proposer.
     pub fn find_proposer(ctx: &Context) -> H160 {
         // TODO
-        H160::from_slice(&ctx.header.proposer_address[0..20])
+        H160::from_slice(&ctx.header.get_proposer_address()[0..20])
     }
 }
 

@@ -1,12 +1,8 @@
 use crate::storage::*;
 use crate::{App, Config};
-use fp_core::{
-    account::{MintOutput, SmartAccount},
-    context::Context,
-    crypto::Address,
-    transaction::ActionResult,
-};
+use fp_core::{account::SmartAccount, context::Context, transaction::ActionResult};
 use fp_traits::account::AccountAsset;
+use fp_types::{actions::account::MintOutput, crypto::Address};
 use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
 use std::collections::HashMap;

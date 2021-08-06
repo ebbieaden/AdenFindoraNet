@@ -1,14 +1,17 @@
 //! Ethereum module integration tests.
 
 use abci::*;
-use baseapp::{Action, BaseApp, ChainId, UncheckedTransaction};
+use baseapp::{BaseApp, ChainId};
 use ethereum_types::{H160, U256};
 use fp_mocks::*;
 use fp_traits::{
     account::AccountAsset,
     evm::{DecimalsMapping, FeeCalculator},
 };
-use fp_utils::ethereum::*;
+use fp_types::{
+    actions::{ethereum::Action as EthereumAction, Action},
+    assemble::UncheckedTransaction,
+};
 
 #[test]
 fn run_all_tests() {
@@ -20,7 +23,7 @@ fn run_all_tests() {
     test_abci_query()
 }
 
-fn build_transfer_transaction(to: H160, balance: u128) -> UncheckedTransaction {
+fn build_transfer_transaction(to: H160, balance: u128) -> UncheckedTransaction<()> {
     let tx = UnsignedTransaction {
         nonce: U256::zero(),
         gas_price: <BaseApp as module_ethereum::Config>::FeeCalculator::min_gas_price(),
@@ -31,7 +34,7 @@ fn build_transfer_transaction(to: H160, balance: u128) -> UncheckedTransaction {
     };
 
     let raw_tx = tx.sign(&ALICE_ECDSA.private_key, ChainId::get());
-    let function = Action::Ethereum(module_ethereum::Action::Transact(raw_tx));
+    let function = Action::Ethereum(EthereumAction::Transact(raw_tx));
     UncheckedTransaction::new_unsigned(function)
 }
 
@@ -69,7 +72,7 @@ fn test_abci_begin_block() {
     req.hash = b"test".to_vec();
     let mut header = Header::new();
     header.height = 3;
-    req.set_header(header.clone());
+    req.set_header(header);
     let _ = BASE_APP.lock().unwrap().begin_block(&req);
 }
 

@@ -1,4 +1,5 @@
 #![deny(warnings)]
+#![allow(clippy::needless_borrow)]
 
 extern crate ledger;
 extern crate serde;
@@ -8,13 +9,14 @@ extern crate serde_derive;
 
 use credentials::CredUserSecretKey;
 use curve25519_dalek::scalar::Scalar;
+use fp_types::crypto::MultiSigner;
 use ledger::address::operation::ConvertAccount;
-use ledger::address::SmartAddress;
 use ledger::data_model::errors::PlatformError;
 use ledger::data_model::*;
 use ledger::inv_fail;
 use ledger::policies::Fraction;
 use ledger::policy_script::{Policy, PolicyGlobals, TxnCheckInputs, TxnPolicyData};
+use ledger::staking::ops::update_staker::UpdateStakerOps;
 use ledger::staking::{
     is_valid_tendermint_addr,
     ops::{
@@ -33,6 +35,7 @@ use rand_core::{CryptoRng, RngCore, SeedableRng};
 use ruc::*;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
+use tendermint::PrivateKey;
 use utils::SignatureOf;
 use zei::api::anon_creds::{
     ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
@@ -319,12 +322,21 @@ pub trait BuildsTransactions {
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
     ) -> &mut Self;
+    fn add_operation_update_staker(
+        &mut self,
+        keypair: &XfrKeyPair,
+        vltor_key: &PrivateKey,
+        td_pubkey: Vec<u8>,
+        commission_rate: [u64; 2],
+        memo: StakerMemo,
+    ) -> Result<&mut Self>;
     fn add_operation_staking(
         &mut self,
         keypair: &XfrKeyPair,
+        vltor_key: &PrivateKey,
         td_pubkey: Vec<u8>,
         commission_rate: [u64; 2],
-        memo: Option<StakerMemo>,
+        memo: Option<String>,
     ) -> Result<&mut Self>;
     fn add_operation_undelegation(
         &mut self,
@@ -354,11 +366,10 @@ pub trait BuildsTransactions {
         h: BlockHeight,
         v_set: Vec<Validator>,
     ) -> Result<&mut Self>;
-
     fn add_operation_convert_account(
         &mut self,
         kp: &XfrKeyPair,
-        addr: SmartAddress,
+        addr: MultiSigner,
     ) -> Result<&mut Self>;
 
     fn serialize(&self) -> Vec<u8>;
@@ -539,7 +550,7 @@ impl FeeInputs {
 pub struct TransactionBuilder {
     txn: Transaction,
     outputs: u64,
-    no_replay_token: NoReplayToken,
+    pub no_replay_token: NoReplayToken,
 }
 
 impl TransactionBuilder {
@@ -699,6 +710,10 @@ impl TransactionBuilder {
             outputs: 0,
             no_replay_token,
         }
+    }
+
+    pub fn get_seq_id(&self) -> u64 {
+        self.no_replay_token.get_seq_id()
     }
 }
 
@@ -863,17 +878,23 @@ impl BuildsTransactions for TransactionBuilder {
         keypair: &XfrKeyPair,
         validator: TendermintAddr,
     ) -> &mut Self {
-        let op =
-            DelegationOps::new(keypair, validator, None, self.txn.body.no_replay_token);
+        let op = DelegationOps::new(
+            keypair,
+            None,
+            validator,
+            None,
+            self.txn.body.no_replay_token,
+        );
         self.add_operation(Operation::Delegation(op))
     }
 
-    fn add_operation_staking(
+    fn add_operation_update_staker(
         &mut self,
         keypair: &XfrKeyPair,
+        vltor_key: &PrivateKey,
         td_pubkey: Vec<u8>,
         commission_rate: [u64; 2],
-        memo: Option<StakerMemo>,
+        memo: StakerMemo,
     ) -> Result<&mut Self> {
         let v_id = keypair.get_pk();
 
@@ -884,8 +905,47 @@ impl BuildsTransactions for TransactionBuilder {
             return Err(eg!("invalid pubkey, invalid address"));
         }
 
-        let op =
-            DelegationOps::new(keypair, vaddr, Some(v), self.txn.body.no_replay_token);
+        let op = UpdateStakerOps::new(
+            keypair,
+            vltor_key,
+            vaddr,
+            v,
+            self.txn.body.no_replay_token,
+        );
+
+        Ok(self.add_operation(Operation::UpdateStaker(op)))
+    }
+
+    fn add_operation_staking(
+        &mut self,
+        keypair: &XfrKeyPair,
+        vltor_key: &PrivateKey,
+        td_pubkey: Vec<u8>,
+        commission_rate: [u64; 2],
+        memo: Option<String>,
+    ) -> Result<&mut Self> {
+        let v_id = keypair.get_pk();
+
+        let memo = if memo.is_some() {
+            serde_json::from_str(memo.unwrap().as_str()).c(d!())?
+        } else {
+            Default::default()
+        };
+
+        let v = Validator::new_staker(td_pubkey, v_id, commission_rate, memo).c(d!())?;
+        let vaddr = td_addr_to_string(&v.td_addr);
+
+        if !is_valid_tendermint_addr(&vaddr) {
+            return Err(eg!("invalid pubkey, invalid address"));
+        }
+
+        let op = DelegationOps::new(
+            keypair,
+            Some(vltor_key),
+            vaddr,
+            Some(v),
+            self.txn.body.no_replay_token,
+        );
 
         Ok(self.add_operation(Operation::Delegation(op)))
     }
@@ -950,7 +1010,7 @@ impl BuildsTransactions for TransactionBuilder {
     fn add_operation_convert_account(
         &mut self,
         kp: &XfrKeyPair,
-        addr: SmartAddress,
+        addr: MultiSigner,
     ) -> Result<&mut Self> {
         self.add_operation(Operation::ConvertAccount(ConvertAccount::new(
             kp,
@@ -1061,8 +1121,8 @@ pub(crate) fn build_record_and_get_blinds<R: CryptoRng + RngCore>(
             asset_tracers_memos: asset_tracing_memos,
         },
         (
-            open_asset_record.amount_blinds.0.0,
-            open_asset_record.amount_blinds.1.0,
+            open_asset_record.amount_blinds.0 .0,
+            open_asset_record.amount_blinds.1 .0,
         ),
         open_asset_record.type_blind.0,
     ))
@@ -1251,16 +1311,22 @@ impl TransferOperationBuilder {
                 "Cannot mutate a transfer that has been signed".to_string()
             )));
         }
+
+        // for: repeated/idempotent balance
+        let mut amt_cache = vec![];
+
         let spend_total: u64 = self.spend_amounts.iter().sum();
         let mut partially_consumed_inputs = Vec::new();
-        for ((spend_amount, ar), policies) in self
+
+        for (idx, ((spend_amount, ar), policies)) in self
             .spend_amounts
             .iter()
             .zip(self.input_records.iter())
             .zip(self.inputs_tracing_policies.iter())
+            .enumerate()
         {
             let amt = ar.open_asset_record.get_amount();
-            match spend_amount.cmp(&amt) {
+            match spend_amount.cmp(amt) {
                 Ordering::Greater => {
                     return Err(eg!(PlatformError::InputsError(None)));
                 }
@@ -1283,10 +1349,14 @@ impl TransferOperationBuilder {
                     partially_consumed_inputs.push(ar);
                     self.outputs_tracing_policies.push(policies.clone());
                     self.output_identity_commitments.push(None);
+
+                    // for: repeated/idempotent balance
+                    amt_cache.push((idx, *amt));
                 }
                 _ => {}
             }
         }
+
         let output_total = self
             .output_records
             .iter()
@@ -1295,12 +1365,20 @@ impl TransferOperationBuilder {
             return Err(eg!(PlatformError::InputsError(None)));
         }
         self.output_records.append(&mut partially_consumed_inputs);
+
+        // for: repeated/idempotent balance
+        amt_cache.into_iter().for_each(|(idx, am)| {
+            self.spend_amounts[idx] = am;
+        });
+
         Ok(self)
     }
 
     // Finalize the transaction and prepare for signing. Once called, the transaction cannot be
     // modified.
     pub fn create(&mut self, transfer_type: TransferType) -> Result<&mut Self> {
+        self.balance().c(d!())?;
+
         let mut prng = ChaChaRng::from_entropy();
         let num_inputs = self.input_records.len();
         let num_outputs = self.output_records.len();
@@ -1736,10 +1814,9 @@ mod tests {
             bob_kp.get_sk().into_keypair(),
         );
         let mut tx3 = TransactionBuilder::from_seq_id(2);
-        pnk!(
-            tx3.add_operation(transfer_to_bob!(txo_sid[2], bob_kp.get_pk()))
-                .add_fee(fi)
-        );
+        pnk!(tx3
+            .add_operation(transfer_to_bob!(txo_sid[2], bob_kp.get_pk()))
+            .add_fee(fi));
         assert!(tx3.check_fee());
 
         let effect = TxnEffect::compute_effect(tx3.into_transaction()).unwrap();

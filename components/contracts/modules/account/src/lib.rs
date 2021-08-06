@@ -5,15 +5,13 @@ mod impls;
 
 use abci::{RequestQuery, ResponseQuery};
 use fp_core::{
-    account::{FinerTransfer, TransferToUTXO},
     context::Context,
-    crypto::Address,
     module::AppModule,
     transaction::{ActionResult, Executable},
 };
 use fp_traits::account::{AccountAsset, FeeCalculator};
+use fp_types::{actions::account::Action, crypto::Address};
 use ruc::*;
-use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
 pub const MODULE_NAME: &str = "account";
@@ -22,14 +20,10 @@ pub trait Config {
     type FeeCalculator: FeeCalculator;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Action {
-    Transfer(FinerTransfer),
-    TransferToUTXO(TransferToUTXO),
-}
-
 mod storage {
-    use fp_core::{account::MintOutput, account::SmartAccount, crypto::Address};
+    use fp_core::account::SmartAccount;
+    use fp_types::{actions::account::MintOutput, crypto::Address};
+
     use fp_storage::*;
 
     // Store account information under all account addresses

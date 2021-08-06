@@ -3,12 +3,12 @@ use crate::{App, Config, ContractLog, TransactionExecuted};
 use ethereum_types::{Bloom, BloomInput, H160, H256, H64, U256};
 use evm::ExitReason;
 use fp_core::{
-    context::Context, crypto::secp256k1_ecdsa_recover, macros::Get,
-    module::AppModuleBasic, transaction::ActionResult,
+    context::Context, macros::Get, module::AppModuleBasic, transaction::ActionResult,
 };
 use fp_events::Event;
 use fp_evm::{CallOrCreateInfo, Runner, TransactionStatus};
 use fp_traits::evm::DecimalsMapping;
+use fp_types::crypto::secp256k1_ecdsa_recover;
 use ruc::*;
 use sha3::{Digest, Keccak256};
 
@@ -62,7 +62,7 @@ impl<C: Config> App<C> {
                 .clone()
                 .into_iter()
                 .fold(U256::zero(), |acc, r| acc + r.used_gas),
-            timestamp: ctx.block_time().get_nanos() as u64,
+            timestamp: ctx.header.get_time().get_seconds() as u64,
             extra_data: Vec::new(),
             mix_hash: H256::default(),
             nonce: H64::default(),

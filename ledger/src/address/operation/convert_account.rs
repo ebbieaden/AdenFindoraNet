@@ -1,8 +1,8 @@
-//! Smart address operation for transaction.
+//! Multi Signer operation for transaction.
 
-use crate::address::SmartAddress;
 use crate::data_model::NoReplayToken;
 use crate::data_model::{Operation, Transaction, BLACK_HOLE_PUBKEY_STAKING};
+use fp_types::crypto::MultiSigner;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ impl ConvertAccount {
     pub fn new(
         keypair: &XfrKeyPair,
         nonce: NoReplayToken,
-        address: SmartAddress,
+        address: MultiSigner,
     ) -> Self {
         let data = Data::new(nonce, address);
         let public = keypair.get_pk();
@@ -58,11 +58,11 @@ impl ConvertAccount {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Data {
     pub nonce: NoReplayToken,
-    pub address: SmartAddress,
+    pub address: MultiSigner,
 }
 
 impl Data {
-    pub fn new(nonce: NoReplayToken, address: SmartAddress) -> Self {
+    pub fn new(nonce: NoReplayToken, address: MultiSigner) -> Self {
         Data { nonce, address }
     }
 
@@ -82,7 +82,7 @@ pub fn is_convert_tx(tx: &Transaction) -> bool {
 
 pub fn check_convert_tx(
     tx: &Transaction,
-) -> Result<(SmartAddress, HashMap<AssetType, u64>)> {
+) -> Result<(MultiSigner, HashMap<AssetType, u64>)> {
     let mut owner = None;
 
     let mut assets = HashMap::new();

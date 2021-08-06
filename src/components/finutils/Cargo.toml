@@ -30,11 +30,10 @@ wallet = { path = "../wallet" }
 ledger = { path = "../../ledger" }
 utils = { path = "../../libs/utils" }
 txn_builder = { path = "../txn_builder" }
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.2" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.4" }
+tokio = "1.0"
 tendermint = "0.19.0"
-fp-core = { path = "../contracts/primitives/core" }
-baseapp = { path = "../contracts/baseapp" }
-module-account = { path = "../contracts/modules/account" }
+tendermint-rpc = { version = "0.19.0", features = ["http-client", "websocket-client"] }
 
 hex = "0.4.2"
 base64 = "0.10"
@@ -53,8 +52,11 @@ rand_core = { version = "0.5", default-features = false, features = ["alloc"] }
 rand_chacha = "0.2.0"
 parking_lot = "0.11.1"
 async-std = "1.9.0"
-tendermint-rpc = { version = "0.19.0", features = ["http-client", "websocket-client"] }
-tokio = "1.0"
+
+baseapp = { path = "../contracts/baseapp" }
+fp-core = { path = "../contracts/primitives/core" }
+fp-utils = { path = "../contracts/primitives/utils" }
+fp-types = { path = "../contracts/primitives/types" }
 
 [build-dependencies]
 vergen = "=3.1.0"

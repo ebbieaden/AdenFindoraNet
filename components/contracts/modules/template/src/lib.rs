@@ -5,22 +5,16 @@ pub use crate::storage::*;
 use abci::{RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery};
 use fp_core::{
     context::Context,
-    crypto::Address,
     module::AppModule,
     transaction::{ActionResult, Executable},
 };
+use fp_types::{actions::template::Action, crypto::Address};
 use ruc::Result;
-use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
 pub const MODULE_NAME: &str = "template";
 
 pub trait Config {}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Action {
-    SetValue(u64),
-}
 
 mod storage {
     use fp_storage::*;

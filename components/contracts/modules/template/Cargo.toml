@@ -17,6 +17,7 @@ serde_json = "1.0"
 # primitives, don't depend on any modules
 fp-core = { path = "../../primitives/core" }
 fp-storage = { path = "../../primitives/storage" }
+fp-types = { path = "../../primitives/types" }
 
 [dev-dependencies]
 fp-mocks = { path = "../../primitives/mocks" }
