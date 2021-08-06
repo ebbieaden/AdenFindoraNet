@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default)]
 mod app;
 pub mod extensions;
 mod modules;

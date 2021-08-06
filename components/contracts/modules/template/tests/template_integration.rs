@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default)]
+
 //! Template module integration tests.
 use abci::*;
 use fp_mocks::*;

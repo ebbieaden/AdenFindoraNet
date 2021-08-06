@@ -1,5 +1,4 @@
 use super::*;
-use abci::{RequestBeginBlock, RequestEndBlock, RequestQuery, ResponseEndBlock};
 use fp_core::{
     context::Context,
     module::AppModule,
@@ -18,7 +17,9 @@ use ledger::{
 };
 use ruc::*;
 use serde::Serialize;
+use tm_protos::abci::*;
 
+#[derive(Default)]
 pub struct ModuleManager {
     // Ordered module list
     pub(crate) account_module: module_account::App<BaseApp>,
@@ -28,27 +29,16 @@ pub struct ModuleManager {
 }
 
 impl ModuleManager {
-    pub fn new() -> Self {
-        ModuleManager {
-            account_module: module_account::App::new(),
-            ethereum_module: module_ethereum::App::new(),
-            evm_module: module_evm::App::new(),
-            template_module: module_template::App::new(),
-        }
-    }
-}
-
-impl ModuleManager {
     pub fn query(
         &self,
         ctx: Context,
         mut path: Vec<&str>,
         req: &RequestQuery,
-    ) -> abci::ResponseQuery {
-        let mut resp = abci::ResponseQuery::new();
-        if 0 == path.len() {
-            resp.set_code(1);
-            resp.set_log("Invalid custom query path without module route!".to_string());
+    ) -> ResponseQuery {
+        let mut resp: ResponseQuery = Default::default();
+        if path.is_empty() {
+            resp.code = 1;
+            resp.log = "Invalid custom query path without module route!".to_string();
             return resp;
         }
 
@@ -63,8 +53,8 @@ impl ModuleManager {
         } else if module_name == module_template::MODULE_NAME {
             self.template_module.query_route(ctx, path, req)
         } else {
-            resp.set_code(1);
-            resp.set_log(format!("Invalid query module route: {}!", module_name));
+            resp.code = 1;
+            resp.log = format!("Invalid query module route: {}!", module_name);
             resp
         }
     }
@@ -82,23 +72,23 @@ impl ModuleManager {
         ctx: &mut Context,
         req: &RequestEndBlock,
     ) -> ResponseEndBlock {
-        let mut resp = ResponseEndBlock::new();
+        let mut resp: ResponseEndBlock = Default::default();
         // Note: adding new modules need to be updated.
         let resp_account = self.account_module.end_block(ctx, req);
-        if resp_account.validator_updates.len() > 0 {
-            resp.set_validator_updates(resp_account.validator_updates);
+        if !resp_account.validator_updates.is_empty() {
+            resp.validator_updates = resp_account.validator_updates;
         }
         let resp_eth = self.ethereum_module.end_block(ctx, req);
-        if resp_eth.validator_updates.len() > 0 {
-            resp.set_validator_updates(resp_eth.validator_updates);
+        if !resp_eth.validator_updates.is_empty() {
+            resp.validator_updates = resp_eth.validator_updates;
         }
         let resp_evm = self.evm_module.end_block(ctx, req);
-        if resp_evm.validator_updates.len() > 0 {
-            resp.set_validator_updates(resp_evm.validator_updates);
+        if !resp_evm.validator_updates.is_empty() {
+            resp.validator_updates = resp_evm.validator_updates;
         }
         let resp_template = self.template_module.end_block(ctx, req);
-        if resp_template.validator_updates.len() > 0 {
-            resp.set_validator_updates(resp_template.validator_updates);
+        if !resp_template.validator_updates.is_empty() {
+            resp.validator_updates = resp_template.validator_updates;
         }
         resp
     }
@@ -142,8 +132,8 @@ impl ModuleManager {
             module_account::App::<BaseApp>::mint(
                 ctx,
                 &Address::from(owner.clone()),
-                amount.clone().into(),
-                asset.clone(),
+                (*amount).into(),
+                *asset,
             )?;
         }
         Ok(())

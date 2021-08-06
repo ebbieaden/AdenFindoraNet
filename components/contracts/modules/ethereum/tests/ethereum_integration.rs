@@ -1,6 +1,7 @@
 //! Ethereum module integration tests.
 
-use abci::*;
+#![allow(clippy::field_reassign_with_default)]
+
 use baseapp::{BaseApp, ChainId};
 use ethereum_types::{H160, U256};
 use fp_mocks::*;
@@ -12,6 +13,7 @@ use fp_types::{
     actions::{ethereum::Action as EthereumAction, Action},
     assemble::UncheckedTransaction,
 };
+use tm_protos::abci::*;
 
 #[test]
 fn run_all_tests() {
@@ -39,7 +41,7 @@ fn build_transfer_transaction(to: H160, balance: u128) -> UncheckedTransaction<(
 }
 
 fn test_abci_check_tx() {
-    let mut req = RequestCheckTx::new();
+    let mut req = RequestCheckTx::default();
     let value =
         <BaseApp as module_ethereum::Config>::DecimalsMapping::from_native_token(
             10.into(),
@@ -50,7 +52,7 @@ fn test_abci_check_tx() {
         value.as_u128(),
     ))
     .unwrap();
-    let resp = BASE_APP.lock().unwrap().check_tx(&req);
+    let resp = BASE_APP.lock().unwrap().check_tx(req.clone());
     assert!(
         resp.code == 1 && resp.log.contains("InvalidTransaction: InsufficientBalance"),
         "resp log: {}",
@@ -59,7 +61,7 @@ fn test_abci_check_tx() {
 
     test_mint_balance(&ALICE_ECDSA.account_id, 2000000, 2);
 
-    let resp = BASE_APP.lock().unwrap().check_tx(&req);
+    let resp = BASE_APP.lock().unwrap().check_tx(req);
     assert_eq!(
         resp.code, 0,
         "check tx failed, code: {}, log: {}",
@@ -68,16 +70,16 @@ fn test_abci_check_tx() {
 }
 
 fn test_abci_begin_block() {
-    let mut req = RequestBeginBlock::new();
+    let mut req = RequestBeginBlock::default();
     req.hash = b"test".to_vec();
-    let mut header = Header::new();
+    let mut header = Header::default();
     header.height = 3;
-    req.set_header(header);
-    let _ = BASE_APP.lock().unwrap().begin_block(&req);
+    req.header = Some(header);
+    let _ = BASE_APP.lock().unwrap().begin_block(req);
 }
 
 fn test_abci_deliver_tx() {
-    let mut req = RequestDeliverTx::new();
+    let mut req = RequestDeliverTx::default();
     let value =
         <BaseApp as module_ethereum::Config>::DecimalsMapping::from_native_token(
             10.into(),
@@ -88,7 +90,7 @@ fn test_abci_deliver_tx() {
         value.as_u128(),
     ))
     .unwrap();
-    let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
+    let resp = BASE_APP.lock().unwrap().deliver_tx(req);
     assert_eq!(
         resp.code, 0,
         "deliver tx failed, code: {}, log: {}",
@@ -116,13 +118,13 @@ fn test_abci_deliver_tx() {
 }
 
 fn test_abci_end_block() {
-    let mut req = RequestEndBlock::new();
-    req.set_height(3);
-    let _ = BASE_APP.lock().unwrap().end_block(&req);
+    let mut req = RequestEndBlock::default();
+    req.height = 3;
+    let _ = BASE_APP.lock().unwrap().end_block(req);
 }
 
 fn test_abci_commit() {
-    let _ = BASE_APP.lock().unwrap().commit(&RequestCommit::new());
+    let _ = BASE_APP.lock().unwrap().commit();
     assert_eq!(
         BASE_APP
             .lock()
