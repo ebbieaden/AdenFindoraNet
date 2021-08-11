@@ -574,16 +574,19 @@ impl TransactionBuilder {
         Ok(self)
     }
 
+    /// Adds an operation to the transaction builder that support transfer utxo asset to ethereum address.
+    /// @param {XfrKeyPair} keypair - Asset creator key pair.
+    /// @param {String} ethereum_address - The address to receive Ethereum assets.
     pub fn add_operation_convert_account(
         mut self,
         keypair: &XfrKeyPair,
-        s: String,
+        ethereum_address: String,
     ) -> Result<TransactionBuilder, JsValue> {
-        let sa = MultiSigner::from_str(&s)
+        let ea = MultiSigner::from_str(&ethereum_address)
             .c(d!())
             .map_err(error_to_jsvalue)?;
         self.get_builder_mut()
-            .add_operation_convert_account(keypair, sa)
+            .add_operation_convert_account(keypair, ea)
             .c(d!())
             .map_err(error_to_jsvalue)?;
         Ok(self)
@@ -640,64 +643,40 @@ fn generate_extra(nonce: u64, fee: Option<u64>) -> SignedExtra {
     (CheckNonce::new(nonce), CheckFee::new(fee))
 }
 
-fn generate_action(amount: u64, address: XfrPublicKey) -> Action {
-    let output = MintOutput {
-        target: address,
-        amount,
-        asset: ASSET_TYPE_FRA,
-    };
-
-    let action = AccountAction::TransferToUTXO(TransferToUTXO {
-        outputs: vec![output],
-    });
-
-    Action::Account(action)
-}
-
-/// Generate balance from account to utxo tx.
+/// Build transfer from account balance to utxo tx.
+/// @param {XfrPublicKey} recipient - UTXO Asset receiver.
+/// @param {u64} amount - Transfer amount.
+/// @param {string} eth_phrase - Ethereum wallet mnemonic.
+/// @param {string} password - Ethereum wallet password.
+/// @param {u64} nonce - Transaction nonce for sender.
 #[wasm_bindgen]
-pub fn balance_from_account_to_utxo_by_xfr(
+pub fn transfer_to_utxo_from_account(
+    recipient: XfrPublicKey,
     amount: u64,
-    address: XfrPublicKey,
-    kp: XfrKeyPair,
+    eth_phrase: String,
+    password: String,
     nonce: u64,
 ) -> Result<String, JsValue> {
-    let action = generate_action(amount, address);
-    let extra = generate_extra(nonce, None);
-    let msg = serde_json::to_vec(&(action.clone(), extra.clone()))
-        .map_err(error_to_jsvalue)?;
-
-    let signature = MultiSignature::from(kp.get_sk_ref().sign(&msg, kp.get_pk_ref()));
-    let signer = Address::from(kp.get_pk());
-
-    let tx = UncheckedTransaction::new_signed(action, signer, signature, extra);
-
-    let res = serde_json::to_string(&tx).map_err(error_to_jsvalue)?;
-
-    Ok(res)
-}
-
-#[wasm_bindgen]
-pub fn balance_from_account_to_utxo_by_eth(
-    amount: u64,
-    address: XfrPublicKey,
-    kp_phrase: String,
-    nonce: u64,
-) -> Result<String, JsValue> {
-    let kp = SecpPair::from_phrase(&kp_phrase, None)
+    let kp = SecpPair::from_phrase(&eth_phrase, Some(&password))
         .map_err(error_to_jsvalue)?
         .0;
 
-    let action = generate_action(amount, address);
+    let output = MintOutput {
+        target: recipient,
+        amount,
+        asset: ASSET_TYPE_FRA,
+    };
+    let action = Action::Account(AccountAction::TransferToUTXO(TransferToUTXO {
+        outputs: vec![output],
+    }));
+
     let extra = generate_extra(nonce, None);
     let msg = serde_json::to_vec(&(action.clone(), extra.clone()))
         .map_err(error_to_jsvalue)?;
-
     let signature = MultiSignature::from(kp.sign(&msg));
-    let signer = Address::from(kp.public());
+    let signer = Address::from(kp.address());
 
     let tx = UncheckedTransaction::new_signed(action, signer, signature, extra);
-
     let res = serde_json::to_string(&tx).map_err(error_to_jsvalue)?;
 
     Ok(res)

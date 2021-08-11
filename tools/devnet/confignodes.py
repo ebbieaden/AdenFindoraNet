@@ -4,28 +4,25 @@ import os
 import subprocess
 import toml
 
-devnet = "/tmp/findora/devnet"
-if os.getenv('FIN_HOME') != None:
-    devnet = os.path.join(os.environ['FIN_HOME'], "devnet")
+devnet = os.path.join(os.environ['LEDGER_DIR'], "devnet")
 localhost = "127.0.0.1"
 base_url = "tcp://127.0.0.1:"
-base_port_node = 26650
-base_port_abci = 8660
-base_port_evm = 8540
-blocks_interval = "1s"
+base_port_node = 26610
+base_port_abci = 8620
+blocks_interval = "15s"
 timeout_commit = "15s"
 toml_string = """
 abci_host = "127.0.0.1"
-abci_port = "26658"
+abci_port = "26008"
 
 tendermint_host = "127.0.0.1"
-tendermint_port = "26657"
+tendermint_port = "26007"
 
-submission_port = "8669"
+submission_host = "127.0.0.1"
+submission_port = "8609"
 
-ledger_port = "8668"
-
-evm_api_port = "8545"
+ledger_host = "127.0.0.1"
+ledger_port = "8608"
 """
 
 # toml set
@@ -40,8 +37,8 @@ def set_persistent_peers(config_toml, contents, i):
     peers = contents["p2p"]["persistent_peers"].split(",")
     peers_new = []
     for j, peer in enumerate(peers):
-        #if i == j:  # skip self
-        #    continue
+        if i == j:  # skip self
+            continue
         p2p_laddr_j = str(base_port_node + 10 * j + 6)
         peer_id = peer.split("@")[0]
         peers_new.append("{}@{}:{}".format(peer_id, localhost, p2p_laddr_j))
@@ -53,9 +50,9 @@ def set_persistent_peers(config_toml, contents, i):
 def set_ip_addresses(config_toml, contents, i):
     # abci_proxy, rpc, p2p
     """ e.g.
-    tcp://127.0.0.1:26658
-    tcp://127.0.0.1:26657
-    tcp://127.0.0.1:26656
+    tcp://127.0.0.1:26008
+    tcp://127.0.0.1:26007
+    tcp://127.0.0.1:26006
     """
     proxy_app = base_url + str(base_port_node + 10 * i + 8)
     rpc_laddr = base_url + str(base_port_node + 10 * i + 7)
@@ -86,23 +83,21 @@ def gen_abci_toml(abci_toml, contents, i):
     
     # abci_port, tendermint_port, submission_port, ledger_port
     """ e.g.
-    26658
-    26657
-    8669
-    8668
+    26008
+    26007
+    8609
+    8608
     """
     abci_port = contents["proxy_app"].split(":")[2]
     tendermint_port = contents["rpc"]["laddr"].split(":")[2]
     submission_port = str(base_port_abci + 10 * i + 9)
     ledger_port = str(base_port_abci + 10 * i + 8)
-    evm_api_port = str(base_port_evm + 10 * i + 5)
 
     # set ports
     set_toml(abci_toml, "abci_port", abci_port)
     set_toml(abci_toml, "tendermint_port", tendermint_port)
     set_toml(abci_toml, "submission_port", submission_port)
     set_toml(abci_toml, "ledger_port", ledger_port)
-    set_toml(abci_toml, "evm_api_port", evm_api_port)
 
 if __name__ == "__main__":
     # list nodes in devnet

@@ -3,6 +3,7 @@ mod precompile;
 use ethereum_types::{Bloom, H160, H256, U256};
 use evm::ExitReason;
 use fp_core::context::Context;
+use fp_types::actions::evm::{Call, Create, Create2};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 
@@ -50,7 +51,7 @@ impl Default for TransactionStatus {
     fn default() -> Self {
         TransactionStatus {
             transaction_hash: H256::default(),
-            transaction_index: 0 as u32,
+            transaction_index: 0_u32,
             from: H160::default(),
             to: None,
             contract_address: None,
@@ -60,43 +61,37 @@ impl Default for TransactionStatus {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Call {
-    pub source: H160,
-    pub target: H160,
-    pub input: Vec<u8>,
-    pub value: U256,
-    pub gas_limit: u64,
-    pub gas_price: Option<U256>,
-    pub nonce: Option<U256>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Create {
-    pub source: H160,
-    pub init: Vec<u8>,
-    pub value: U256,
-    pub gas_limit: u64,
-    pub gas_price: Option<U256>,
-    pub nonce: Option<U256>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Create2 {
-    pub source: H160,
-    pub init: Vec<u8>,
-    pub salt: H256,
-    pub value: U256,
-    pub gas_limit: u64,
-    pub gas_price: Option<U256>,
-    pub nonce: Option<U256>,
-}
-
 pub trait Runner {
     fn call(ctx: &Context, args: Call, config: &evm::Config) -> Result<CallInfo>;
 
     fn create(ctx: &Context, args: Create, config: &evm::Config) -> Result<CreateInfo>;
 
     fn create2(ctx: &Context, args: Create2, config: &evm::Config)
-    -> Result<CreateInfo>;
+        -> Result<CreateInfo>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BlockId {
+    /// Identify by block header hash.
+    Hash(H256),
+    /// Identify by block number.
+    Number(U256),
+}
+
+impl BlockId {
+    /// Create a block ID from a hash.
+    pub fn hash(hash: H256) -> Self {
+        BlockId::Hash(hash)
+    }
+
+    /// Create a block ID from a number.
+    pub fn number(number: U256) -> Self {
+        BlockId::Number(number)
+    }
+}
+
+impl core::fmt::Display for BlockId {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }

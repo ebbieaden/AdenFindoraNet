@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
+RED='\033[31m'
+GRN="\033[32m"
+NC='\033[0m'
 
-# env
-source scripts/devnet/env.sh || exit 1
+# paths
+DEVNET="$LEDGER_DIR/devnet"
 
 # get params if provided
 V="3"

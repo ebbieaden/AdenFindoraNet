@@ -4,13 +4,13 @@ pub mod extensions;
 mod modules;
 
 use crate::modules::ModuleManager;
-use abci::Header;
-use fp_core::account::SmartAccount;
 use fp_core::{
+    account::SmartAccount,
     context::{Context, RunTxMode},
     ensure, parameter_types,
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
+use fp_evm::BlockId;
 use fp_traits::{
     account::{AccountAsset, FeeCalculator},
     base::BaseProvider,
@@ -24,6 +24,7 @@ use ruc::{eg, Result};
 use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
+use tm_protos::abci::Header;
 
 const APP_NAME: &str = "findora";
 const APP_DB_NAME: &str = "findora_db";
@@ -101,7 +102,7 @@ impl module_evm::Config for BaseApp {
 impl BaseApp {
     pub fn new(base_dir: &Path) -> Result<Self> {
         // Creates a fresh chain state db
-        let fdb_path = base_dir.clone().join(CHAIN_STATE_PATH);
+        let fdb_path = base_dir.join(CHAIN_STATE_PATH);
         let fdb = FinDB::open(fdb_path.as_path())?;
         let chain_state =
             Arc::new(RwLock::new(ChainState::new(fdb, APP_DB_NAME.to_string())));
@@ -113,7 +114,7 @@ impl BaseApp {
             chain_state: chain_state.clone(),
             check_state: Context::new(chain_state.clone()),
             deliver_state: Context::new(chain_state),
-            modules: ModuleManager::new(),
+            modules: ModuleManager::default(),
         })
     }
 }
@@ -121,20 +122,14 @@ impl BaseApp {
 impl ValidateUnsigned for BaseApp {
     type Call = Action;
 
-    fn pre_execute(_ctx: &Context, call: &Self::Call) -> Result<()> {
-        #[allow(unreachable_patterns)]
-        match call {
-            _ => Ok(()),
-        }
+    fn pre_execute(_ctx: &Context, _call: &Self::Call) -> Result<()> {
+        Ok(())
     }
 
-    fn validate_unsigned(_ctx: &Context, call: &Self::Call) -> Result<()> {
-        #[allow(unreachable_patterns)]
-        match call {
-            _ => Err(eg!(
-                "Could not find an unsigned validator for the unsigned transaction"
-            )),
-        }
+    fn validate_unsigned(_ctx: &Context, _call: &Self::Call) -> Result<()> {
+        Err(eg!(
+            "Could not find an unsigned validator for the unsigned transaction"
+        ))
     }
 }
 
@@ -245,34 +240,48 @@ impl BaseProvider for BaseApp {
             .ok_or(eg!("account does not exist"))
     }
 
-    fn current_block(&self) -> Option<ethereum::Block> {
+    fn current_block(&self, id: Option<BlockId>) -> Option<ethereum::Block> {
         if let Ok(ctx) = self.create_query_context(
             self.chain_state.read().height().unwrap_or_default(),
             false,
         ) {
-            module_ethereum::App::<Self>::current_block(&ctx)
+            module_ethereum::App::<Self>::current_block(&ctx, id)
         } else {
             None
         }
     }
 
-    fn current_transaction_statuses(&self) -> Option<Vec<fp_evm::TransactionStatus>> {
+    fn current_transaction_statuses(
+        &self,
+        id: Option<BlockId>,
+    ) -> Option<Vec<fp_evm::TransactionStatus>> {
         if let Ok(ctx) = self.create_query_context(
             self.chain_state.read().height().unwrap_or_default(),
             false,
         ) {
-            module_ethereum::App::<Self>::current_transaction_statuses(&ctx)
+            module_ethereum::App::<Self>::current_transaction_statuses(&ctx, id)
         } else {
             None
         }
     }
 
-    fn current_receipts(&self) -> Option<Vec<ethereum::Receipt>> {
+    fn current_receipts(&self, id: Option<BlockId>) -> Option<Vec<ethereum::Receipt>> {
         if let Ok(ctx) = self.create_query_context(
             self.chain_state.read().height().unwrap_or_default(),
             false,
         ) {
-            module_ethereum::App::<Self>::current_receipts(&ctx)
+            module_ethereum::App::<Self>::current_receipts(&ctx, id)
+        } else {
+            None
+        }
+    }
+
+    fn block_hash(&self, id: Option<BlockId>) -> Option<H256> {
+        if let Ok(ctx) = self.create_query_context(
+            self.chain_state.read().height().unwrap_or_default(),
+            false,
+        ) {
+            module_ethereum::App::<Self>::block_hash(&ctx, id)
         } else {
             None
         }

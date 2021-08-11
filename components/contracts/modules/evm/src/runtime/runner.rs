@@ -8,6 +8,7 @@ use evm::{
 use fp_core::{context::Context, ensure};
 use fp_evm::*;
 use fp_traits::evm::{DecimalsMapping, FeeCalculator, OnChargeEVMTransaction};
+use fp_types::actions::evm::*;
 use ruc::*;
 use sha3::{Digest, Keccak256};
 use std::marker::PhantomData;

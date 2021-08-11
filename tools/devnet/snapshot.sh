@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-
-# env
-source scripts/devnet/env.sh || exit 1
+RED='\033[31m'
+GRN="\033[32m"
+YEL='\033[33m'
+NC='\033[0m'
 
 # paths
+DEVNET="$LEDGER_DIR/devnet"
 WALLET="$HOME/.findora"
 
 # params
@@ -26,7 +28,7 @@ echo "memo_updatable = $memo_updatable"
 echo
 echo -n "confirm (y/n)? "
 read answer
-if [ "$answer" != "${answer#[Nn]}" ] ;then
+if [ "$answer" == "${answer#[Yy]}" ] ;then
     exit 0
 fi
 echo
@@ -42,14 +44,14 @@ rm -rf $WALLET/*_passphrase
 rm -rf $WALLET/snapshot.tar.gz
 
 # clean and restart nodes
-echo -e "${GRN}step-1: run network------------------------------------------------${NC}"
+echo -e "${GRN}step-1: run mainnet------------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
 echo
 
 # run findora cli2
 echo -e "${GRN}step-2: key gen----------------------------------------------------${NC}"
-printf "http://localhost:8669\nhttp://localhost:8668\n$pswd\n$pswd\n" | findora key-gen $nick
+printf "http://localhost:8629\nhttp://localhost:8628\n$pswd\n$pswd\n" | findora key-gen $nick
 
 # show genesis key
 findora list-keys
@@ -61,7 +63,7 @@ printf "y\n" | findora query-ledger-state
 echo
 
 # clean and restart nodes
-echo -e "${GRN}step-4: restart network---------------------------------------------${NC}"
+echo -e "${GRN}step-4: restart mainnet---------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
 echo
@@ -79,17 +81,17 @@ printf "$pswd\n" | findora issue-asset genesis $token 0 $issuance
 echo
 
 # clean and restart nodes
-echo -e "${GRN}step-6: restart network---------------------------------------------${NC}"
+echo -e "${GRN}step-6: restart mainnet---------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
-sleep 3
+sleep 1
 echo
 
 # submit genesis transaction
 echo -e "${GRN}step-7: build and submit genesis transaction------------------------${NC}"
 printf "$pswd\n" | findora build-transaction
 printf "\n\n" | findora submit genesis
-#./$stopnodes
+./$stopnodes
 echo
 
 # submit genesis transaction

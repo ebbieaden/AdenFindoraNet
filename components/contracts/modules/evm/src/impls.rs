@@ -7,6 +7,7 @@ use fp_traits::{
     account::AccountAsset,
     evm::{AddressMapping, OnChargeEVMTransaction},
 };
+use fp_utils::proposer_converter;
 use ruc::Result;
 
 impl<C: Config> App<C> {
@@ -49,17 +50,17 @@ impl<C: Config> App<C> {
 
     /// Get the account basic in EVM format.
     pub fn account_basic(ctx: &Context, address: &H160) -> Account {
-        let account_id = C::AddressMapping::into_account_id(*address);
+        let account_id = C::AddressMapping::convert_to_account_id(*address);
         let nonce = U256::from(C::AccountAsset::nonce(ctx, &account_id));
         let balance = U256::from(C::AccountAsset::balance(ctx, &account_id));
 
-        Account { nonce, balance }
+        Account { balance, nonce }
     }
 
     /// Get the block proposer.
     pub fn find_proposer(ctx: &Context) -> H160 {
         // TODO
-        H160::from_slice(&ctx.header.get_proposer_address()[0..20])
+        proposer_converter(ctx.header.proposer_address.clone()).unwrap_or_default()
     }
 }
 
@@ -69,7 +70,7 @@ impl<C: Config> App<C> {
 impl<C: Config> OnChargeEVMTransaction for App<C> {
     fn withdraw_fee(ctx: &Context, who: &H160, fee: U256) -> Result<()> {
         // TODO fee pay to block author
-        let account_id = C::AddressMapping::into_account_id(*who);
+        let account_id = C::AddressMapping::convert_to_account_id(*who);
         C::AccountAsset::withdraw(ctx, &account_id, fee.low_u128())
     }
 
@@ -79,7 +80,7 @@ impl<C: Config> OnChargeEVMTransaction for App<C> {
         corrected_fee: U256,
         already_withdrawn: U256,
     ) -> Result<()> {
-        let account_id = C::AddressMapping::into_account_id(*who);
+        let account_id = C::AddressMapping::convert_to_account_id(*who);
         let refund_amount = already_withdrawn.saturating_sub(corrected_fee);
         C::AccountAsset::refund(ctx, &account_id, refund_amount.low_u128())
     }

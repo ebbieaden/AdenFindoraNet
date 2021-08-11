@@ -14,7 +14,7 @@ use fp_core::{
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
 use fp_events::*;
-use fp_evm::Runner;
+use fp_evm::{BlockId, Runner};
 use fp_traits::{
     account::AccountAsset,
     evm::{AddressMapping, BlockHashMapping, DecimalsMapping, FeeCalculator},
@@ -58,11 +58,11 @@ pub mod storage {
     // Current building block's transactions and receipts.
     generate_storage!(Ethereum, Pending => Value<Vec<(Transaction, TransactionStatus, Receipt)>>);
     // The current Ethereum block.
-    generate_storage!(Ethereum, CurrentBlock => Value<Option<Block>>);
+    generate_storage!(Ethereum, CurrentBlock => Map<H256, Block>);
     // The current Ethereum receipts.
-    generate_storage!(Ethereum, CurrentReceipts => Value<Option<Vec<Receipt>>>);
+    generate_storage!(Ethereum, CurrentReceipts => Map<H256, Vec<Receipt>>);
     // The current transaction statuses.
-    generate_storage!(Ethereum, CurrentTransactionStatuses => Value<Option<Vec<TransactionStatus>>>);
+    generate_storage!(Ethereum, CurrentTransactionStatuses => Map<H256, Vec<TransactionStatus>>);
     // Mapping for block number and hashes.
     generate_storage!(Ethereum, BlockHash => Map<U256, H256>);
 }
@@ -171,6 +171,6 @@ impl<C: Config> ValidateUnsigned for App<C> {
 
 impl<C: Config> BlockHashMapping for App<C> {
     fn block_hash(ctx: &Context, number: U256) -> Option<H256> {
-        Self::block_hash(ctx, number)
+        Self::block_hash(ctx, Some(BlockId::Number(number)))
     }
 }

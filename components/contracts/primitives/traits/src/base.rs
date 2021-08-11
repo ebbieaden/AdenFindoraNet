@@ -1,4 +1,5 @@
 use fp_core::{account::SmartAccount, context::Context};
+use fp_evm::BlockId;
 use fp_types::crypto::Address;
 use primitive_types::{H160, H256};
 use ruc::*;
@@ -7,11 +8,16 @@ use ruc::*;
 pub trait BaseProvider {
     fn account_of(&self, who: &Address, ctx: Option<Context>) -> Result<SmartAccount>;
 
-    fn current_block(&self) -> Option<ethereum::Block>;
+    fn current_block(&self, id: Option<BlockId>) -> Option<ethereum::Block>;
 
-    fn current_transaction_statuses(&self) -> Option<Vec<fp_evm::TransactionStatus>>;
+    fn current_transaction_statuses(
+        &self,
+        id: Option<BlockId>,
+    ) -> Option<Vec<fp_evm::TransactionStatus>>;
 
-    fn current_receipts(&self) -> Option<Vec<ethereum::Receipt>>;
+    fn current_receipts(&self, id: Option<BlockId>) -> Option<Vec<ethereum::Receipt>>;
+
+    fn block_hash(&self, id: Option<BlockId>) -> Option<H256>;
 
     fn account_code_at(&self, address: H160) -> Option<Vec<u8>>;
 

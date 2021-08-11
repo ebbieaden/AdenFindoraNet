@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
+RED='\033[31m'
+GRN="\033[32m"
+NC='\033[0m'
 
-# env
-source scripts/devnet/env.sh || exit
+# paths
+DEVNET="$LEDGER_DIR/devnet"
 
 # stop nodes
 script_stop=$(dirname "$0")/stopnodes.sh
@@ -15,7 +18,6 @@ do
 
 echo -en "$node "
 # abcis
-rm -rf $DEVNET/$node/abci/*.db
 rm -rf $DEVNET/$node/abci/utxo_map
 rm -rf $DEVNET/$node/abci/txn_merkle
 rm -rf $DEVNET/$node/abci/txn_log

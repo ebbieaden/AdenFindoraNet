@@ -8,6 +8,7 @@ use evm::{
 use fp_core::{context::Context, macros::Get};
 use fp_evm::{Log, Vicinity};
 use fp_traits::{account::AccountAsset, evm::BlockHashMapping};
+use fp_utils::timestamp_converter;
 use std::{collections::btree_set::BTreeSet, marker::PhantomData, mem};
 
 pub struct FindoraStackSubstate<'context, 'config> {
@@ -143,11 +144,11 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 
     fn block_hash(&self, number: U256) -> H256 {
-        C::BlockHashMapping::block_hash(self.ctx, number).unwrap_or(H256::default())
+        C::BlockHashMapping::block_hash(self.ctx, number).unwrap_or_default()
     }
 
     fn block_number(&self) -> U256 {
-        U256::from(self.ctx.header.get_height())
+        U256::from(self.ctx.header.height)
     }
 
     fn block_coinbase(&self) -> H160 {
@@ -155,7 +156,8 @@ impl<'context, 'vicinity, 'config, C: Config> Backend
     }
 
     fn block_timestamp(&self) -> U256 {
-        U256::from(self.ctx.header.get_time().get_seconds())
+        let block_timestamp = self.ctx.header.time.clone().unwrap_or_default();
+        U256::from(timestamp_converter(block_timestamp))
     }
 
     fn block_difficulty(&self) -> U256 {
@@ -232,7 +234,7 @@ impl<'context, 'vicinity, 'config, C: Config> StackState<'config>
     }
 
     fn inc_nonce(&mut self, address: H160) {
-        let account_id = C::AddressMapping::into_account_id(address);
+        let account_id = C::AddressMapping::convert_to_account_id(address);
         let _ = C::AccountAsset::inc_nonce(self.ctx, &account_id);
     }
 
@@ -280,8 +282,8 @@ impl<'context, 'vicinity, 'config, C: Config> StackState<'config>
     }
 
     fn transfer(&mut self, transfer: Transfer) -> Result<(), ExitError> {
-        let source = C::AddressMapping::into_account_id(transfer.source);
-        let target = C::AddressMapping::into_account_id(transfer.target);
+        let source = C::AddressMapping::convert_to_account_id(transfer.source);
+        let target = C::AddressMapping::convert_to_account_id(transfer.target);
 
         C::AccountAsset::transfer(self.ctx, &source, &target, transfer.value.low_u128())
             .map_err(|_| ExitError::OutOfFund)

@@ -18,3 +18,4 @@ serde = { version = "1.0.124", features = ["derive"] }
 
 # primitives
 fp-core = { path = "../core" }
+fp-types = { path = "../types" }

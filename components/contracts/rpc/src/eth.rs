@@ -4,9 +4,8 @@ use ethereum::{
     Block as EthereumBlock, Transaction as EthereumTransaction,
     TransactionMessage as EthereumTransactionMessage,
 };
-use ethereum_types::{H160, H256, H512, H64, U256, U64};
-use fp_evm::TransactionStatus;
-use fp_evm::{Call, Create, Runner};
+use ethereum_types::{BigEndianHash, H160, H256, H512, H64, U256, U64};
+use fp_evm::{BlockId, Runner, TransactionStatus};
 use fp_rpc_core::types::{
     Block, BlockNumber, BlockTransactions, Bytes, CallRequest, Filter, FilterChanges,
     FilteredParams, Index, Log, PeerCount, Receipt, Rich, RichBlock, SyncStatus,
@@ -17,14 +16,19 @@ use fp_traits::{
     base::BaseProvider,
     evm::{AddressMapping, DecimalsMapping, EthereumAddressMapping, FeeCalculator},
 };
-use fp_types::{actions, assemble::UncheckedTransaction};
-use fp_utils::ecdsa::SecpPair;
+use fp_types::{
+    actions,
+    actions::evm::{Call, Create},
+    assemble::UncheckedTransaction,
+};
+use fp_utils::{ecdsa::SecpPair, proposer_converter};
 use jsonrpc_core::{futures::future, BoxFuture, Result};
 use log::debug;
 use parking_lot::RwLock;
 use ruc::eg;
 use sha3::{Digest, Keccak256};
 use std::collections::BTreeMap;
+use std::convert::Into;
 use std::sync::Arc;
 use tendermint_rpc::{Client, HttpClient};
 use tokio::runtime::Runtime;
@@ -209,7 +213,7 @@ impl EthApi for EthApiImpl {
         let gas_limit = match gas {
             Some(amount) => amount,
             None => {
-                let block = self.account_base_app.read().current_block();
+                let block = self.account_base_app.read().current_block(None);
                 if let Some(block) = block {
                     block.header.gas_limit
                 } else {
@@ -282,14 +286,15 @@ impl EthApi for EthApiImpl {
     }
 
     fn author(&self) -> Result<H160> {
-        Ok(H160::from_slice(
-            &self
-                .account_base_app
+        Ok(proposer_converter(
+            self.account_base_app
                 .read()
                 .check_state
                 .header
-                .get_proposer_address()[0..20],
-        ))
+                .proposer_address
+                .clone(),
+        )
+        .unwrap_or_default())
     }
 
     fn is_mining(&self) -> Result<bool> {
@@ -314,17 +319,27 @@ impl EthApi for EthApiImpl {
 
     fn storage_at(
         &self,
-        _address: H160,
-        _index: U256,
+        address: H160,
+        index: U256,
         _number: Option<BlockNumber>,
     ) -> Result<H256> {
         // TODO
-        Ok(H256::default())
+        Ok(self
+            .account_base_app
+            .read()
+            .account_storage_at(address, H256::from_uint(&index))
+            .unwrap_or_default())
     }
 
     fn block_by_hash(&self, hash: H256, full: bool) -> Result<Option<RichBlock>> {
-        let block = self.account_base_app.read().current_block();
-        let statuses = self.account_base_app.read().current_transaction_statuses();
+        let block = self
+            .account_base_app
+            .read()
+            .current_block(Some(BlockId::Hash(hash)));
+        let statuses = self
+            .account_base_app
+            .read()
+            .current_transaction_statuses(Some(BlockId::Hash(hash)));
 
         match (block, statuses) {
             (Some(block), Some(statuses)) => Ok(Some(rich_block_build(
@@ -342,27 +357,16 @@ impl EthApi for EthApiImpl {
         number: BlockNumber,
         full: bool,
     ) -> Result<Option<RichBlock>> {
-        let block = self.account_base_app.read().current_block();
-        let statuses = self.account_base_app.read().current_transaction_statuses();
+        let id = native_block_id(Some(number));
+        let block = self.account_base_app.read().current_block(id.clone());
+        let statuses = self
+            .account_base_app
+            .read()
+            .current_transaction_statuses(id);
 
         match (block, statuses) {
             (Some(block), Some(statuses)) => {
                 let hash = block.header.hash();
-
-                match number {
-                    BlockNumber::Hash { hash: h, .. } => {
-                        if h != hash {
-                            return Ok(None);
-                        }
-                    }
-                    BlockNumber::Num(num) => {
-                        if block.header.number != U256::from(num) {
-                            return Ok(None);
-                        }
-                    }
-                    BlockNumber::Latest => {}
-                    _ => return Ok(None),
-                }
 
                 Ok(Some(rich_block_build(
                     block,
@@ -399,14 +403,12 @@ impl EthApi for EthApiImpl {
     }
 
     fn block_transaction_count_by_hash(&self, hash: H256) -> Result<Option<U256>> {
-        let block = self.account_base_app.read().current_block();
+        let block = self
+            .account_base_app
+            .read()
+            .current_block(Some(BlockId::Hash(hash)));
         match block {
-            Some(block) => {
-                if hash != block.header.hash() {
-                    return Ok(None);
-                }
-                Ok(Some(U256::from(block.transactions.len())))
-            }
+            Some(block) => Ok(Some(U256::from(block.transactions.len()))),
             None => Ok(None),
         }
     }
@@ -415,30 +417,10 @@ impl EthApi for EthApiImpl {
         &self,
         number: BlockNumber,
     ) -> Result<Option<U256>> {
-        let block = self.account_base_app.read().current_block();
+        let id = native_block_id(Some(number));
+        let block = self.account_base_app.read().current_block(id);
         match block {
-            Some(block) => {
-                let hash = block.header.hash();
-
-                match number {
-                    BlockNumber::Hash { hash: h, .. } => {
-                        if h != hash {
-                            return Ok(None);
-                        }
-                    }
-                    BlockNumber::Num(num) => {
-                        if block.header.number != U256::from(num) {
-                            return Ok(None);
-                        }
-                    }
-                    BlockNumber::Latest => {}
-                    _ => {
-                        return Ok(None);
-                    }
-                }
-
-                Ok(Some(U256::from(block.transactions.len())))
-            }
+            Some(block) => Ok(Some(U256::from(block.transactions.len()))),
             None => Ok(None),
         }
     }
@@ -452,6 +434,7 @@ impl EthApi for EthApiImpl {
     }
 
     fn code_at(&self, address: H160, _number: Option<BlockNumber>) -> Result<Bytes> {
+        // TODO
         Ok(self
             .account_base_app
             .read()
@@ -584,8 +567,11 @@ impl EthApi for EthApiImpl {
     }
 
     fn transaction_by_hash(&self, hash: H256) -> Result<Option<Transaction>> {
-        let block = self.account_base_app.read().current_block();
-        let statuses = self.account_base_app.read().current_transaction_statuses();
+        let block = self.account_base_app.read().current_block(None);
+        let statuses = self
+            .account_base_app
+            .read()
+            .current_transaction_statuses(None);
 
         match (block, statuses) {
             (Some(block), Some(statuses)) => {
@@ -609,13 +595,17 @@ impl EthApi for EthApiImpl {
         hash: H256,
         index: Index,
     ) -> Result<Option<Transaction>> {
+        let id = Some(BlockId::Hash(hash));
         let index = index.value();
+        let block = self.account_base_app.read().current_block(id.clone());
+        let statuses = self
+            .account_base_app
+            .read()
+            .current_transaction_statuses(id);
 
-        let block = self.account_base_app.read().current_block();
-        let statuses = self.account_base_app.read().current_transaction_statuses();
         match (block, statuses) {
             (Some(block), Some(statuses)) => {
-                if block.header.hash() != hash || index >= block.transactions.len() {
+                if index >= block.transactions.len() {
                     return Ok(None);
                 }
 
@@ -634,29 +624,16 @@ impl EthApi for EthApiImpl {
         number: BlockNumber,
         index: Index,
     ) -> Result<Option<Transaction>> {
+        let id = native_block_id(Some(number));
         let index = index.value();
+        let block = self.account_base_app.read().current_block(id.clone());
+        let statuses = self
+            .account_base_app
+            .read()
+            .current_transaction_statuses(id);
 
-        let block = self.account_base_app.read().current_block();
-        let statuses = self.account_base_app.read().current_transaction_statuses();
         match (block, statuses) {
             (Some(block), Some(statuses)) => {
-                let hash = block.header.hash();
-                match number {
-                    BlockNumber::Hash { hash: h, .. } => {
-                        if h != hash {
-                            return Ok(None);
-                        }
-                    }
-                    BlockNumber::Num(num) => {
-                        if block.header.number != U256::from(num) {
-                            return Ok(None);
-                        }
-                    }
-                    BlockNumber::Latest => {}
-                    _ => {
-                        return Ok(None);
-                    }
-                }
                 if index >= block.transactions.len() {
                     return Ok(None);
                 }
@@ -672,9 +649,12 @@ impl EthApi for EthApiImpl {
     }
 
     fn transaction_receipt(&self, hash: H256) -> Result<Option<Receipt>> {
-        let block = self.account_base_app.read().current_block();
-        let statuses = self.account_base_app.read().current_transaction_statuses();
-        let receipts = self.account_base_app.read().current_receipts();
+        let block = self.account_base_app.read().current_block(None);
+        let statuses = self
+            .account_base_app
+            .read()
+            .current_transaction_statuses(None);
+        let receipts = self.account_base_app.read().current_receipts(None);
 
         match (block, statuses, receipts) {
             (Some(block), Some(statuses), Some(receipts)) => {
@@ -766,14 +746,16 @@ impl EthApi for EthApiImpl {
     fn logs(&self, filter: Filter) -> Result<Vec<Log>> {
         let mut ret: Vec<Log> = Vec::new();
         if let Some(hash) = filter.block_hash {
-            let block = self.account_base_app.read().current_block();
-            let statuses = self.account_base_app.read().current_transaction_statuses();
+            let block = self
+                .account_base_app
+                .read()
+                .current_block(Some(BlockId::Hash(hash)));
+            let statuses = self
+                .account_base_app
+                .read()
+                .current_transaction_statuses(Some(BlockId::Hash(hash)));
 
             if let (Some(block), Some(statuses)) = (block, statuses) {
-                if hash != block.header.hash() {
-                    return Ok(ret);
-                }
-
                 filter_block_logs(&mut ret, &filter, block, statuses);
             }
         }
@@ -1129,4 +1111,14 @@ fn filter_block_logs<'a>(
         }
     }
     ret
+}
+
+fn native_block_id(number: Option<BlockNumber>) -> Option<BlockId> {
+    match number.unwrap_or(BlockNumber::Latest) {
+        BlockNumber::Hash { hash, .. } => Some(BlockId::Hash(hash)),
+        BlockNumber::Num(number) => Some(BlockId::Number(number.into())),
+        BlockNumber::Latest => None,
+        BlockNumber::Earliest => Some(BlockId::Number(U256::zero())),
+        BlockNumber::Pending => None,
+    }
 }

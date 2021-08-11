@@ -5,10 +5,10 @@ mod utils;
 use abci::*;
 use baseapp::{BaseApp, ChainId};
 use ethereum_types::{H160, H256, U256};
-use fp_evm::{Call, CallOrCreateInfo, Runner};
+use fp_evm::{CallOrCreateInfo, Runner};
 use fp_mocks::*;
 use fp_types::{
-    actions::ethereum::Action as EthereumAction, actions::Action,
+    actions::ethereum::Action as EthereumAction, actions::evm::Call, actions::Action,
     assemble::UncheckedTransaction,
 };
 use module_evm::storage::*;
