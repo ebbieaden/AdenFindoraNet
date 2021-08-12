@@ -10,7 +10,7 @@
 #![deny(warnings)]
 
 use clap::{crate_authors, App, SubCommand};
-use fintools::fns;
+use finutils::{common, txn_builder::BuildsTransactions};
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{Transaction, BLACK_HOLE_PUBKEY_STAKING},
@@ -23,14 +23,14 @@ use ledger::{
 use ruc::*;
 use serde::Serialize;
 use std::{collections::BTreeMap, env};
-use txn_builder::BuildsTransactions;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 lazy_static! {
     static ref USER_LIST: BTreeMap<Name, User> = gen_user_list();
     static ref VALIDATOR_LIST: BTreeMap<Name, Validator> = gen_valiator_list();
-    static ref ROOT_KP: XfrKeyPair =
-        pnk!(wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC));
+    static ref ROOT_KP: XfrKeyPair = pnk!(
+        libutils::wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC)
+    );
 }
 
 const ROOT_MNEMONIC: &str = "zoo nerve assault talk depend approve mercy surge bicycle ridge dismiss satoshi boring opera next fat cinnamon valley office actor above spray alcohol giant";
@@ -73,9 +73,10 @@ fn run() -> Result<()> {
         .arg_from_usage("-u, --user=[User] 'user name of delegator'");
 
     let matches = App::new("stt")
-        .version(fns::version())
+        .version(common::version())
         .author(crate_authors!())
         .about("A manual test tool for the staking function.")
+        .arg_from_usage("-v, --version")
         .subcommand(subcmd_init)
         .subcommand(subcmd_issue)
         .subcommand(subcmd_delegate)
@@ -85,7 +86,9 @@ fn run() -> Result<()> {
         .subcommand(subcmd_show)
         .get_matches();
 
-    if matches.is_present("init") {
+    if matches.is_present("version") {
+        println!("{}", env!("VERGEN_SHA"));
+    } else if matches.is_present("init") {
         init::init().c(d!())?;
     } else if matches.is_present("issue") {
         issue::issue().c(d!())?;
@@ -100,7 +103,7 @@ fn run() -> Result<()> {
             let amount = amount.unwrap().parse::<u64>().c(d!())?;
             delegate::gen_tx(user.unwrap(), amount, validator.unwrap())
                 .c(d!())
-                .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))?;
+                .and_then(|tx| common::utils::send_tx(&tx).c(d!()))?;
         }
     } else if let Some(m) = matches.subcommand_matches("undelegate") {
         let user = m.value_of("user");
@@ -116,7 +119,7 @@ fn run() -> Result<()> {
             let amount = amount.and_then(|am| am.parse::<u64>().ok());
             undelegate::gen_tx(user.unwrap(), amount, validator)
                 .c(d!())
-                .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))?;
+                .and_then(|tx| common::utils::send_tx(&tx).c(d!()))?;
         }
     } else if let Some(m) = matches.subcommand_matches("claim") {
         let user = m.value_of("user");
@@ -131,7 +134,7 @@ fn run() -> Result<()> {
             };
             claim::gen_tx(user.unwrap(), amount)
                 .c(d!())
-                .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))?;
+                .and_then(|tx| common::utils::send_tx(&tx).c(d!()))?;
         }
     } else if let Some(m) = matches.subcommand_matches("transfer") {
         let from = m.value_of("from-user");
@@ -145,8 +148,11 @@ fn run() -> Result<()> {
                 let target_pk = search_kp(receiver)
                     .c(d!())
                     .map(|kp| kp.get_pk())
-                    .or_else(|e| wallet::public_key_from_base64(receiver).c(d!(e)))?;
-                fns::utils::transfer(owner_kp, &target_pk, am, false, false).c(d!())?;
+                    .or_else(|e| {
+                        libutils::wallet::public_key_from_base64(receiver).c(d!(e))
+                    })?;
+                common::utils::transfer(owner_kp, &target_pk, am, false, false)
+                    .c(d!())?;
             }
             _ => {
                 println!("{}", m.usage());
@@ -175,16 +181,17 @@ mod init {
 
     pub fn init() -> Result<()> {
         let root_kp =
-            wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
+            libutils::wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC)
+                .c(d!())?;
 
         println!(">>> define and issue FRA...");
-        fns::utils::send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
+        common::utils::send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
 
         println!(">>> wait 4 blocks...");
         sleep_n_block!(4);
 
         println!(">>> set initial validator set...");
-        fns::utils::set_initial_validators(&root_kp).c(d!())?;
+        common::utils::set_initial_validators(&root_kp).c(d!())?;
 
         println!(">>> wait 4 blocks...");
         sleep_n_block!(4);
@@ -197,7 +204,7 @@ mod init {
             .collect::<Vec<_>>();
 
         println!(">>> transfer FRAs to validators...");
-        fns::utils::transfer_batch(&root_kp, target_list, false, false).c(d!())?;
+        common::utils::transfer_batch(&root_kp, target_list, false, false).c(d!())?;
 
         println!(">>> wait 6 blocks ...");
         sleep_n_block!(6);
@@ -206,7 +213,7 @@ mod init {
         for v in VALIDATOR_LIST.values() {
             delegate::gen_tx(&v.name, FRA, &v.name)
                 .c(d!())
-                .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))?;
+                .and_then(|tx| common::utils::send_tx(&tx).c(d!()))?;
         }
 
         println!(">>> DONE !");
@@ -234,14 +241,15 @@ mod issue {
     pub fn issue() -> Result<()> {
         gen_issue_tx()
             .c(d!())
-            .and_then(|tx| fns::utils::send_tx(&tx).c(d!()))
+            .and_then(|tx| common::utils::send_tx(&tx).c(d!()))
     }
 
     fn gen_issue_tx() -> Result<Transaction> {
         let root_kp =
-            wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
+            libutils::wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC)
+                .c(d!())?;
 
-        let mut builder = fns::utils::new_tx_builder().c(d!())?;
+        let mut builder = common::utils::new_tx_builder().c(d!())?;
 
         let template = AssetRecordTemplate::with_no_asset_tracing(
             FRA_TOTAL_AMOUNT / 2,
@@ -301,9 +309,9 @@ mod delegate {
             .c(d!())?;
         let validator = &VALIDATOR_LIST.get(validator).c(d!())?.td_addr;
 
-        let mut builder = fns::utils::new_tx_builder().c(d!())?;
+        let mut builder = common::utils::new_tx_builder().c(d!())?;
 
-        fns::utils::gen_transfer_op(
+        common::utils::gen_transfer_op(
             owner_kp,
             vec![(&BLACK_HOLE_PUBKEY_STAKING, amount)],
             false,
@@ -333,9 +341,9 @@ mod undelegate {
             .and_then(|v| VALIDATOR_LIST.get(v))
             .map(|x| pnk!(td_addr_to_bytes(&x.td_addr)));
 
-        let mut builder = fns::utils::new_tx_builder().c(d!())?;
+        let mut builder = common::utils::new_tx_builder().c(d!())?;
 
-        fns::utils::gen_fee_op(owner_kp).c(d!()).map(|op| {
+        common::utils::gen_fee_op(owner_kp).c(d!()).map(|op| {
             builder.add_operation(op);
             if let Some(amount) = amount {
                 // partial undelegation
@@ -362,9 +370,9 @@ mod claim {
     pub fn gen_tx(user: NameRef, amount: Option<u64>) -> Result<Transaction> {
         let owner_kp = search_kp(user).c(d!())?;
 
-        let mut builder = fns::utils::new_tx_builder().c(d!())?;
+        let mut builder = common::utils::new_tx_builder().c(d!())?;
 
-        fns::utils::gen_fee_op(owner_kp).c(d!()).map(|op| {
+        common::utils::gen_fee_op(owner_kp).c(d!()).map(|op| {
             builder.add_operation(op);
             builder.add_operation_claim(owner_kp, amount);
         })?;
@@ -380,7 +388,8 @@ fn print_info(
     user: Option<NameRef>,
 ) -> Result<()> {
     if show_root_mnemonic {
-        let kp = wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
+        let kp = libutils::wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC)
+            .c(d!())?;
         println!(
             "\x1b[31;01mROOT MNEMONIC:\x1b[00m\n{}\nKeys: {}",
             ROOT_MNEMONIC,
@@ -416,14 +425,14 @@ fn get_delegation_info(user: NameRef) -> Result<String> {
         .or_else(|| VALIDATOR_LIST.get(user).map(|v| &v.pubkey))
         .c(d!())?;
 
-    fns::utils::get_delegation_info(pk)
+    common::utils::get_delegation_info(pk)
         .c(d!())
         .and_then(|di| serde_json::to_string_pretty(&di).c(d!()))
 }
 
 fn get_balance(user: NameRef) -> Result<u64> {
     let kp = search_kp(user).c(d!())?;
-    fns::utils::get_balance(&kp).c(d!())
+    common::utils::get_balance(kp).c(d!())
 }
 
 #[derive(Debug, Serialize)]
@@ -445,7 +454,7 @@ fn gen_user_list() -> BTreeMap<Name, User> {
 
     (0..MNEMONIC_LIST.len())
         .map(|i| {
-            let keypair = pnk!(wallet::restore_keypair_from_mnemonic_default(
+            let keypair = pnk!(libutils::wallet::restore_keypair_from_mnemonic_default(
                 MNEMONIC_LIST[i]
             ));
             let pubkey = keypair.get_pk();
@@ -547,7 +556,7 @@ fn gen_valiator_list() -> BTreeMap<Name, Validator> {
     (0..NUM)
         .map(|i| {
             let td_addr = TD_ADDR_LIST[i].to_owned();
-            let keypair = pnk!(wallet::restore_keypair_from_mnemonic_default(
+            let keypair = pnk!(libutils::wallet::restore_keypair_from_mnemonic_default(
                 MNEMONIC_LIST[i]
             ));
             let pubkey = keypair.get_pk();

@@ -6,6 +6,7 @@
 #![allow(clippy::needless_borrow)]
 
 use crate::wasm_data_model::*;
+use core::str::FromStr;
 use credentials::{
     credential_commit, credential_issuer_key_gen, credential_open_commitment,
     credential_reveal, credential_sign, credential_user_key_gen, credential_verify,
@@ -13,6 +14,11 @@ use credentials::{
     CredUserPublicKey, CredUserSecretKey, Credential as PlatformCredential,
 };
 use cryptohash::sha256;
+use finutils::txn_builder::{
+    BuildsTransactions, FeeInput as PlatformFeeInput, FeeInputs as PlatformFeeInputs,
+    TransactionBuilder as PlatformTransactionBuilder,
+    TransferOperationBuilder as PlatformTransferOperationBuilder,
+};
 use fp_types::{
     actions::account::{Action as AccountAction, MintOutput, TransferToUTXO},
     actions::Action,
@@ -25,7 +31,6 @@ use ledger::{
         AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
         ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
     },
-    policies::{DebtMemo, Fraction},
     staking::{
         gen_random_keypair, td_addr_to_bytes, PartialUnDelegation, TendermintAddr,
         MAX_DELEGATION_AMOUNT, MIN_DELEGATION_AMOUNT,
@@ -34,12 +39,6 @@ use ledger::{
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::{d, err::RucResult};
-use std::str::FromStr;
-use txn_builder::{
-    BuildsTransactions, FeeInput as PlatformFeeInput, FeeInputs as PlatformFeeInputs,
-    PolicyChoice, TransactionBuilder as PlatformTransactionBuilder,
-    TransferOperationBuilder as PlatformTransferOperationBuilder,
-};
 use util::error_to_jsvalue;
 use utils::HashOf;
 use wasm_bindgen::prelude::*;
@@ -118,98 +117,9 @@ pub fn verify_authenticated_txn(
 }
 
 #[wasm_bindgen]
-/// Performs a simple loan repayment fee calculation.
-///
-/// The returned fee is a fraction of the `outstanding_balance`
-/// where the interest rate is expressed as a fraction `ir_numerator` / `ir_denominator`.
-///
-/// This function is specific to the  Lending Demo.
-/// @param {BigInt} ir_numerator - Interest rate numerator.
-/// @param {BigInt} ir_denominator - Interest rate denominator.
-/// @param {BigInt} outstanding_balance - Amount of outstanding debt.
-/// @ignore
-pub fn calculate_fee(
-    ir_numerator: u64,
-    ir_denominator: u64,
-    outstanding_balance: u64,
-) -> u64 {
-    ledger::policies::calculate_fee(
-        outstanding_balance,
-        Fraction::new(ir_numerator, ir_denominator),
-    )
-}
-
-#[wasm_bindgen]
-// Testnet will not support direct API access to hardcoded debt policy.
-/// Returns an address to use for cancelling debt tokens in a debt swap.
-/// @ignore
+/// ...
 pub fn get_null_pk() -> XfrPublicKey {
     XfrPublicKey::zei_from_bytes(&[0; 32]).unwrap()
-}
-
-#[wasm_bindgen]
-// Testnet will not support Discret policies.
-/// @ignore
-pub fn create_default_policy_info() -> String {
-    serde_json::to_string(&PolicyChoice::Fungible()).unwrap() // should never fail
-}
-
-#[wasm_bindgen]
-/// Create policy information needed for debt token asset types.
-/// This data will be parsed by the policy evalautor to ensure
-/// that all payment and fee amounts are correct.
-/// # Arguments
-///
-/// * `ir_numerator` - interest rate numerator
-/// * `ir_denominator`- interest rate denominator
-/// * `fiat_code` - Base64 string representing asset type used to pay off the loan
-/// * `amount` - loan amount
-/// @ignore
-// Testnet will not support Discret policies.
-pub fn create_debt_policy_info(
-    ir_numerator: u64,
-    ir_denominator: u64,
-    fiat_code: String,
-    loan_amount: u64,
-) -> Result<String, JsValue> {
-    let fiat_code = AssetTypeCode::new_from_base64(&fiat_code)
-        .c(d!())
-        .map_err(error_to_jsvalue)?;
-
-    serde_json::to_string(&PolicyChoice::LoanToken(
-        Fraction::new(ir_numerator, ir_denominator),
-        fiat_code,
-        loan_amount,
-    ))
-    .c(d!())
-    .map_err(|e| JsValue::from_str(&format!("Could not serialize PolicyChoice: {}", e)))
-}
-
-#[wasm_bindgen]
-/// Creates the memo needed for debt token asset types. The memo will be parsed by the policy evaluator to ensure
-/// that all payment and fee amounts are correct.
-/// @param {BigInt} ir_numerator  - Interest rate numerator.
-/// @param {BigInt} ir_denominator - Interest rate denominator.
-/// @param {string} fiat_code - Base64 string representing asset type used to pay off the loan.
-/// @param {BigInt} loan_amount - Loan amount.
-/// @throws Will throw an error if `fiat_code` fails to deserialize.
-/// @ignore
-// Testnet will not support Discret policies.
-pub fn create_debt_memo(
-    ir_numerator: u64,
-    ir_denominator: u64,
-    fiat_code: String,
-    loan_amount: u64,
-) -> Result<String, JsValue> {
-    let fiat_code = AssetTypeCode::new_from_base64(&fiat_code)
-        .c(d!())
-        .map_err(error_to_jsvalue)?;
-    let memo = DebtMemo {
-        interest_rate: Fraction::new(ir_numerator, ir_denominator),
-        fiat_code,
-        loan_amount,
-    };
-    Ok(serde_json::to_string(&memo).unwrap())
 }
 
 #[wasm_bindgen]
@@ -388,7 +298,7 @@ impl TransactionBuilder {
             key_pair,
             memo,
             token_code,
-            create_default_policy_info(),
+            String::new(),
             asset_rules,
         )
     }
@@ -400,7 +310,7 @@ impl TransactionBuilder {
         key_pair: &XfrKeyPair,
         memo: String,
         token_code: String,
-        policy_choice: String,
+        _policy_choice: String,
         asset_rules: AssetRules,
     ) -> Result<TransactionBuilder, JsValue> {
         let asset_token = if token_code.is_empty() {
@@ -411,37 +321,15 @@ impl TransactionBuilder {
                 .map_err(error_to_jsvalue)?
         };
 
-        let policy_choice = serde_json::from_str::<PolicyChoice>(&policy_choice)
-            .c(d!())
-            .map_err(|e| {
-                JsValue::from_str(&format!("Could not deserialize PolicyChoice: {}", e))
-            })?;
         self.get_builder_mut()
             .add_operation_create_asset(
                 &key_pair,
                 Some(asset_token),
                 asset_rules.rules,
                 &memo,
-                policy_choice,
             )
             .c(d!())
             .map_err(error_to_jsvalue)?;
-        Ok(self)
-    }
-
-    /// @ignore
-    // Testnet will not support Discret policies.
-    pub fn add_policy_option(
-        mut self,
-        token_code: String,
-        which_check: String,
-    ) -> Result<TransactionBuilder, JsValue> {
-        let token_code = AssetTypeCode::new_from_base64(&token_code)
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
-
-        self.get_builder_mut()
-            .add_policy_option(token_code, which_check);
         Ok(self)
     }
 
@@ -1013,13 +901,13 @@ pub fn new_keypair_from_seed(seed_str: String, name: Option<String>) -> XfrKeyPa
 #[wasm_bindgen]
 /// Returns base64 encoded representation of an XfrPublicKey.
 pub fn public_key_to_base64(key: &XfrPublicKey) -> String {
-    wallet::public_key_to_base64(key)
+    utils::wallet::public_key_to_base64(key)
 }
 
 #[wasm_bindgen]
 /// Converts a base64 encoded public key string to a public key.
 pub fn public_key_from_base64(pk: &str) -> Result<XfrPublicKey, JsValue> {
-    wallet::public_key_from_base64(pk)
+    utils::wallet::public_key_from_base64(pk)
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1314,13 +1202,13 @@ use std::str;
 #[wasm_bindgen]
 /// Returns bech32 encoded representation of an XfrPublicKey.
 pub fn public_key_to_bech32(key: &XfrPublicKey) -> String {
-    wallet::public_key_to_bech32(key)
+    utils::wallet::public_key_to_bech32(key)
 }
 
 #[wasm_bindgen]
 /// Converts a bech32 encoded public key string to a public key.
 pub fn public_key_from_bech32(addr: &str) -> Result<XfrPublicKey, JsValue> {
-    wallet::public_key_from_bech32(addr)
+    utils::wallet::public_key_from_bech32(addr)
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1420,7 +1308,7 @@ pub fn get_pk_from_keypair(kp: &XfrKeyPair) -> XfrPublicKey {
 /// Randomly generate a 12words-length mnemonic.
 #[wasm_bindgen]
 pub fn generate_mnemonic_default() -> String {
-    wallet::generate_mnemonic_default()
+    utils::wallet::generate_mnemonic_default()
 }
 
 /// Generate mnemonic with custom length and language.
@@ -1428,7 +1316,7 @@ pub fn generate_mnemonic_default() -> String {
 /// - @param `lang`: acceptable value are one of [ "en", "zh", "zh_traditional", "fr", "it", "ko", "sp", "jp" ]
 #[wasm_bindgen]
 pub fn generate_mnemonic_custom(wordslen: u8, lang: &str) -> Result<String, JsValue> {
-    wallet::generate_mnemonic_custom(wordslen, lang)
+    utils::wallet::generate_mnemonic_custom(wordslen, lang)
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1454,9 +1342,9 @@ impl BipPath {
     }
 }
 
-impl From<&BipPath> for wallet::BipPath {
+impl From<&BipPath> for utils::wallet::BipPath {
     fn from(p: &BipPath) -> Self {
-        wallet::BipPath::new(p.coin, p.account, p.change, p.address)
+        utils::wallet::BipPath::new(p.coin, p.account, p.change, p.address)
     }
 }
 
@@ -1466,7 +1354,7 @@ impl From<&BipPath> for wallet::BipPath {
 pub fn restore_keypair_from_mnemonic_default(
     phrase: &str,
 ) -> Result<XfrKeyPair, JsValue> {
-    wallet::restore_keypair_from_mnemonic_default(phrase)
+    utils::wallet::restore_keypair_from_mnemonic_default(phrase)
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1479,7 +1367,7 @@ pub fn restore_keypair_from_mnemonic_bip44(
     lang: &str,
     path: &BipPath,
 ) -> Result<XfrKeyPair, JsValue> {
-    wallet::restore_keypair_from_mnemonic_bip44(phrase, lang, &path.into())
+    utils::wallet::restore_keypair_from_mnemonic_bip44(phrase, lang, &path.into())
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1492,7 +1380,7 @@ pub fn restore_keypair_from_mnemonic_bip49(
     lang: &str,
     path: &BipPath,
 ) -> Result<XfrKeyPair, JsValue> {
-    wallet::restore_keypair_from_mnemonic_bip49(phrase, lang, &path.into())
+    utils::wallet::restore_keypair_from_mnemonic_bip49(phrase, lang, &path.into())
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1527,13 +1415,13 @@ pub fn get_delegation_target_address() -> String {
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_address() -> String {
-    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
+    utils::wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_principal_address() -> String {
-    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
+    utils::wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]

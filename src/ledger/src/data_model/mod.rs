@@ -1,57 +1,60 @@
 #![allow(clippy::field_reassign_with_default)]
 #![allow(clippy::assertions_on_constants)]
-extern crate unicode_normalization;
 
-use super::errors;
+pub mod errors;
+
+mod effects;
+mod policy_structs;
+
+pub use effects::*;
+
 use crate::{
-    des_fail,
-    policy_script::{Policy, PolicyGlobals, TxnPolicyData},
-    ser_fail,
+    address::operation::ConvertAccount,
+    des_fail, ser_fail,
     staking::{
         is_coinbase_tx,
         ops::{
             claim::ClaimOps, delegation::DelegationOps,
             fra_distribution::FraDistributionOps, governance::GovernanceOps,
             mint_fra::MintFraOps, undelegation::UnDelegationOps,
-            update_validator::UpdateValidatorOps,
+            update_staker::UpdateStakerOps, update_validator::UpdateValidatorOps,
         },
-        Staking, TendermintAddr, MAX_POWER_PERCENT_PER_VALIDATOR,
     },
 };
-
 use bitmap::SparseMap;
-use chrono::prelude::*;
-use cryptohash::sha256::Digest as BitDigest;
-use cryptohash::HashValue;
+use cryptohash::{sha256::Digest as BitDigest, HashValue};
 use errors::PlatformError;
 use lazy_static::lazy_static;
+use policy_structs::{Policy, PolicyGlobals, TxnPolicyData};
 use rand::Rng;
-use rand_chacha::rand_core;
-use rand_chacha::ChaChaRng;
+use rand_chacha::{rand_core, ChaChaRng};
 use rand_core::{CryptoRng, RngCore, SeedableRng};
+use ruc::*;
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use std::boxed::Box;
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::hash::{Hash, Hasher};
-use std::result::Result as StdResult;
-use std::{env, fmt, mem};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+    env, fmt,
+    hash::{Hash, Hasher},
+    mem,
+    ops::Deref,
+    result::Result as StdResult,
+};
 use time::OffsetDateTime;
 use unicode_normalization::UnicodeNormalization;
 use utils::{HashOf, ProofOf, Serialized, SignatureOf};
-use zei::serialization::ZeiFromToBytes;
-use zei::xfr::lib::{gen_xfr_body, XfrNotePolicies};
-use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
-use zei::xfr::structs::{
-    AssetRecord, AssetType as ZeiAssetType, BlindAssetRecord, OwnerMemo,
-    TracingPolicies, TracingPolicy, XfrAmount, XfrAssetType, XfrBody, ASSET_TYPE_LENGTH,
+use zei::{
+    serialization::ZeiFromToBytes,
+    xfr::{
+        lib::{gen_xfr_body, XfrNotePolicies},
+        sig::{XfrKeyPair, XfrPublicKey},
+        structs::{
+            AssetRecord, AssetType as ZeiAssetType, BlindAssetRecord, OwnerMemo,
+            TracingPolicies, TracingPolicy, XfrAmount, XfrAssetType, XfrBody,
+            ASSET_TYPE_LENGTH,
+        },
+    },
 };
-
-use super::effects::*;
-use ruc::*;
-use std::ops::Deref;
-
-use crate::address::operation::{ConvertAccount};
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -157,7 +160,7 @@ impl AssetTypeCode {
     /// Converts the asset type code to an utf8 string.
     ///
     /// Used to display the asset type code.
-    pub fn to_utf8(&self) -> Result<String> {
+    pub fn to_utf8(self) -> Result<String> {
         debug_assert!(UTF8_ASSET_TYPES_WORK);
         let mut code = self.val.0.to_vec();
         let len = code.len();
@@ -204,7 +207,7 @@ impl AssetTypeCode {
             )))),
         }
     }
-    pub fn to_base64(&self) -> String {
+    pub fn to_base64(self) -> String {
         b64enc(&self.val.0)
     }
 }
@@ -238,7 +241,7 @@ impl Code {
             Err(eg!(des_fail!()))
         }
     }
-    pub fn to_base64(&self) -> String {
+    pub fn to_base64(self) -> String {
         b64enc(&self.val)
     }
 }
@@ -785,13 +788,12 @@ impl DefineAssetBody {
         asset_rules: AssetRules,
         memo: Option<Memo>,
         confidential_memo: Option<ConfidentialMemo>,
-        policy: Option<(Box<Policy>, PolicyGlobals)>,
     ) -> Result<DefineAssetBody> {
         let mut asset_def: Asset = Default::default();
         asset_def.code = *token_code;
         asset_def.issuer = *issuer_key;
         asset_def.asset_rules = asset_rules;
-        asset_def.policy = policy;
+        asset_def.policy = None;
 
         if let Some(memo) = memo {
             asset_def.memo = Memo(memo.0);
@@ -987,6 +989,7 @@ pub enum Operation {
     IssueAsset(IssueAsset),
     DefineAsset(DefineAsset),
     UpdateMemo(UpdateMemo),
+    UpdateStaker(UpdateStakerOps),
     Delegation(DelegationOps),
     UnDelegation(Box<UnDelegationOps>),
     Claim(ClaimOps),
@@ -999,6 +1002,9 @@ pub enum Operation {
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
     match op {
+        Operation::UpdateStaker(i) => {
+            i.set_nonce(no_replay_token);
+        }
         Operation::Delegation(i) => {
             i.set_nonce(no_replay_token);
         }
@@ -1021,12 +1027,6 @@ fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {
         Operation::ConvertAccount(i) => i.set_nonce(no_replay_token),
         _ => {}
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct TimeBounds {
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Default)]
@@ -1067,135 +1067,6 @@ pub struct FinalizedTransaction {
     pub txo_ids: Vec<TxoSID>,
 
     pub merkle_id: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ValidatorList {
-    validators: Vec<Validator>,
-    threshold: [u128; 2],
-}
-
-impl ValidatorList {
-    pub fn new(validators: Vec<Validator>) -> Self {
-        ValidatorList {
-            validators,
-            threshold: MAX_POWER_PERCENT_PER_VALIDATOR,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct Validator {
-    addr: TendermintAddr,
-    power: u64,
-    commission_rate: [u64; 2],
-    accept_delegation: bool,
-}
-
-impl Validator {
-    #[inline(always)]
-    #[allow(missing_docs)]
-    pub fn new(
-        addr: TendermintAddr,
-        power: u64,
-        commission_rate: [u64; 2],
-        accept_delegation: bool,
-    ) -> Self {
-        Validator {
-            addr,
-            power,
-            commission_rate,
-            accept_delegation,
-        }
-    }
-}
-
-#[allow(missing_docs)]
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ValidatorDetail {
-    pub addr: TendermintAddr,
-    pub kind: String,
-    pub is_online: bool,
-    pub voting_power: u64,
-    pub voting_power_rank: usize,
-    pub commission_rate: [u64; 2],
-    pub self_staking: u64,
-    pub fra_rewards: u64,
-    pub memo: String,
-    pub start_height: u64,
-    pub cur_height: u64,
-    pub block_signed_cnt: u64,
-    pub block_proposed_cnt: u64,
-    pub expected_annualization: [u128; 2],
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub struct DelegatorInfo {
-    pub addr: String,
-    pub amount: u64,
-}
-
-impl DelegatorInfo {
-    pub fn new(addr: String, amount: u64) -> Self {
-        DelegatorInfo { addr, amount }
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub struct DelegatorList {
-    delegators: Vec<DelegatorInfo>,
-}
-
-impl DelegatorList {
-    pub fn new(delegators: Vec<DelegatorInfo>) -> Self {
-        DelegatorList { delegators }
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub struct DelegationInfo {
-    pub bond: u64,
-    pub bond_entries: Vec<(String, u64)>,
-    pub unbond: u64,
-    pub rewards: u64,
-    pub return_rate: [u128; 2],
-    pub global_delegation: u64,
-    pub global_staking: u64,
-    pub start_height: u64,
-    pub end_height: u64,
-    pub current_height: u64,
-    pub delegation_rwd_cnt: u64,
-    pub proposer_rwd_cnt: u64,
-}
-
-impl DelegationInfo {
-    fn default_x() -> Self {
-        Self {
-            return_rate: [0, 100],
-            ..Self::default()
-        }
-    }
-
-    pub fn new(
-        bond: u64,
-        bond_entries: Vec<(String, u64)>,
-        unbond: u64,
-        rewards: u64,
-        return_rate: [u128; 2],
-        global_delegation: u64,
-        global_staking: u64,
-    ) -> Self {
-        Self {
-            bond,
-            bond_entries,
-            unbond,
-            rewards,
-            return_rate,
-            global_delegation,
-            global_staking,
-            ..Self::default_x()
-        }
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1454,8 +1325,6 @@ lazy_static! {
     pub static ref BLACK_HOLE_PUBKEY: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[0; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
     /// BlackHole of Staking
     pub static ref BLACK_HOLE_PUBKEY_STAKING: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[1; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
-    // /// BlackHole of AccountTransfer
-    // pub static ref BLACK_HOLE_PUBKEY_ACCOUNT: XfrPublicKey = pnk!(XfrPublicKey::zei_from_bytes(&[2; ed25519_dalek::PUBLIC_KEY_LENGTH][..]));
 }
 
 /// see [**mainnet-v1.0 defination**](https://www.notion.so/findora/Transaction-Fees-Analysis-d657247b70f44a699d50e1b01b8a2287)
@@ -1549,7 +1418,7 @@ impl Transaction {
                         list.split(',')
                             .filter(|v| !v.is_empty())
                             .map(|v| {
-                                pnk!(wallet::public_key_from_bech32(&v))
+                                pnk!(utils::wallet::public_key_from_bech32(&v))
                                     .as_bytes()
                                     .to_vec()
                             })
@@ -1679,35 +1548,6 @@ impl Transaction {
             }
             ret
         }
-
-        // let mut outputs = Vec::new();
-        // let mut spent_indices = Vec::new();
-        // for op in self.body.operations.iter() {
-        //   match op {
-        //     Operation::TransferAsset(xfr_asset) => {
-        //       for txo_ref in &xfr_asset.body.inputs {
-        //         match txo_ref {
-        //           TxoRef::Relative(offset) => {
-        //             let idx = (outputs.len() as u64) - *offset - 1;
-        //             spent_indices.push(idx);
-        //           }
-        //           TxoRef::Absolute(_) => {}
-        //         };
-        //       }
-        //       outputs.append(&mut xfr_asset.get_outputs_ref());
-        //     }
-        //     Operation::IssueAsset(issue_asset) => {
-        //       outputs.append(&mut issue_asset.get_outputs_ref());
-        //     }
-        //     _ => {}
-        //   }
-        // }
-        // if !include_spent {
-        //   for idx in spent_indices {
-        //     outputs.remove(idx.try_into().c(d!())?);
-        //   }
-        // }
-        // outputs
     }
 
     /// NOTE: this does *not* guarantee that a private key affiliated with
@@ -1760,10 +1600,6 @@ pub struct Account {
     pub id: AccountID,
     pub access_control_list: Vec<AccountAddress>,
     pub key_value: HashMap<String, String>, //key value storage...
-}
-
-pub trait StakingUpdate {
-    fn get_staking_simulator_mut(&mut self) -> &mut Staking;
 }
 
 #[cfg(test)]
@@ -1834,7 +1670,7 @@ mod tests {
         if UTF8_ASSET_TYPES_WORK {
             let customized_code = "❤️💰 My 资产 $";
             let code = AssetTypeCode::new_from_utf8_truncate(customized_code);
-            let utf8 = AssetTypeCode::to_utf8(&code).unwrap();
+            let utf8 = AssetTypeCode::to_utf8(code).unwrap();
             assert_eq!(utf8, customized_code);
         }
     }
@@ -1857,7 +1693,7 @@ mod tests {
             assert_ne!(code_short, code_32_bytes);
             assert_eq!(code_32_bytes, code_to_truncate);
 
-            let utf8 = AssetTypeCode::to_utf8(&code_32_bytes).unwrap();
+            let utf8 = AssetTypeCode::to_utf8(code_32_bytes).unwrap();
             assert_eq!(utf8, customized_code_32_bytes);
         }
     }
@@ -1883,31 +1719,6 @@ mod tests {
 
             assert!(checked == code.val.0.len());
             input += value;
-        }
-    }
-
-    #[quickcheck]
-    #[ignore]
-    #[test]
-    fn test_to_from_base64(bytes: Vec<u8>) {
-        let code = AssetTypeCode::new_from_vec(bytes);
-        assert_eq!(
-            code,
-            pnk!(AssetTypeCode::new_from_base64(&code.to_base64()))
-        );
-    }
-
-    #[quickcheck]
-    #[ignore]
-    #[test]
-    fn test_to_from_utf8(bytes: Vec<u8>) {
-        if UTF8_ASSET_TYPES_WORK {
-            let code = AssetTypeCode::new_from_vec(bytes);
-            println!("{:?}", code.to_utf8());
-            assert_eq!(
-                code,
-                pnk!(AssetTypeCode::new_from_utf8_safe(&code.to_utf8().unwrap()))
-            );
         }
     }
 
@@ -2172,30 +1983,4 @@ mod tests {
         tx.add_operation(invalid_destination_not_black_hole);
         assert!(tx.check_fee());
     }
-
-    // Verify that the hash values of two transactions:
-    //   are the same if the transactions differ only in merkle_id
-    //   are different if the transactions differ in other fields
-    // TODO(joe): determine a good test to replace this
-    // #[test]
-    // fn test_compute_merkle_hash() {
-    //   let transaction_default: Transaction = Default::default();
-
-    //   let transaction_different_merkle_id =
-    //     Transaction { operations: Vec::new(),
-    //                   credentials: Vec::new(),
-    //                   memos: Vec::new() };
-
-    //   let transaction_other_differences = Transaction { operations: Vec::new(),
-    //                                                     credentials: Vec::new(),
-    //                                                     memos: Vec::new(),
-    //                                                     };
-
-    //   let hash_value_default = transaction_default.compute_merkle_hash();
-    //   let hash_value_different_merkle_id = transaction_different_merkle_id.compute_merkle_hash();
-    //   let hash_value_other_differences = transaction_other_differences.compute_merkle_hash();
-
-    //   assert_eq!(hash_value_different_merkle_id, hash_value_default);
-    //   assert_ne!(hash_value_other_differences, hash_value_default);
-    // }
 }

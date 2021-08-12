@@ -1,272 +1,63 @@
 #![deny(warnings)]
 #![allow(clippy::needless_borrow)]
 
-extern crate ledger;
-extern crate serde;
-extern crate zei;
-#[macro_use]
-extern crate serde_derive;
-
 use credentials::CredUserSecretKey;
 use curve25519_dalek::scalar::Scalar;
 use fp_types::crypto::MultiSigner;
-use ledger::address::operation::ConvertAccount;
-use ledger::data_model::errors::PlatformError;
-use ledger::data_model::*;
-use ledger::inv_fail;
-use ledger::policies::Fraction;
-use ledger::policy_script::{Policy, PolicyGlobals, TxnCheckInputs, TxnPolicyData};
-use ledger::staking::ops::update_staker::UpdateStakerOps;
-use ledger::staking::{
-    is_valid_tendermint_addr,
-    ops::{
-        claim::ClaimOps,
-        delegation::DelegationOps,
-        fra_distribution::FraDistributionOps,
-        governance::{ByzantineKind, GovernanceOps},
-        undelegation::UnDelegationOps,
-        update_validator::UpdateValidatorOps,
+use ledger::{
+    address::operation::ConvertAccount,
+    data_model::{errors::PlatformError, *},
+    inv_fail,
+    staking::{
+        is_valid_tendermint_addr,
+        ops::{
+            claim::ClaimOps,
+            delegation::DelegationOps,
+            fra_distribution::FraDistributionOps,
+            governance::{ByzantineKind, GovernanceOps},
+            undelegation::UnDelegationOps,
+            update_staker::UpdateStakerOps,
+            update_validator::UpdateValidatorOps,
+        },
+        td_addr_to_string, BlockHeight, PartialUnDelegation, StakerMemo, TendermintAddr,
+        Validator,
     },
-    td_addr_to_string, BlockHeight, PartialUnDelegation, StakerMemo, TendermintAddr,
-    Validator,
 };
+use libutils::SignatureOf;
 use rand_chacha::ChaChaRng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
 use ruc::*;
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashSet};
+use serde::{Deserialize, Serialize};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashSet},
+};
 use tendermint::PrivateKey;
-use utils::SignatureOf;
-use zei::api::anon_creds::{
-    ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
-    Credential,
-};
-use zei::serialization::ZeiFromToBytes;
-use zei::setup::PublicParams;
-use zei::xfr::asset_record::{
-    build_blind_asset_record, build_open_asset_record, open_blind_asset_record,
-    AssetRecordType,
-};
-use zei::xfr::lib::XfrNotePolicies;
-use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
-use zei::xfr::structs::{
-    AssetRecord, AssetRecordTemplate, BlindAssetRecord, OpenAssetRecord, OwnerMemo,
-    TracingPolicies, TracingPolicy,
+use zei::{
+    api::anon_creds::{
+        ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
+        Credential,
+    },
+    serialization::ZeiFromToBytes,
+    setup::PublicParams,
+    xfr::{
+        asset_record::{
+            build_blind_asset_record, build_open_asset_record, open_blind_asset_record,
+            AssetRecordType,
+        },
+        lib::XfrNotePolicies,
+        sig::{XfrKeyPair, XfrPublicKey},
+        structs::{
+            AssetRecord, AssetRecordTemplate, BlindAssetRecord, OpenAssetRecord,
+            OwnerMemo, TracingPolicies, TracingPolicy,
+        },
+    },
 };
 
 macro_rules! no_transfer_err {
     () => {
         inv_fail!("Transaction has not yet been finalized".to_string())
     };
-}
-
-#[derive(Deserialize, Serialize, PartialEq)]
-pub enum PolicyChoice {
-    Fungible(),
-    LoanToken(Fraction, AssetTypeCode, u64),
-}
-
-impl Default for PolicyChoice {
-    fn default() -> Self {
-        Self::Fungible()
-    }
-}
-
-fn debt_policy() -> Policy {
-    use ledger::policy_script::*;
-    Policy {
-        num_id_globals: 1,
-        num_rt_globals: 2,
-        num_amt_globals: 1,
-        num_frac_globals: 1,
-        init_check: TxnCheck {
-            name: "init_txn".to_string(),
-            in_params: vec![],
-            out_params: vec![],
-            id_ops: vec![],
-            rt_ops: vec![],
-            fraction_ops: vec![
-                FractionOp::Const(Fraction::new(0, 1)),
-                FractionOp::Var(FractionVar(0)),
-                FractionOp::Const(Fraction::new(1, 1)),
-            ],
-            amount_ops: vec![AmountOp::Const(0), AmountOp::Var(AmountVar(0))],
-            bool_ops: vec![
-                BoolOp::FracGe(FractionVar(1), FractionVar(1)),
-                BoolOp::FracGe(FractionVar(2), FractionVar(1)),
-                BoolOp::FracEq(FractionVar(2), FractionVar(1)),
-                BoolOp::Not(BoolVar(2)),
-                BoolOp::FracGe(FractionVar(2), FractionVar(1)),
-                BoolOp::And(BoolVar(3), BoolVar(4)),
-                BoolOp::FracGe(FractionVar(3), FractionVar(1)),
-                BoolOp::FracEq(FractionVar(3), FractionVar(2)),
-                BoolOp::Not(BoolVar(7)),
-                BoolOp::FracGe(FractionVar(3), FractionVar(2)),
-                BoolOp::And(BoolVar(8), BoolVar(9)),
-                BoolOp::AmtGe(AmountVar(1), AmountVar(1)),
-                BoolOp::AmtGe(AmountVar(2), AmountVar(1)),
-            ],
-            assertions: vec![
-                BoolVar(0),
-                BoolVar(1),
-                BoolVar(5),
-                BoolVar(6),
-                BoolVar(10),
-                BoolVar(11),
-                BoolVar(12),
-            ],
-            required_signatures: vec![],
-            txn_template: vec![],
-        },
-        txn_choices: vec![
-            TxnCheck {
-                name: "setup_loan".to_string(),
-                in_params: vec![],
-                out_params: vec![ResourceTypeVar(0)],
-                id_ops: vec![IdOp::OwnerOf(ResourceVar(0)), IdOp::Var(IdVar(0))],
-                rt_ops: vec![],
-                fraction_ops: vec![],
-                amount_ops: vec![AmountOp::Var(AmountVar(0))],
-                bool_ops: vec![
-                    BoolOp::IdEq(IdVar(1), IdVar(2)),
-                    BoolOp::AmtEq(AmountVar(1), AmountVar(1)),
-                ],
-                assertions: vec![BoolVar(0), BoolVar(1)],
-                required_signatures: vec![IdVar(0)],
-                txn_template: vec![TxnOp::Issue(
-                    AmountVar(1),
-                    ResourceTypeVar(0),
-                    ResourceVar(0),
-                )],
-            },
-            TxnCheck {
-                name: "start_loan".to_string(),
-                in_params: vec![ResourceTypeVar(0), ResourceTypeVar(1)],
-                out_params: vec![ResourceTypeVar(0), ResourceTypeVar(1)],
-                id_ops: vec![
-                    IdOp::OwnerOf(ResourceVar(0)),
-                    IdOp::Var(IdVar(0)),
-                    IdOp::OwnerOf(ResourceVar(1)),
-                    IdOp::OwnerOf(ResourceVar(2)),
-                ],
-                rt_ops: vec![],
-                fraction_ops: vec![],
-                amount_ops: vec![
-                    AmountOp::AmountOf(ResourceVar(1)),
-                    AmountOp::AmountOf(ResourceVar(0)),
-                    AmountOp::Const(0),
-                    AmountOp::Minus(AmountVar(1), AmountVar(2)),
-                    AmountOp::Minus(AmountVar(2), AmountVar(2)),
-                ],
-                bool_ops: vec![
-                    BoolOp::AmtGe(AmountVar(1), AmountVar(2)),
-                    BoolOp::IdEq(IdVar(1), IdVar(2)),
-                    BoolOp::IdEq(IdVar(4), IdVar(3)),
-                    BoolOp::AmtEq(AmountVar(2), AmountVar(2)),
-                    BoolOp::AmtGe(AmountVar(3), AmountVar(3)),
-                    BoolOp::AmtEq(AmountVar(4), AmountVar(3)),
-                    BoolOp::AmtGe(AmountVar(2), AmountVar(2)),
-                    BoolOp::AmtEq(AmountVar(5), AmountVar(3)),
-                ],
-                assertions: vec![
-                    BoolVar(0),
-                    BoolVar(1),
-                    BoolVar(2),
-                    BoolVar(3),
-                    BoolVar(4),
-                    BoolVar(5),
-                    BoolVar(6),
-                    BoolVar(7),
-                ],
-                required_signatures: vec![IdVar(0), IdVar(3)],
-                txn_template: vec![
-                    TxnOp::Transfer(AmountVar(2), ResourceVar(1), Some(ResourceVar(3))),
-                    TxnOp::Transfer(AmountVar(2), ResourceVar(0), Some(ResourceVar(2))),
-                ],
-            },
-            TxnCheck {
-                name: "repay_loan".to_string(),
-                in_params: vec![ResourceTypeVar(0), ResourceTypeVar(1)],
-                out_params: vec![ResourceTypeVar(0), ResourceTypeVar(1)],
-                id_ops: vec![
-                    IdOp::OwnerOf(ResourceVar(3)),
-                    IdOp::OwnerOf(ResourceVar(0)),
-                ],
-                rt_ops: vec![],
-                fraction_ops: vec![
-                    FractionOp::Var(FractionVar(0)),
-                    FractionOp::AmtTimes(AmountVar(1), FractionVar(1)),
-                ],
-                amount_ops: vec![
-                    AmountOp::AmountOf(ResourceVar(0)),
-                    AmountOp::AmountOf(ResourceVar(1)),
-                    AmountOp::Round(FractionVar(2)),
-                    AmountOp::Minus(AmountVar(2), AmountVar(3)),
-                    AmountOp::Minus(AmountVar(1), AmountVar(4)),
-                    AmountOp::Const(0),
-                    AmountOp::Minus(AmountVar(2), AmountVar(2)),
-                    AmountOp::Minus(AmountVar(5), AmountVar(5)),
-                ],
-                bool_ops: vec![
-                    BoolOp::IdEq(IdVar(1), IdVar(2)),
-                    BoolOp::AmtGe(AmountVar(2), AmountVar(3)),
-                    BoolOp::AmtGe(AmountVar(1), AmountVar(4)),
-                    BoolOp::AmtGe(AmountVar(1), AmountVar(5)),
-                    BoolOp::AmtGe(AmountVar(6), AmountVar(6)),
-                    BoolOp::AmtGe(AmountVar(2), AmountVar(2)),
-                    BoolOp::AmtEq(AmountVar(7), AmountVar(6)),
-                    BoolOp::AmtGe(AmountVar(5), AmountVar(5)),
-                    BoolOp::AmtEq(AmountVar(8), AmountVar(6)),
-                ],
-                assertions: vec![
-                    BoolVar(0),
-                    BoolVar(1),
-                    BoolVar(2),
-                    BoolVar(3),
-                    BoolVar(4),
-                    BoolVar(5),
-                    BoolVar(6),
-                    BoolVar(7),
-                    BoolVar(8),
-                ],
-                required_signatures: vec![],
-                txn_template: vec![
-                    TxnOp::Transfer(AmountVar(4), ResourceVar(0), None),
-                    TxnOp::Transfer(AmountVar(5), ResourceVar(0), Some(ResourceVar(2))),
-                    TxnOp::Transfer(AmountVar(2), ResourceVar(1), Some(ResourceVar(3))),
-                ],
-            },
-        ],
-    }
-}
-
-fn debt_globals(
-    code: &AssetTypeCode,
-    borrower: &XfrPublicKey,
-    interest_rate: Fraction,
-    fiat_type: AssetTypeCode,
-    amount: u64,
-) -> PolicyGlobals {
-    PolicyGlobals {
-        id_vars: vec![*borrower],
-        rt_vars: vec![(*code).val, fiat_type.val],
-        amt_vars: vec![amount],
-        frac_vars: vec![interest_rate],
-    }
-}
-
-fn policy_from_choice(
-    code: &AssetTypeCode,
-    borrower: &XfrPublicKey,
-    c: PolicyChoice,
-) -> Option<(Box<Policy>, PolicyGlobals)> {
-    match c {
-        PolicyChoice::Fungible() => None,
-        PolicyChoice::LoanToken(interest_rate, fiat_type, amount) => Some((
-            Box::new(debt_policy()),
-            debt_globals(code, borrower, interest_rate, fiat_type, amount),
-        )),
-    }
 }
 
 pub trait BuildsTransactions {
@@ -279,11 +70,6 @@ pub trait BuildsTransactions {
         sig: SignatureOf<TransactionBody>,
     ) -> Result<&mut Self>;
     fn add_memo(&mut self, memo: Memo) -> &mut Self;
-    fn add_policy_option(
-        &mut self,
-        token_code: AssetTypeCode,
-        which_check: String,
-    ) -> &mut Self;
     #[allow(clippy::too_many_arguments)]
     fn add_operation_create_asset(
         &mut self,
@@ -291,7 +77,6 @@ pub trait BuildsTransactions {
         token_code: Option<AssetTypeCode>,
         asset_rules: AssetRules,
         memo: &str,
-        policy_choice: PolicyChoice,
     ) -> Result<&mut Self>;
     fn add_operation_issue_asset(
         &mut self,
@@ -731,37 +516,17 @@ impl BuildsTransactions for TransactionBuilder {
         self
     }
 
-    fn add_policy_option(
-        &mut self,
-        token_code: AssetTypeCode,
-        which_check: String,
-    ) -> &mut Self {
-        if self.txn.body.policy_options.is_none() {
-            self.txn.body.policy_options = Some(TxnPolicyData(vec![]));
-        }
-        self.txn
-            .body
-            .policy_options
-            .as_mut()
-            .unwrap()
-            .0
-            .push((token_code, TxnCheckInputs { which_check }));
-        self
-    }
-
     fn add_operation_create_asset(
         &mut self,
         key_pair: &XfrKeyPair,
         token_code: Option<AssetTypeCode>,
         asset_rules: AssetRules,
         memo: &str,
-        policy_choice: PolicyChoice,
     ) -> Result<&mut Self> {
         let token_code = match token_code {
             Some(code) => code,
             None => AssetTypeCode::gen_random(),
         };
-        let pol = policy_from_choice(&token_code, key_pair.get_pk_ref(), policy_choice);
         let iss_keypair = IssuerKeyPair { keypair: &key_pair };
         self.txn.add_operation(Operation::DefineAsset(
             DefineAsset::new(
@@ -773,7 +538,6 @@ impl BuildsTransactions for TransactionBuilder {
                     asset_rules,
                     Some(Memo(memo.into())),
                     Some(ConfidentialMemo {}),
-                    pol,
                 )
                 .c(d!())?,
                 &iss_keypair,
@@ -1505,7 +1269,7 @@ impl TransferOperationBuilder {
 mod tests {
     use super::*;
     use ledger::data_model::TxoRef;
-    use ledger::store::{fra_gen_initial_tx, LedgerAccess, LedgerState, LedgerUpdate};
+    use ledger::store::{fra_gen_initial_tx, LedgerState};
     use rand_chacha::ChaChaRng;
     use rand_core::SeedableRng;
     use zei::setup::PublicParams;

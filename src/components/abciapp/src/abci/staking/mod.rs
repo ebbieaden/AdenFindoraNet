@@ -4,6 +4,8 @@
 //! Business logic based on [**Ledger Staking**](ledger::staking).
 //!
 
+mod whoami;
+
 use crate::abci::server::callback::TENDERMINT_BLOCK_HEIGHT;
 use abci::{Evidence, Header, LastCommitInfo, PubKey, ValidatorUpdate};
 use baseapp::BaseApp as AccountBaseApp;
@@ -17,17 +19,14 @@ use ledger::{
         },
         td_addr_to_string, Staking, VALIDATOR_UPDATE_BLOCK_ITV,
     },
-    store::{LedgerAccess, LedgerUpdate},
+    store::LedgerState,
 };
-use rand_core::{CryptoRng, RngCore};
 use ruc::*;
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
     sync::atomic::Ordering,
 };
-
-mod whoami;
 
 // The top 50~ candidate validators
 // will become official validators.
@@ -143,8 +142,8 @@ pub fn get_validators(
 // - pay delegation rewards
 // - pay proposer rewards(traditional block rewards)
 // - do governance operations
-pub fn system_ops<RNG: RngCore + CryptoRng>(
-    la: &mut (impl LedgerAccess + LedgerUpdate<RNG>),
+pub fn system_ops(
+    la: &mut LedgerState,
     header: &Header,
     last_commit_info: Option<&LastCommitInfo>,
     evs: &[Evidence],
@@ -228,8 +227,8 @@ fn get_last_vote_percent(last_commit_info: &LastCommitInfo) -> [u64; 2] {
 }
 
 // Set delegation rewards and proposer rewards
-fn set_rewards<RNG: RngCore + CryptoRng>(
-    la: &mut (impl LedgerUpdate<RNG> + LedgerAccess),
+fn set_rewards(
+    la: &mut LedgerState,
     proposer: &[u8],
     last_vote_percent: Option<[u64; 2]>,
 ) -> Result<()> {
@@ -260,8 +259,8 @@ fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
 }
 
 /// Pay for freed 'Delegations' and 'FraDistributions'.
-pub fn system_mint_pay<RNG: RngCore + CryptoRng>(
-    la: &(impl LedgerAccess + LedgerUpdate<RNG>),
+pub fn system_mint_pay(
+    la: &LedgerState,
     account_base_app: &mut AccountBaseApp,
 ) -> Option<Transaction> {
     let staking = la.get_staking();
@@ -364,21 +363,21 @@ pub mod abci_mock_test;
 
 #[cfg(test)]
 mod test {
+    use finutils::txn_builder::{
+        BuildsTransactions, TransactionBuilder, TransferOperationBuilder,
+    };
     use ledger::{
         data_model::{
             Transaction, TransferType, TxnEffect, TxoRef, ASSET_TYPE_FRA,
             BLACK_HOLE_PUBKEY, TX_FEE_MIN,
         },
         staking::{Staking, FF_PK_LIST, FRA_TOTAL_AMOUNT},
-        store::{fra_gen_initial_tx, LedgerAccess, LedgerState, LedgerUpdate},
+        store::{fra_gen_initial_tx, LedgerState},
     };
     use rand::random;
     use rand_chacha::ChaChaRng;
     use rand_core::SeedableRng;
     use ruc::*;
-    use txn_builder::{
-        BuildsTransactions, TransactionBuilder, TransferOperationBuilder,
-    };
     use zei::xfr::{
         asset_record::{open_blind_asset_record, AssetRecordType},
         sig::{XfrKeyPair, XfrPublicKey},

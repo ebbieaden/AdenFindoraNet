@@ -1,23 +1,21 @@
-use crate::abci::{server::ABCISubmissionServer, staking};
-use abci::*;
+use crate::{
+    abci::{server::ABCISubmissionServer, staking},
+    api::{query_server::BLOCK_CREATED, submission_server::convert_tx},
+};
 use fp_storage::hash::StorageHasher;
 use lazy_static::lazy_static;
-use ledger::address::operation::is_convert_tx;
 use ledger::{
-    data_model::TxnEffect,
-    staking::is_coinbase_tx,
-    store::{LedgerAccess, LedgerUpdate},
+    address::operation::is_convert_tx, data_model::TxnEffect, staking::is_coinbase_tx,
 };
 use log::debug;
 use parking_lot::Mutex;
-use protobuf::RepeatedField;
-use query_server::BLOCK_CREATED;
 use ruc::*;
 use std::sync::{
     atomic::{AtomicI64, Ordering},
     Arc,
 };
-use submission_server::convert_tx;
+use tendermint_sys::SyncApplication;
+use tm_protos::abci::*;
 
 mod pulse_cache;
 mod utils;
@@ -27,12 +25,12 @@ pub static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
 
 lazy_static! {
     static ref REQ_BEGIN_BLOCK: Arc<Mutex<RequestBeginBlock>> =
-        Arc::new(Mutex::new(RequestBeginBlock::new()));
+        Arc::new(Mutex::new(RequestBeginBlock::default()));
 }
 
-pub fn info(s: &mut ABCISubmissionServer, req: &RequestInfo) -> ResponseInfo {
-    let mut resp = ResponseInfo::new();
-    let mut resp_app = s.account_base_app.write().info(req);
+pub fn info(s: &mut ABCISubmissionServer, req: RequestInfo) -> ResponseInfo {
+    let mut resp = ResponseInfo::default();
+    let resp_app = s.account_base_app.write().info(req);
 
     let mut la = s.la.write();
 
@@ -40,13 +38,13 @@ pub fn info(s: &mut ABCISubmissionServer, req: &RequestInfo) -> ResponseInfo {
     let commitment = state.get_state_commitment();
     if commitment.1 > 0 {
         // last height
-        let td_height = resp_app.get_last_block_height();
-        resp.set_last_block_height(td_height);
+        let td_height = resp_app.last_block_height;
+        resp.last_block_height = td_height;
 
         // last hash
         let la_hash = commitment.0.as_ref().to_vec();
-        let cs_hash = resp_app.take_last_block_app_hash();
-        resp.set_last_block_app_hash(root_hash("info", td_height, la_hash, cs_hash));
+        let cs_hash = resp_app.last_block_app_hash;
+        resp.last_block_app_hash = root_hash("info", td_height, la_hash, cs_hash);
     }
 
     if let Ok(s) = ruc::info!(pulse_cache::read_staking()) {
@@ -64,34 +62,33 @@ pub fn info(s: &mut ABCISubmissionServer, req: &RequestInfo) -> ResponseInfo {
     resp
 }
 
-pub fn query(s: &mut ABCISubmissionServer, req: &RequestQuery) -> ResponseQuery {
+pub fn query(s: &mut ABCISubmissionServer, req: RequestQuery) -> ResponseQuery {
     s.account_base_app.write().query(req)
 }
 
 pub fn init_chain(
     s: &mut ABCISubmissionServer,
-    req: &RequestInitChain,
+    req: RequestInitChain,
 ) -> ResponseInitChain {
     s.account_base_app.write().init_chain(req)
 }
 
-pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseCheckTx {
-    // Get the Tx [u8] and convert to u64
-    if let Some(tx) = convert_tx(req.get_tx()) {
-        let mut resp = ResponseCheckTx::new();
+pub fn check_tx(s: &mut ABCISubmissionServer, req: RequestCheckTx) -> ResponseCheckTx {
+    if let Some(tx) = convert_tx(&req.tx) {
+        // Get the Tx [u8] and convert to u64
+        let mut resp = ResponseCheckTx::default();
         if is_convert_tx(&tx) {
             let check_res = s.account_base_app.write().check_findora_tx(&tx);
             if check_res.is_err() {
-                resp.set_code(1);
-                resp.set_log(String::from("Check, failed"));
+                resp.code = 1;
+                resp.log = String::from("Check, failed");
             }
-        }
-        if is_coinbase_tx(&tx)
+        } else if is_coinbase_tx(&tx)
             || !tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
             || ruc::info!(TxnEffect::compute_effect(tx)).is_err()
         {
-            resp.set_code(1);
-            resp.set_log(String::from("Check failed"));
+            resp.code = 1;
+            resp.log = String::from("Check failed");
         }
         resp
     } else {
@@ -101,31 +98,31 @@ pub fn check_tx(s: &mut ABCISubmissionServer, req: &RequestCheckTx) -> ResponseC
 
 pub fn deliver_tx(
     s: &mut ABCISubmissionServer,
-    req: &RequestDeliverTx,
+    req: RequestDeliverTx,
 ) -> ResponseDeliverTx {
-    if let Some(tx) = convert_tx(req.get_tx()) {
-        let mut resp = ResponseDeliverTx::new();
+    if let Some(tx) = convert_tx(&req.tx) {
+        let mut resp = ResponseDeliverTx::default();
         if !is_coinbase_tx(&tx)
             && tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
         {
             // set attr(tags) if any
             let attr = utils::gen_tendermint_attr(&tx);
-            if 0 < attr.len() {
-                resp.set_events(attr);
+            if !attr.is_empty() {
+                resp.events = attr;
             }
 
             if s.la.write().cache_transaction(tx.clone()).is_ok() {
                 if is_convert_tx(&tx)
                     && s.account_base_app.write().deliver_findora_tx(&tx).is_err()
                 {
-                    resp.set_code(1);
-                    resp.set_log(String::from("Failed to deliver transaction!"));
+                    resp.code = 1;
+                    resp.log = String::from("Failed to deliver transaction!");
                 }
                 return resp;
             }
         }
-        resp.set_code(1);
-        resp.set_log(String::from("Failed to deliver transaction!"));
+        resp.code = 1;
+        resp.log = String::from("Failed to deliver transaction!");
         resp
     } else {
         s.account_base_app.write().deliver_tx(req)
@@ -134,7 +131,7 @@ pub fn deliver_tx(
 
 pub fn begin_block(
     s: &mut ABCISubmissionServer,
-    req: &RequestBeginBlock,
+    req: RequestBeginBlock,
 ) -> ResponseBeginBlock {
     let header = pnk!(req.header.as_ref());
     TENDERMINT_BLOCK_HEIGHT.swap(header.height, Ordering::Relaxed);
@@ -155,15 +152,16 @@ pub fn begin_block(
     } else {
         pnk!(la.update_staking_simulator());
     }
+    drop(la);
 
     s.account_base_app.write().begin_block(req)
 }
 
 pub fn end_block(
     s: &mut ABCISubmissionServer,
-    req: &RequestEndBlock,
+    req: RequestEndBlock,
 ) -> ResponseEndBlock {
-    let mut resp = ResponseEndBlock::new();
+    let mut resp = ResponseEndBlock::default();
 
     let begin_block_req = REQ_BEGIN_BLOCK.lock();
     let header = pnk!(begin_block_req.header.as_ref());
@@ -198,7 +196,7 @@ pub fn end_block(
         la.get_committed_state().read().get_staking(),
         begin_block_req.last_commit_info.as_ref()
     )) {
-        resp.set_validator_updates(RepeatedField::from_vec(vs));
+        resp.validator_updates = vs;
     }
 
     staking::system_ops(
@@ -208,17 +206,21 @@ pub fn end_block(
         &begin_block_req.byzantine_validators.as_slice(),
     );
 
-    s.account_base_app.write().end_block(req);
+    let _ = s.account_base_app.write().end_block(req);
 
     resp
 }
 
-pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseCommit {
-    let mut r = ResponseCommit::new();
+pub fn commit(s: &mut ABCISubmissionServer) -> ResponseCommit {
+    let mut r = ResponseCommit::default();
     let la = s.la.read();
+
+    // la.begin_commit();
 
     let state = la.get_committed_state().read();
     let commitment = state.get_state_commitment();
+
+    // la.end_commit();
 
     let td_height = TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed);
     pnk!(pulse_cache::write_height(td_height));
@@ -229,8 +231,8 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
 
     // set root hash
     let la_hash = commitment.0.as_ref().to_vec();
-    let cs_hash = s.account_base_app.write().commit(req).data;
-    r.set_data(root_hash("commit", td_height, la_hash, cs_hash));
+    let cs_hash = s.account_base_app.write().commit().data;
+    r.data = root_hash("commit", td_height, la_hash, cs_hash);
 
     r
 }

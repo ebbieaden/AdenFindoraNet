@@ -8,14 +8,17 @@ use crate::abci::server::{
     tx_sender::{forward_txn_with_mode, CHAN},
     ABCISubmissionServer,
 };
-use abci::*;
 use cryptohash::sha256::{self, Digest};
+use finutils::{
+    api::DelegationInfo,
+    txn_builder::{BuildsTransactions, TransactionBuilder, TransferOperationBuilder},
+};
 use lazy_static::lazy_static;
 use ledger::staking::STAKING_VALIDATOR_MIN_POWER;
 use ledger::{
     data_model::{
-        DelegationInfo, Operation, Transaction, TransferType, TxoRef, TxoSID, Utxo,
-        ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
+        Operation, Transaction, TransferType, TxoRef, TxoSID, Utxo, ASSET_TYPE_FRA,
+        BLACK_HOLE_PUBKEY, BLACK_HOLE_PUBKEY_STAKING, TX_FEE_MIN,
     },
     staking::{
         calculate_delegation_rewards,
@@ -28,7 +31,7 @@ use ledger::{
         Validator as StakingValidator, ValidatorKind, BLOCK_HEIGHT_MAX, FRA,
         FRA_TOTAL_AMOUNT, UNBOND_BLOCK_CNT,
     },
-    store::{fra_gen_initial_tx, LedgerAccess},
+    store::fra_gen_initial_tx,
 };
 use parking_lot::{Mutex, RwLock};
 use rand_chacha::ChaChaRng;
@@ -47,7 +50,8 @@ use std::{
     thread,
     time::Duration,
 };
-use txn_builder::{BuildsTransactions, TransactionBuilder, TransferOperationBuilder};
+use tendermint_sys::SyncApplication;
+use tm_protos::abci::*;
 use zei::xfr::{
     asset_record::{open_blind_asset_record, AssetRecordType},
     sig::{XfrKeyPair, XfrPublicKey},
@@ -113,13 +117,13 @@ impl AbciMocker {
             &TD_MOCKER.read().validators.keys().next().unwrap()
         ));
 
-        self.0.begin_block(&gen_req_begin_block(h, proposer));
+        self.0.begin_block(gen_req_begin_block(h, proposer));
 
         let mut failed_txs = FAILED_TXS.write();
         let mut successful_txs = SUCCESS_TXS.write();
         for tx in txs.into_iter() {
             let key = gen_tx_hash(&tx);
-            if 0 == self.0.deliver_tx(&gen_req_deliver_tx(tx.clone())).code {
+            if 0 == self.0.deliver_tx(gen_req_deliver_tx(tx.clone())).code {
                 assert!(successful_txs.insert(key, tx).is_none());
             } else {
                 assert!(failed_txs.insert(key, tx).is_none());
@@ -128,22 +132,22 @@ impl AbciMocker {
         drop(failed_txs);
         drop(successful_txs);
 
-        let resp = self.0.end_block(&gen_req_end_block(h.saturating_sub(20)));
+        let resp = self.0.end_block(gen_req_end_block(h.saturating_sub(20)));
         if 0 < resp.validator_updates.len() {
             TD_MOCKER.write().validators = resp
                 .validator_updates
-                .into_vec()
+                .to_vec()
                 .into_iter()
                 .filter(|v| 0 < v.power)
                 .filter_map(|v| {
                     v.pub_key
                         .as_ref()
-                        .map(|pk| (td_pubkey_to_td_addr(pk.get_data()), v.power as u64))
+                        .map(|pk| (td_pubkey_to_td_addr(&pk.data), v.power as u64))
                 })
                 .collect();
         }
 
-        self.0.commit(&gen_req_commit());
+        self.0.commit();
     }
 
     fn get_owned_utxos(
@@ -340,11 +344,9 @@ pub struct TendermintMocker {
 
 impl TendermintMocker {
     fn new() -> TendermintMocker {
-        thread::spawn(move || {
-            loop {
-                thread::sleep(Duration::from_millis(ITV));
-                ABCI_MOCKER.write().produce_block();
-            }
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_millis(ITV));
+            ABCI_MOCKER.write().produce_block();
         });
 
         TendermintMocker {
@@ -361,35 +363,31 @@ impl TendermintMocker {
 fn gen_initial_keypair_list() -> Result<Vec<XfrKeyPair>> {
     INITIAL_MNEMONIC
         .iter()
-        .map(|m| wallet::restore_keypair_from_mnemonic_default(m).c(d!()))
+        .map(|m| utils::wallet::restore_keypair_from_mnemonic_default(m).c(d!()))
         .collect::<Result<Vec<_>>>()
 }
 
 fn gen_req_begin_block(h: i64, proposer: Vec<u8>) -> RequestBeginBlock {
-    let mut header = Header::new();
-    header.set_height(h);
-    header.set_proposer_address(proposer);
+    let mut header = Header::default();
+    header.height = h;
+    header.proposer_address = proposer;
 
-    let mut res = RequestBeginBlock::new();
-    res.set_header(header);
+    let mut res = RequestBeginBlock::default();
+    res.header = Some(header);
 
     res
 }
 
 fn gen_req_deliver_tx(tx: Transaction) -> RequestDeliverTx {
-    let mut res = RequestDeliverTx::new();
-    res.set_tx(pnk!(serde_json::to_vec(&tx)));
+    let mut res = RequestDeliverTx::default();
+    res.tx = pnk!(serde_json::to_vec(&tx));
     res
 }
 
 fn gen_req_end_block(h: i64) -> RequestEndBlock {
-    let mut req = RequestEndBlock::new();
+    let mut req = RequestEndBlock::default();
     req.height = h;
     req
-}
-
-fn gen_req_commit() -> RequestCommit {
-    RequestCommit::new()
 }
 
 fn gen_tx_hash(tx: &Transaction) -> Digest {
@@ -506,7 +504,7 @@ fn gen_new_validators(n: u8) -> (Vec<StakingValidator>, Vec<XfrKeyPair>) {
                 INITIAL_POWER,
                 kp.get_pk(),
                 [50, 100],
-                None,
+                Default::default(),
                 ValidatorKind::Staker
             ))
         })
@@ -795,7 +793,7 @@ fn staking_scene_1() -> Result<()> {
     let tx = fra_gen_initial_tx(&ROOT_KEYPAIR);
     let tx_hash = gen_tx_hash(&tx);
     send_tx(tx).c(d!())?;
-    wait_one_block();
+    wait_n_block(5);
     assert!(is_successful(&tx_hash));
 
     // 1. update validators
@@ -840,12 +838,12 @@ fn staking_scene_1() -> Result<()> {
 
     let tx_hash =
         delegate(&x_kp, td_pubkey_to_td_addr(&v_set[0].td_pubkey), 32 * FRA).c(d!())?;
-    wait_one_block();
+    wait_n_block(5);
     assert!(is_failed(&tx_hash));
 
     // undelegation will fail
     let tx_hash = undelegate(&x_kp).c(d!())?;
-    wait_one_block();
+    wait_n_block(5);
     assert!(is_failed(&tx_hash));
 
     // 5. make validators to finish their self-delegations
@@ -1119,11 +1117,9 @@ fn staking_scene_1() -> Result<()> {
 
     // 23. make sure the result is correct
 
-    assert!(
-        alloc_table
-            .iter()
-            .all(|(pk, am)| *am == ABCI_MOCKER.read().get_owned_balance(pk))
-    );
+    assert!(alloc_table
+        .iter()
+        .all(|(pk, am)| *am == ABCI_MOCKER.read().get_owned_balance(pk)));
 
     // 24. use these addrs to delegate to different validators
 
@@ -1182,7 +1178,7 @@ fn staking_scene_1() -> Result<()> {
         32_0000 * FRA,
     )
     .c(d!())?;
-    wait_one_block();
+    wait_n_block(5);
     assert!(is_failed(&tx_hash));
 
     // 30. make sure that user can NOT sent `MintFra` transactions
@@ -1279,7 +1275,7 @@ fn staking_scene_2() -> Result<()> {
         assert!(is_successful(&tx_hash));
 
         let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
-        wait_one_block();
+        wait_n_block(5);
         assert!(is_successful(&tx_hash));
 
         let tx_hash = delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 100 * FRA)
@@ -1427,7 +1423,7 @@ fn staking_scene_3() -> Result<()> {
             let tx_hash =
                 delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 3_0000 * FRA)
                     .c(d!())?;
-            wait_one_block();
+            wait_n_block(5);
             assert!(is_successful(&tx_hash));
         }
     }
@@ -1537,7 +1533,7 @@ fn staking_scene_4() -> Result<()> {
         assert!(is_successful(&tx_hash));
 
         let tx_hash = transfer(&ROOT_KEYPAIR, &v_set[i].id, 100 * FRA).c(d!())?;
-        wait_one_block();
+        wait_n_block(5);
         assert!(is_successful(&tx_hash));
 
         let tx_hash = delegate(kp, td_pubkey_to_td_addr(&v_set[i].td_pubkey), 100 * FRA)
