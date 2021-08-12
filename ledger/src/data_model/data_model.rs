@@ -55,6 +55,7 @@ use ruc::*;
 use std::ops::Deref;
 
 use crate::address::operation::ConvertAccount;
+use zei::anon_xfr::structs::AXfrNote;
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -1028,6 +1029,7 @@ pub enum Operation {
     MintFra(MintFraOps),
     ConvertAccount(ConvertAccount),
     BarToAbar(BarToAbar),
+    TransferAnonAsset(AXfrNote),
 }
 
 fn set_no_replay_token(op: &mut Operation, no_replay_token: NoReplayToken) {

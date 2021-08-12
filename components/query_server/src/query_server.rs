@@ -539,6 +539,7 @@ where
                     key: bar_to_abar.note.body.input.public_key,
                 });
             }
+            Operation::TransferAnonAsset(_i) => {}
         }
     }
     related_addresses

@@ -38,7 +38,9 @@ use std::collections::{BTreeMap, HashSet};
 use tendermint::PrivateKey;
 use utils::SignatureOf;
 use zei::anon_xfr::bar_to_from_abar::gen_bar_to_abar_body;
-use zei::anon_xfr::keys::AXfrPubKey;
+use zei::anon_xfr::gen_anon_xfr_body;
+use zei::anon_xfr::keys::{AXfrKeyPair, AXfrPubKey};
+use zei::anon_xfr::structs::{AXfrNote, OpenAnonBlindAssetRecord};
 use zei::api::anon_creds::{
     ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
     Credential,
@@ -326,6 +328,12 @@ pub trait BuildsTransactions {
         txo_sid: TxoSID,
         input_record: &OpenAssetRecord,
         enc_key: &XPublicKey,
+    ) -> Result<&mut Self>;
+    fn add_operation_anon_transfer(
+        &mut self,
+        inputs: &[OpenAnonBlindAssetRecord],
+        outputs: &[OpenAnonBlindAssetRecord],
+        input_keypairs: &[AXfrKeyPair],
     ) -> Result<&mut Self>;
     fn add_operation_delegation(
         &mut self,
@@ -899,6 +907,31 @@ impl BuildsTransactions for TransactionBuilder {
         let bar_to_abar = BarToAbar::new(body, auth_key_pair, txo_sid)?;
 
         let op = Operation::BarToAbar(bar_to_abar);
+        self.txn.add_operation(op);
+        Ok(self)
+    }
+
+    fn add_operation_anon_transfer(
+        &mut self,
+        inputs: &[OpenAnonBlindAssetRecord],
+        outputs: &[OpenAnonBlindAssetRecord],
+        input_keypairs: &[AXfrKeyPair],
+    ) -> Result<&mut Self> {
+        let mut prng = ChaChaRng::from_seed([0u8; 32]);
+        let depth: usize = 41;
+        let user_params = UserParams::new(
+            inputs.len(),
+            outputs.len(),
+            Option::from(depth),
+            DEFAULT_BP_NUM_GENS,
+        );
+
+        let (body, keypairs) =
+            gen_anon_xfr_body(&mut prng, &user_params, inputs, outputs, input_keypairs)
+                .c(d!())?;
+        let note = AXfrNote::generate_note_from_body(body, keypairs).c(d!())?;
+
+        let op = Operation::TransferAnonAsset(note);
         self.txn.add_operation(op);
         Ok(self)
     }

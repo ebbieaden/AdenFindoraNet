@@ -8,7 +8,7 @@ use crate::{
     policy_script::policy_check_txn,
     staking::{Staking, FRA_TOTAL_AMOUNT},
 };
-use aoko::std_ext::KtStd;
+use aoko::std_ext::{KtStd, VecExt2};
 use bitmap::{BitMap, SparseMap};
 use cryptohash::sha256::Digest as BitDigest;
 use log::info;
@@ -26,8 +26,11 @@ use std::path::Path;
 use std::path::PathBuf;
 use utils::HasInvariants;
 use utils::{HashOf, ProofOf, SignatureOf};
+use zei::anon_xfr::keys::AXfrPubKey;
 use zei::anon_xfr::merkle_tree::MerkleTree;
-use zei::setup::PublicParams;
+use zei::anon_xfr::structs::AnonBlindAssetRecord;
+use zei::anon_xfr::verify_anon_xfr_body;
+use zei::setup::{NodeParams, PublicParams, UserParams, DEFAULT_BP_NUM_GENS};
 use zei::xfr::lib::XfrNotePolicies;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 use zei::xfr::{
@@ -53,6 +56,8 @@ pub trait LedgerAccess {
         &self,
         addr: &XfrPublicKey,
     ) -> BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)>;
+
+    fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<AnonBlindAssetRecord>;
 
     // The most recently-issued sequence number for the `code`-labelled asset
     // type
@@ -806,6 +811,27 @@ impl LedgerStatus {
                     policy_check_txn(code, globals, &pol, &txn_effect.txn).c(d!())?;
                 }
             }
+        }
+
+        for axfr_body in txn_effect.axfr_bodies.iter() {
+            // check if nullifiers are on ledger
+            // axfr_body.inputs
+
+            // check if nullifier is present in the block
+
+            let user_params = UserParams::new(
+                axfr_body.inputs.len(),
+                axfr_body.outputs.len(),
+                Some(41),
+                DEFAULT_BP_NUM_GENS,
+            );
+            let node_params = NodeParams::from(user_params);
+            verify_anon_xfr_body(
+                &node_params,
+                axfr_body,
+                &self.abar_store.get_latest_hash(),
+            )
+            .c(d!())?;
         }
 
         Ok(())
@@ -1827,6 +1853,12 @@ impl LedgerStatus {
             .collect()
     }
 
+    pub fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<TxoSID> {
+        self.abar_store
+            .get_owned_abars_uids(addr.clone())
+            .map(|uid| TxoSID(uid.clone()))
+    }
+
     fn get_utxo(&self, addr: TxoSID) -> Option<&Utxo> {
         self.utxos.get(&addr)
     }
@@ -1939,6 +1971,10 @@ impl LedgerAccess for LedgerState {
                 )
             })
             .collect()
+    }
+
+    fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<AnonBlindAssetRecord> {
+        self.status.abar_store.get_owned_abars(addr.clone())
     }
 
     fn get_issuance_num(&self, code: &AssetTypeCode) -> Option<u64> {

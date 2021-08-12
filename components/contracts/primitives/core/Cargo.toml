@@ -34,7 +34,7 @@ substrate-bip39 = "0.4.2"
 tiny-bip39 = "0.8"
 tiny-keccak = { version = "2.0", features = ["keccak"] }
 twox-hash = "1.6.0"
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "b2a_integ" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", branch = "bar2abar_integration"}
 
 [dev-dependencies]
 hex-literal = "0.3.1"

@@ -22,7 +22,7 @@ use zei::xfr::sig::XfrPublicKey;
 // use zei::xfr::structs::{TracingPolicies, BlindAssetRecord, XfrAmount, XfrAssetType};
 use ruc::*;
 use zei::anon_xfr::bar_to_from_abar::verify_bar_to_abar_note;
-use zei::anon_xfr::structs::AnonBlindAssetRecord;
+use zei::anon_xfr::structs::{AXfrBody, AnonBlindAssetRecord};
 use zei::setup::{NodeParams, UserParams};
 use zei::xfr::structs::{TracingPolicies, XfrAmount, XfrAssetType};
 
@@ -34,6 +34,8 @@ pub struct TxnEffect {
     pub txos: Vec<Option<TxOutput>>,
     // New ABAR to create
     pub output_abars: Vec<AnonBlindAssetRecord>,
+    // New Anon transfer bodies
+    pub axfr_bodies: Vec<AXfrBody>,
     // Which TXOs this consumes
     pub input_txos: HashMap<TxoSID, TxOutput>,
     // List of internally-spent TXOs. This does not include input txos;
@@ -85,6 +87,7 @@ impl TxnEffect {
         let mut op_idx: usize = 0;
         let mut txos: Vec<Option<TxOutput>> = Vec::new();
         let mut output_abars: Vec<AnonBlindAssetRecord> = Vec::new();
+        let mut axfr_bodies: Vec<AXfrBody> = Vec::new();
         let mut internally_spent_txos = Vec::new();
         let mut input_txos: HashMap<TxoSID, TxOutput> = HashMap::new();
         let mut memo_updates = Vec::new();
@@ -625,6 +628,12 @@ impl TxnEffect {
                     );
                     output_abars.push(bar_to_abar.note.body.output.clone());
                 }
+                Operation::TransferAnonAsset(axfr_note) => {
+                    // verify axfr_note signatures
+                    axfr_note.verify().c(d!())?;
+
+                    axfr_bodies.push(axfr_note.body.clone());
+                }
             } // end -- match op {...}
             op_idx += 1;
         } // end -- for op in txn.body.operations.iter() {...}
@@ -633,6 +642,7 @@ impl TxnEffect {
             txn,
             txos,
             output_abars,
+            axfr_bodies,
             input_txos,
             internally_spent_txos,
             new_asset_codes,
