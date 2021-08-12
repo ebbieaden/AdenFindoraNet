@@ -62,7 +62,7 @@ vergen = "=3.1.0"
 
 [features]
 default = ["goleveldb"]
-abci_mock = [ "ledger/abci_mock" ]
-debug_env = [ "ledger/debug_env" ]
+abci_mock = ["ledger/abci_mock", "baseapp/abci_mock"]
+debug_env = ["ledger/debug_env"]
 cleveldb = ["tendermint-sys/cleveldb"]
 goleveldb = ["tendermint-sys/goleveldb"]

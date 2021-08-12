@@ -145,14 +145,14 @@ impl SyncApplication for crate::BaseApp {
         }
     }
 
-    #[cfg(not(test))]
-    fn end_block(&mut self, req: RequestEndBlock) -> ResponseEndBlock {
-        self.modules.end_block(&mut self.deliver_state, &req)
+    #[cfg(any(feature = "abci_mock", test))]
+    fn end_block(&mut self, _req: RequestEndBlock) -> ResponseEndBlock {
+        Default::default()
     }
 
-    #[cfg(test)]
+    #[cfg(all(not(feature = "abci_mock"), not(test)))]
     fn end_block(&mut self, req: RequestEndBlock) -> ResponseEndBlock {
-        Default::default()
+        self.modules.end_block(&mut self.deliver_state, &req)
     }
 
     fn commit(&mut self) -> ResponseCommit {
