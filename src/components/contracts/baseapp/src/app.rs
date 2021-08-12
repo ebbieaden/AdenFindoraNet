@@ -145,8 +145,14 @@ impl SyncApplication for crate::BaseApp {
         }
     }
 
+    #[cfg(not(test))]
     fn end_block(&mut self, req: RequestEndBlock) -> ResponseEndBlock {
         self.modules.end_block(&mut self.deliver_state, &req)
+    }
+
+    #[cfg(test)]
+    fn end_block(&mut self, req: RequestEndBlock) -> ResponseEndBlock {
+        Default::default()
     }
 
     fn commit(&mut self) -> ResponseCommit {
