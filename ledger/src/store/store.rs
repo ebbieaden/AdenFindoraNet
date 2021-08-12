@@ -39,6 +39,7 @@ use zei::xfr::{
         AssetRecordTemplate, OwnerMemo, TracingPolicies, TracingPolicy, XfrAssetType,
     },
 };
+use sparse_merkle_tree::{SmtMap256,open};
 
 const TRANSACTION_WINDOW_WIDTH: u64 = 128;
 
@@ -262,6 +263,8 @@ pub struct LedgerStatus {
     next_txn: TxnSID,
     // Should be equal to the count of TXOs
     next_txo: TxoSID,
+    // Should be equal to the count of anonymous TXOs
+    next_axTxo :ATxoSID,
 
     // Hash and sequence number of the most recent "full checkpoint" of the
     // ledger -- committing to the whole ledger history up to the most recent
@@ -309,7 +312,8 @@ pub struct LedgerState {
 
     // Bitmap tracing all the live TXOs
     utxo_map: BitMap,
-
+    // Sparse merkle tree to store the nullifier set
+    nullifier : SmtMap256<String>,
     txn_log: Option<(PathBuf, File)>,
 
     block_ctx: Option<BlockEffect>,
@@ -460,6 +464,7 @@ impl LedgerStatus {
             issuance_num: map! {},
             next_txn: TxnSID(0),
             next_txo: TxoSID(0),
+            next_axTxo : ATxoSID(0),
             txns_in_block_hash: None,
             state_commitment_data: None,
             block_commit_count: 0,
@@ -1529,6 +1534,9 @@ impl LedgerState {
         Ok(tree)
         // Ok(LoggedMerkle::new(tree, writer))
     }
+    fn init_nullifier_set(path: &str,create: bool) ->  Result<SmtMap256<String>>{
+        open(path)
+    }
 
     // Initialize a bitmap to track the unspent utxos.
     fn init_utxo_map(path: &str, create: bool) -> Result<BitMap> {
@@ -1574,6 +1582,7 @@ impl LedgerState {
             txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, true).c(d!())?,
             blocks: Vec::new(),
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, true).c(d!())?,
+            nullifier: LedgerState::init_nullifier_set("",true).c(d!())?,
             txn_log: Some((
                 txn_path.into(),
                 OpenOptions::new()
@@ -1650,6 +1659,7 @@ impl LedgerState {
             txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, false).c(d!())?,
             blocks: Vec::new(),
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, false).c(d!())?,
+            nullifier: LedgerState::init_nullifier_set("",false).c(d!(PlatformError::Unknown))?,
             txn_log: None,
             block_ctx: Some(BlockEffect::new()),
         });
@@ -1753,6 +1763,7 @@ impl LedgerState {
             txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, true).c(d!())?,
             blocks: Vec::new(),
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, true).c(d!())?,
+            nullifier: LedgerState::init_nullifier_set("",true).c(d!(PlatformError::Unknown))?,
             txn_log: None,
             block_ctx: Some(BlockEffect::new()),
         };

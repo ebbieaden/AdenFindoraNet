@@ -572,6 +572,22 @@ pub struct SmartContract;
 )]
 pub struct TxoSID(pub u64);
 
+#[wasm_bindgen]
+#[derive(
+Clone,
+Copy,
+Debug,
+Default,
+Deserialize,
+Eq,
+Hash,
+PartialEq,
+Serialize,
+Ord,
+PartialOrd,
+)]
+pub struct ATxoSID(pub u64);
+
 #[allow(missing_docs)]
 pub type TxoSIDList = Vec<TxoSID>;
 
