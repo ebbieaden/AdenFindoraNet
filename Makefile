@@ -11,9 +11,11 @@ export STAKING_INITIAL_VALIDATOR_CONFIG = $(shell pwd)/ledger/src/staking/init/s
 export STAKING_INITIAL_VALIDATOR_CONFIG_DEBUG_ENV = $(shell pwd)/ledger/src/staking/init/staking_config_debug_env.json
 export STAKING_INITIAL_VALIDATOR_CONFIG_ABCI_MOCK = $(shell pwd)/ledger/src/staking/init/staking_config_abci_mock.json
 
-export LEDGER_DIR=/tmp/findora
 export ENABLE_LEDGER_SERVICE = true
 export ENABLE_QUERY_SERVICE = true
+
+# set default Findora home directory if not set
+FIN_HOME ?= /tmp/findora
 
 ifndef CARGO_TARGET_DIR
 	export CARGO_TARGET_DIR=target
@@ -167,21 +169,11 @@ wasm:
 	cd src/components/wasm && wasm-pack build
 	tar -zcpf $(WASM_PKG) src/components/wasm/pkg
 
-single:
-	@./scripts/devnet/stopnodes.sh
-	@./scripts/devnet/resetsingle.sh
-	@./scripts/devnet/startsingle.sh
-
-devnet:
-	@./scripts/devnet/stopnodes.sh
-	@./scripts/devnet/resetnodes.sh 20 1
-	@./scripts/devnet/startnodes.sh
-
 debug_env: stop_debug_env build_release_debug
-	@- rm -rf $(LEDGER_DIR)
-	@ mkdir $(LEDGER_DIR)
-	@ cp tools/debug_env.tar.gz $(LEDGER_DIR)/
-	@ cd $(LEDGER_DIR) && tar -xpf debug_env.tar.gz && mv debug_env devnet
+	@- rm -rf $(FIN_HOME)/devnet
+	@ mkdir -p $(FIN_HOME)/devnet
+	@ cp tools/debug_env.tar.gz $(FIN_HOME)
+	@ cd $(FIN_HOME) && tar -xpf debug_env.tar.gz -C devnet
 	@ ./scripts/devnet/startnodes.sh
 
 run_staking_demo:
@@ -240,15 +232,12 @@ ifeq ($(ENV),release)
 	docker rmi $(PUBLIC_ECR_URL)/$(ENV)/findorad:latest
 endif
 
-
-####@./scripts/devnet/snapshot.sh <user_nick> <password> <token_name> <max_units> <genesis_issuance> <memo> <memo_updatable>
-snapshot:
-	@./scripts/devnet/snapshot.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
-
-network:
-	@./scripts/devnet/startnetwork.sh Findora my_pass FRA 21210000000000000 21000000000000000 my_memo N
-
 ####@./scripts/devnet/resetnodes.sh <num_of_validator_nodes> <num_of_normal_nodes>
-mainnet:
+reset:
 	@./scripts/devnet/stopnodes.sh
-	@./scripts/devnet/resetnodes.sh 4 4
+	@./scripts/devnet/resetnodes.sh 1 0
+
+snapshot:
+	@./scripts/devnet/snapshot.sh
+
+devnet: reset snapshot
