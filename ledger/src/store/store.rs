@@ -824,12 +824,14 @@ impl LedgerStatus {
 
             // check if nullifier is present in the block
 
-            let user_params = UserParams::new(
+            let user_params = UserParams::from_file_if_exists(
                 axfr_body.inputs.len(),
                 axfr_body.outputs.len(),
                 Some(41),
                 DEFAULT_BP_NUM_GENS,
-            );
+                None,
+            )
+            .unwrap();
             let node_params = NodeParams::from(user_params);
             verify_anon_xfr_body(
                 &node_params,
