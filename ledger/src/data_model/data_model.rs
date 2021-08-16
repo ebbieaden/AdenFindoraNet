@@ -574,17 +574,17 @@ pub struct TxoSID(pub u64);
 
 #[wasm_bindgen]
 #[derive(
-Clone,
-Copy,
-Debug,
-Default,
-Deserialize,
-Eq,
-Hash,
-PartialEq,
-Serialize,
-Ord,
-PartialOrd,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Deserialize,
+    Eq,
+    Hash,
+    PartialEq,
+    Serialize,
+    Ord,
+    PartialOrd,
 )]
 pub struct ATxoSID(pub u64);
 

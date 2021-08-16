@@ -33,7 +33,7 @@ submission_server = { path = "../submission_server" }
 query_api = { path =  "../query_api" }
 query_server = { path =  "../query_server" }
 utils = { path = "../../libs/utils" }
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", branch = "bar2abar_integration"}
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", branch = "bar2abar_integration" }
 storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "develop" }
 
 lazy_static = "1.4.0"

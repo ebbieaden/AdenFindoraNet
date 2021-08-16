@@ -18,6 +18,7 @@ use rand_core::{CryptoRng, RngCore, SeedableRng};
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use sliding_set::SlidingSet;
+use sparse_merkle_tree::{open, Key, SmtMap256};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -39,7 +40,6 @@ use zei::xfr::{
         AssetRecordTemplate, OwnerMemo, TracingPolicies, TracingPolicy, XfrAssetType,
     },
 };
-use sparse_merkle_tree::{SmtMap256,open};
 
 const TRANSACTION_WINDOW_WIDTH: u64 = 128;
 
@@ -264,7 +264,7 @@ pub struct LedgerStatus {
     // Should be equal to the count of TXOs
     next_txo: TxoSID,
     // Should be equal to the count of anonymous TXOs
-    next_axTxo :ATxoSID,
+    next_ax_txo: ATxoSID,
 
     // Hash and sequence number of the most recent "full checkpoint" of the
     // ledger -- committing to the whole ledger history up to the most recent
@@ -313,7 +313,7 @@ pub struct LedgerState {
     // Bitmap tracing all the live TXOs
     utxo_map: BitMap,
     // Sparse merkle tree to store the nullifier set
-    nullifier : SmtMap256<String>,
+    nullifier: SmtMap256<String>,
     txn_log: Option<(PathBuf, File)>,
 
     block_ctx: Option<BlockEffect>,
@@ -464,7 +464,7 @@ impl LedgerStatus {
             issuance_num: map! {},
             next_txn: TxnSID(0),
             next_txo: TxoSID(0),
-            next_axTxo : ATxoSID(0),
+            next_ax_txo: ATxoSID(0),
             txns_in_block_hash: None,
             state_commitment_data: None,
             block_commit_count: 0,
@@ -1100,6 +1100,12 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
             for abar in block.output_abars.iter() {
                 self.status.abar_store.add_abar(&abar).c(d!())?;
             }
+            for n in block.new_nullifiers.iter() {
+                let str =
+                    base64::encode_config(&n.get_scalar().to_bytes(), base64::URL_SAFE);
+                let d: Key = Key::from_base64(&str).c(d!())?;
+                self.nullifier.set(&d, Some("".to_string()));
+            }
 
             // this feels like the wrong place for this, but there's no other good place unless
             // we move the pulse into the StateCommitment, which seems like the wrong answer to
@@ -1534,7 +1540,7 @@ impl LedgerState {
         Ok(tree)
         // Ok(LoggedMerkle::new(tree, writer))
     }
-    fn init_nullifier_set(path: &str,create: bool) ->  Result<SmtMap256<String>>{
+    fn init_nullifier_set(path: &str, _create: bool) -> Result<SmtMap256<String>> {
         open(path)
     }
 
@@ -1582,7 +1588,7 @@ impl LedgerState {
             txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, true).c(d!())?,
             blocks: Vec::new(),
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, true).c(d!())?,
-            nullifier: LedgerState::init_nullifier_set("",true).c(d!())?,
+            nullifier: LedgerState::init_nullifier_set("", true).c(d!())?,
             txn_log: Some((
                 txn_path.into(),
                 OpenOptions::new()
@@ -1659,7 +1665,8 @@ impl LedgerState {
             txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, false).c(d!())?,
             blocks: Vec::new(),
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, false).c(d!())?,
-            nullifier: LedgerState::init_nullifier_set("",false).c(d!(PlatformError::Unknown))?,
+            nullifier: LedgerState::init_nullifier_set("", false)
+                .c(d!(PlatformError::Unknown))?,
             txn_log: None,
             block_ctx: Some(BlockEffect::new()),
         });
@@ -1763,7 +1770,8 @@ impl LedgerState {
             txn_merkle: LedgerState::init_merkle_log(txn_merkle_path, true).c(d!())?,
             blocks: Vec::new(),
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, true).c(d!())?,
-            nullifier: LedgerState::init_nullifier_set("",true).c(d!(PlatformError::Unknown))?,
+            nullifier: LedgerState::init_nullifier_set("", true)
+                .c(d!(PlatformError::Unknown))?,
             txn_log: None,
             block_ctx: Some(BlockEffect::new()),
         };

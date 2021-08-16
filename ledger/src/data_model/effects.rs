@@ -22,7 +22,7 @@ use zei::xfr::sig::XfrPublicKey;
 // use zei::xfr::structs::{TracingPolicies, BlindAssetRecord, XfrAmount, XfrAssetType};
 use ruc::*;
 use zei::anon_xfr::bar_to_from_abar::verify_bar_to_abar_note;
-use zei::anon_xfr::structs::{AXfrBody, AnonBlindAssetRecord};
+use zei::anon_xfr::structs::{AXfrBody, AnonBlindAssetRecord, Nullifier};
 use zei::setup::{NodeParams, UserParams};
 use zei::xfr::structs::{TracingPolicies, XfrAmount, XfrAssetType};
 
@@ -743,6 +743,8 @@ pub struct BlockEffect {
     pub output_abars: Vec<AnonBlindAssetRecord>,
     // Which TXOs this consumes
     pub input_txos: HashMap<TxoSID, TxOutput>,
+    // Which new nullifiers are created
+    pub new_nullifiers: Vec<Nullifier>,
     // Which new asset types this defines
     pub new_asset_codes: HashMap<AssetTypeCode, AssetType>,
     // Which new TXO issuance sequence numbers are used, in sorted order
@@ -792,6 +794,14 @@ impl BlockEffect {
         for (input_sid, _) in txn_effect.input_txos.iter() {
             if self.input_txos.contains_key(&input_sid) {
                 return Err(eg!(inp_fail!()));
+            }
+        }
+        // Check that no nullifier are created twise
+        for axfr_body in txn_effect.axfr_bodies.iter() {
+            for (nullifier, _) in axfr_body.inputs.iter() {
+                if self.new_nullifiers.contains(nullifier) {
+                    return Err(eg!(inp_fail!()));
+                }
             }
         }
 
@@ -875,6 +885,15 @@ impl BlockEffect {
 
         for abar in txn_effect.output_abars {
             self.output_abars.push(abar);
+        }
+
+        for axfr_body in txn_effect.axfr_bodies {
+            for (nullifier, _) in axfr_body.inputs {
+                self.new_nullifiers.push(nullifier);
+            }
+            for abar in axfr_body.outputs {
+                self.output_abars.push(abar);
+            }
         }
 
         Ok(temp_sid)

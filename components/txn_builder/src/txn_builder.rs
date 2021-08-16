@@ -40,7 +40,9 @@ use utils::SignatureOf;
 use zei::anon_xfr::bar_to_from_abar::gen_bar_to_abar_body;
 use zei::anon_xfr::gen_anon_xfr_body;
 use zei::anon_xfr::keys::{AXfrKeyPair, AXfrPubKey};
-use zei::anon_xfr::structs::{AXfrNote, OpenAnonBlindAssetRecord};
+use zei::anon_xfr::structs::{
+    AXfrBody, AXfrNote, OpenAnonBlindAssetRecord, OpenAnonBlindAssetRecordBuilder,
+};
 use zei::api::anon_creds::{
     ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
     Credential,
@@ -53,6 +55,7 @@ use zei::xfr::asset_record::{
 };
 use zei::xfr::lib::XfrNotePolicies;
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
+use zei::xfr::structs::AssetType;
 use zei::xfr::structs::{
     AssetRecord, AssetRecordTemplate, BlindAssetRecord, OpenAssetRecord, OwnerMemo,
     TracingPolicies, TracingPolicy,
@@ -1527,6 +1530,127 @@ impl TransferOperationBuilder {
             }
         }
         Ok(self)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct AnonymousTransferOperationBuilder {
+    note: Option<AXfrNote>,
+    body: Option<AXfrBody>,
+    inputs: Vec<OpenAnonBlindAssetRecord>,
+    input_keypairs: Vec<AXfrKeyPair>,
+    randomized_key_pairs: Vec<AXfrKeyPair>,
+    outputs: Vec<OpenAnonBlindAssetRecord>,
+    net_input_amount: u64,
+    fee_operation: Option<Operation>,
+}
+
+impl AnonymousTransferOperationBuilder {
+    pub fn new() -> Self {
+        AnonymousTransferOperationBuilder {
+            note: None,
+            body: None,
+            inputs: vec![],
+            input_keypairs: vec![],
+            randomized_key_pairs: vec![],
+            outputs: vec![],
+            net_input_amount: 0,
+            fee_operation: None,
+        }
+    }
+
+    pub fn add_input(
+        &mut self,
+        input: OpenAnonBlindAssetRecord,
+        input_keypair: AXfrKeyPair,
+    ) -> Result<&mut Self> {
+        self.net_input_amount += input.get_amount();
+        self.inputs.push(input);
+        self.input_keypairs.push(input_keypair);
+
+        Ok(self)
+    }
+
+    pub fn add_output(
+        &mut self,
+        amount: u64,
+        asset_type: AssetType,
+        recv_pub_key: AXfrPubKey,
+        recv_enc_key: XPublicKey,
+    ) -> Result<&mut Self> {
+        if self.net_input_amount <= 0 {
+            return Err(eg!("not enough inputs to spend"));
+        }
+
+        let mut prng = ChaChaRng::from_entropy();
+
+        let oabar_out = OpenAnonBlindAssetRecordBuilder::new()
+            .amount(amount)
+            .asset_type(asset_type)
+            .pub_key(recv_pub_key)
+            .finalize(&mut prng, &recv_enc_key)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        self.outputs.push(oabar_out);
+        self.net_input_amount -= amount;
+
+        Ok(self)
+    }
+
+    pub fn build(&mut self) -> Result<&mut Self> {
+        if self.net_input_amount != 0 {
+            return Err(eg!("input, output amount don't tally"));
+        }
+        let mut prng = ChaChaRng::from_entropy();
+
+        let user_params = UserParams::from_file_if_exists(
+            self.inputs.len(),
+            self.outputs.len(),
+            Some(41),
+            DEFAULT_BP_NUM_GENS,
+            None,
+        )
+        .unwrap();
+
+        let (body, randomized_keys) = gen_anon_xfr_body(
+            &mut prng,
+            &user_params,
+            self.inputs.as_slice(),
+            self.outputs.as_slice(),
+            self.input_keypairs.as_slice(),
+        )
+        .c(d!())?;
+
+        self.body = Some(body);
+        self.randomized_key_pairs = randomized_keys;
+        Ok(self)
+    }
+
+    pub fn sign_and_prepare_note(&mut self) -> Result<&mut Self> {
+        if self.body.is_none() {
+            return Err(eg!("axfr body not built"));
+        }
+
+        match self.body.as_ref() {
+            Some(body) => {
+                let _ = AXfrNote::generate_note_from_body(
+                    body.clone(),
+                    self.randomized_key_pairs.clone(),
+                )
+                .c(d!())?;
+                Ok(self)
+            }
+            None => Err(eg!("axfr body not built")),
+        }
+    }
+
+    pub fn finalize(&self) -> Result<Operation> {
+        match self.note.as_ref() {
+            Some(note) => Ok(Operation::TransferAnonAsset(note.clone())),
+            None => Err(eg!("note not found")),
+        }
     }
 }
 
