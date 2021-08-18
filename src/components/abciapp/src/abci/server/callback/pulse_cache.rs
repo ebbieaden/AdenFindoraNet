@@ -24,15 +24,16 @@
 //! - send this cached block height to tendermint when restarting
 //!
 
+use crate::abci::config::global_cfg::CFG;
 use lazy_static::lazy_static;
 use ledger::staking::Staking;
 use ruc::*;
 use serde_json::Value;
-use std::{convert::TryInto, env, fs};
+use std::{convert::TryInto, fs};
 
 lazy_static! {
     static ref PATH: (String, String, String) = {
-        let ld = crate::abci::LEDGER_DIR.as_deref().unwrap_or("/tmp");
+        let ld = CFG.ledger_dir.unwrap_or("/tmp");
         pnk!(fs::create_dir_all(ld));
 
         let height_cache = format!("{}/.__tendermint_height__", &ld);
@@ -52,8 +53,8 @@ pub(super) fn _read_height() -> Result<i64> {
         // the real-time state path in the abci container
         const STATE_PATH_FF: &str = "/root/.tendermint/data/priv_validator_state.json";
         lazy_static! {
-            static ref STATE_PATH: String = env::var("TENDERMINT_NODE_KEY_CONFIG_PATH")
-                .unwrap_or_else(|_| STATE_PATH_FF.to_owned());
+            static ref STATE_PATH: &'static str =
+                CFG.tendermint_node_key_config_path.unwrap_or(STATE_PATH_FF);
         }
 
         fs::read(&*STATE_PATH)

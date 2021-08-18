@@ -64,7 +64,7 @@ pub fn error_on_execution_failure(
                 // `ServerError(0)` will be useful in estimate gas
                 return Err(Error {
                     code: ErrorCode::ServerError(0),
-                    message: format!("out of gas"),
+                    message: "out of gas".to_string(),
                     data: None,
                 });
             }

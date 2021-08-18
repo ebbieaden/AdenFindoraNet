@@ -1,4 +1,5 @@
 #![deny(warnings)]
+// #![deny(missing_docs)]
 
 pub mod logging;
 
@@ -496,30 +497,6 @@ pub trait NetworkRoute {
         let mut endpoint = self.route();
         endpoint += &("/".to_owned() + &"{".to_owned() + arg + &"}".to_owned());
         endpoint
-    }
-}
-
-pub trait MetricsRenderer {
-    fn rendered(&self) -> String;
-}
-
-pub struct MockMetricsRenderer;
-
-impl MockMetricsRenderer {
-    pub fn new() -> Self {
-        MockMetricsRenderer {}
-    }
-}
-
-impl Default for MockMetricsRenderer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MetricsRenderer for MockMetricsRenderer {
-    fn rendered(&self) -> String {
-        String::from("rendered")
     }
 }
 

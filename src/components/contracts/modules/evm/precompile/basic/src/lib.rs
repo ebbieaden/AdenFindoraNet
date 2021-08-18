@@ -58,7 +58,7 @@ impl LinearCostPrecompile for ECRecover {
 
         let result = match fp_types::crypto::secp256k1_ecdsa_recover(&sig, &msg) {
             Ok(pubkey) => {
-                let mut address = fp_core::hashing::keccak_256(&pubkey);
+                let mut address = fp_utils::hashing::keccak_256(&pubkey);
                 address[0..12].copy_from_slice(&[0u8; 12]);
                 address.to_vec()
             }
@@ -99,7 +99,7 @@ impl LinearCostPrecompile for Sha256 {
         input: &[u8],
         _cost: u64,
     ) -> core::result::Result<(ExitSucceed, Vec<u8>), ExitError> {
-        let ret = fp_core::hashing::sha2_256(input);
+        let ret = fp_utils::hashing::sha2_256(input);
         Ok((ExitSucceed::Returned, ret.to_vec()))
     }
 }

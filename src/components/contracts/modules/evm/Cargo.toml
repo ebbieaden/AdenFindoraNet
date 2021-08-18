@@ -9,7 +9,6 @@ description = "Findora module supporting evm smart contract"
 readme = "README.md"
 
 [dependencies]
-abci = { git = "https://gitee.com/kt10/rust-abci.git", branch = "feat-findora" }
 ethereum-types = "0.11.0"
 evm = { version = "0.27.0", features = ["with-serde"] }
 evm-runtime = "0.27.0"
@@ -19,6 +18,7 @@ rlp = "0.5"
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 serde = { version = "1.0.124", features = ["derive"] }
 sha3 = "0.8"
+tm-protos = { git = "ssh://git@github.com/FindoraNetwork/tendermint-sys.git", branch = "findora-0.33.6" }
 
 # primitives, don't depend on any modules
 fp-core = { path = "../../primitives/core" }
@@ -33,8 +33,6 @@ baseapp = { path = "../../baseapp" }
 ethabi = "14.1.0"
 ethereum = { version = "0.7.1", features = ["with-serde"] }
 fp-mocks = { path = "../../primitives/mocks" }
-fp-utils = { path = "../../primitives/utils" }
-git2 = "0.13"
 hex = "0.4.2"
 module-account = { path = "../account" }
 module-ethereum = { path = "../ethereum" }

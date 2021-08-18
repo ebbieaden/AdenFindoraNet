@@ -1,5 +1,6 @@
 use crate::hash::StorageHasher;
 use crate::*;
+use ruc::*;
 use std::str::FromStr;
 use storage::db::{IterOrder, MerkleDB};
 use storage::state::{KVecMap, State};
@@ -41,16 +42,12 @@ where
         final_key.push(data_key.as_ref()).as_ref().to_vec()
     }
 
-    pub fn parse_key_for(key_list: Vec<&str>) -> std::result::Result<Key, ()> {
-        let last_key = key_list.last().copied();
-        if last_key.is_none() {
-            return Err(());
-        }
-        let key = Key::from_str(last_key.unwrap());
-        match key {
-            Ok(k) => Ok(k),
-            Err(_) => Err(()),
-        }
+    pub fn parse_key_for(key_list: Vec<&str>) -> Result<Key> {
+        let last_key = key_list
+            .last()
+            .copied()
+            .ok_or(eg!("parse key failed with empty list"))?;
+        Key::from_str(last_key).map_err(|_| eg!("key convert to string err"))
     }
 
     /// Does the value (explicitly) exist in storage?
@@ -71,11 +68,7 @@ where
             .read()
             .get(Self::build_key_for(key).as_slice())
             .unwrap_or(None);
-        if let Some(val) = output {
-            Some(val.len())
-        } else {
-            None
-        }
+        output.map(|val| val.len())
     }
 
     /// Load the value associated with the given key from the map.
@@ -131,8 +124,8 @@ where
             let key = Self::parse_key_for(key_list);
             let raw_value = serde_json::from_slice::<Value>(v.as_slice()).ok();
 
-            if key.is_ok() && raw_value.is_some() {
-                res.push((key.unwrap(), raw_value.unwrap()))
+            if let (Ok(k), Some(v)) = (key, raw_value) {
+                res.push((k, v))
             }
         }
         res

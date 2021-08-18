@@ -6,14 +6,10 @@
 //! This module is the library part of FNS.
 //!
 
-<<<<<<<< HEAD:src/components/finutils/src/common/mod.rs
 pub mod evm;
 pub mod utils;
 
 use crate::txn_builder::BuildsTransactions;
-========
-use crate::fns::utils::parse_td_validator_keys;
->>>>>>>> 42b24bd8 (merge develop refactor code (#453)):components/fintools/src/fns/mod.rs
 use lazy_static::lazy_static;
 use ledger::{
     data_model::BLACK_HOLE_PUBKEY_STAKING,
@@ -45,7 +41,44 @@ lazy_static! {
     static ref SERV_ADDR_FILE: String = format!("{}/serv_addr", &*CFG_PATH);
 }
 
-pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<()> {
+pub fn staker_update(cr: Option<&str>, memo: Option<&str>) -> Result<()> {
+    let addr = get_td_pubkey().map(|i| td_pubkey_to_td_addr(&i)).c(d!())?;
+    let vd = get_validator_detail(&addr).c(d!())?;
+
+    let cr = cr
+        .map_or(Ok(vd.commission_rate), |s| {
+            s.parse::<f64>()
+                .c(d!("commission rate must be a float number"))
+                .and_then(convert_commission_rate)
+        })
+        .c(d!())?;
+    let memo = memo
+        .map_or(Ok(vd.memo), |s| serde_json::from_str(s))
+        .c(d!())?;
+
+    let td_pubkey = get_td_pubkey().c(d!())?;
+
+    let kp = get_keypair().c(d!())?;
+    let vkp = get_td_privkey().c(d!())?;
+
+    let mut builder = utils::new_tx_builder().c(d!())?;
+
+    builder
+        .add_operation_update_staker(&kp, &vkp, td_pubkey, cr, memo)
+        .c(d!())?;
+    utils::gen_fee_op(&kp)
+        .c(d!())
+        .map(|op| builder.add_operation(op))?;
+
+    utils::send_tx(&builder.take_transaction()).c(d!())
+}
+
+pub fn stake(
+    amount: &str,
+    commission_rate: &str,
+    memo: Option<&str>,
+    force: bool,
+) -> Result<()> {
     let am = amount.parse::<u64>().c(d!("'amount' must be an integer"))?;
     check_delegation_amount(am, false).c(d!())?;
     let cr = commission_rate
@@ -56,6 +89,32 @@ pub fn stake(amount: &str, commission_rate: &str, memo: Option<&str>) -> Result<
 
     let kp = get_keypair().c(d!())?;
     let vkp = get_td_privkey().c(d!())?;
+
+    macro_rules! diff {
+        ($l:expr, $r:expr) => {
+            if $l > $r {
+                $l - $r
+            } else {
+                $r - $l
+            }
+        };
+    }
+
+    let network_height = get_block_height(get_serv_addr().unwrap());
+    let local_height = get_local_block_height();
+    if (network_height == 0 || local_height == 0)
+        || diff!(network_height, local_height) > 3
+    {
+        println!(
+            "The difference in block height of your node and the remote network is too big: \n remote / local: {} / {}",
+            network_height, local_height
+        );
+        if !force {
+            println!("Append option --force to ignore this warning.");
+            return Ok(());
+        }
+        println!("Continue to stake now...");
+    }
 
     let mut builder = utils::new_tx_builder().c(d!())?;
     builder
@@ -164,6 +223,15 @@ pub fn claim(am: Option<&str>) -> Result<()> {
     utils::send_tx(&builder.take_transaction()).c(d!())
 }
 
+pub fn show_staker() -> Result<()> {
+    let addr = get_td_pubkey().map(|i| td_pubkey_to_td_addr(&i))?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&get_validator_detail(&addr).c(d!())?).c(d!())?
+    );
+    Ok(())
+}
+
 pub fn show(basic: bool) -> Result<()> {
     let kp = get_keypair().c(d!())?;
 
@@ -242,13 +310,31 @@ pub fn setup(
 ) -> Result<()> {
     fs::create_dir_all(&*CFG_PATH).c(d!("fail to create config path"))?;
 
+    let mut pwd = ruc::info!(
+        env::current_dir(),
+        "Cannot abtain current work directory, default to relative path"
+    )
+    .unwrap_or_default();
+
     if let Some(sa) = serv_addr {
         fs::write(&*SERV_ADDR_FILE, sa).c(d!("fail to cache 'serv-addr'"))?;
     }
     if let Some(mp) = owner_mnemonic_path {
+        let mp = if mp.starts_with('/') {
+            mp
+        } else {
+            pwd.push(mp);
+            pwd.to_str().c(d!("Invalid path"))?
+        };
         fs::write(&*MNEMONIC_FILE, mp).c(d!("fail to cache 'owner-mnemonic-path'"))?;
     }
     if let Some(kp) = validator_key_path {
+        let kp = if kp.starts_with('/') {
+            kp
+        } else {
+            pwd.push(kp);
+            pwd.to_str().c(d!("Invalid path"))?
+        };
         fs::write(&*TD_KEY_FILE, kp).c(d!("fail to cache 'validator-key-path'"))?;
     }
     Ok(())
@@ -342,7 +428,6 @@ fn convert_commission_rate(cr: f64) -> Result<[u64; 2]> {
     Ok([(cr * 10000.0) as u64, 10000])
 }
 
-<<<<<<<< HEAD:src/components/finutils/src/common/mod.rs
 pub fn gen_key_and_print() {
     let (m, k, kp) = loop {
         let mnemonic = pnk!(libutils::wallet::generate_mnemonic_custom(24, "en"));
@@ -363,8 +448,6 @@ pub fn gen_key_and_print() {
     );
 }
 
-========
->>>>>>>> 42b24bd8 (merge develop refactor code (#453)):components/fintools/src/fns/mod.rs
 /// Return the built version.
 pub fn version() -> &'static str {
     concat!(env!("VERGEN_SHA"), " ", env!("VERGEN_BUILD_DATE"))

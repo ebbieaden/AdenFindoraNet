@@ -25,15 +25,9 @@
 
 #![deny(warnings)]
 
-<<<<<<<< HEAD:src/components/finutils/src/bins/fns.rs
 use clap::{crate_authors, App, Arg, ArgGroup, SubCommand};
 use finutils::common;
 use finutils::common::evm::*;
-========
-use clap::{crate_authors, App, ArgGroup, SubCommand};
-use fintools::fns;
-use fintools::fns::evm::*;
->>>>>>>> 42b24bd8 (merge develop refactor code (#453)):components/fintools/src/bins/fns.rs
 use fp_utils::ecdsa::SecpPair;
 use ruc::*;
 use std::fmt;
@@ -60,8 +54,13 @@ fn run() -> Result<()> {
         .arg_from_usage("-a, --append 'stake more FRAs to your node'")
         .arg_from_usage("-S, --staker-priv-key=[SecretKey] 'the private key of proposer, in base64 format'")
         .arg_from_usage("-A, --validator-td-addr=[TendermintAddr] 'stake FRAs to a custom validator'")
+        .arg_from_usage("--force 'ignore warning and stake FRAs to your node'")
         .about("Stake tokens (i.e. bond tokens) from a Findora account to a Validator ")
         .group(subcmd_stake_arggrp);
+    let subcmd_staker_update = SubCommand::with_name("staker-update")
+        .arg_from_usage("-R, --commission-rate=[Rate] 'the commission rate of your node, a float number from 0.0 to 1.0'")
+        .arg_from_usage("-M, --validator-memo=[Memo] 'the description of your node, optional'")
+        .about("Update information of a validator ");
     let subcmd_unstake = SubCommand::with_name("unstake")
         .arg_from_usage("-S, --staker-priv-key=[SecretKey] 'the private key of proposer, in base64 format'")
         .arg_from_usage("-A, --validator-td-addr=[TendermintAddr] 'unstake FRAs from a custom validator'")
@@ -74,26 +73,25 @@ fn run() -> Result<()> {
         .about("View Validator status and accumulated rewards")
         .arg_from_usage("-b, --basic 'Show basic account info'");
     let subcmd_setup = SubCommand::with_name("setup")
-        .arg_from_usage(
-            "-S, --serv-addr=[URL/IP] 'a fullnode address of Findora Network'",
-        )
-        .arg_from_usage(
-            "-O, --owner-mnemonic-path=[Path], 'storage path of your mnemonic words'",
-        )
-        .arg_from_usage(
-            "-K, --validator-key=[Path], 'path to the tendermint keys of your validator node'",
-        )
+        .arg_from_usage("-S, --serv-addr=[URL/IP] 'a fullnode address of Findora Network'")
+        .arg_from_usage("-O, --owner-mnemonic-path=[Path], 'storage path of your mnemonic words'")
+        .arg_from_usage("-K, --validator-key=[Path], 'path to the tendermint keys of your validator node'")
         .about("Setup environment variables for staking transactions ");
     let subcmd_transfer = SubCommand::with_name("transfer")
-        .arg_from_usage(
-            "-f, --from-seckey=[SecKey] 'base64-formated `XfrPrivateKey` of the receiver'",
-        )
-        .arg_from_usage(
-            "-t, --to-pubkey=<PubKey> 'base64-formated `XfrPublicKey` of the receiver'",
+        .arg_from_usage("-f, --from-seckey=[SecKey] 'base64-formated `XfrPrivateKey` of the receiver'")
+        .arg_from_usage("-t, --to-pubkey=[PubKey] 'base64-formated `XfrPublicKey` of the receiver'")
+        .arg(
+            Arg::with_name("to-wallet-address")
+                .short("T")
+                .long("to-wallet-address")
+                .takes_value(true)
+                .value_name("Wallet Address")
+                .help("fra prefixed address of FindoraNetwork")
+                .conflicts_with("to-pubkey")
         )
         .arg_from_usage("-n, --amount=<Amount> 'how much FRA units to transfer'")
-        .arg_from_usage("--confidential-amount 'amounts of your TXO outputs will be confidential'")
-        .arg_from_usage("--confidential-type 'asset types of your TXO outputs confidential'")
+        .arg_from_usage("--confidential-amount 'mask the amount sent on the transaction log'")
+        .arg_from_usage("--confidential-type 'mask the asset type sent on the transaction log'")
         .about("Transfer tokens from one address to another");
     //let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
 
@@ -111,7 +109,7 @@ fn run() -> Result<()> {
         .arg_from_usage(
             "-a --address=[Address] 'Ethereum address to receive FRA, eg:0xd3Bf...'",
         )
-        .arg_from_usage("-b --balance=<Balance> 'Deposit FRA amount'");
+        .arg_from_usage("-n --amount=<Amount> 'Deposit FRA amount'");
 
     let subcmd_withdraw = SubCommand::with_name("contract-withdraw")
         .about(
@@ -120,7 +118,7 @@ fn run() -> Result<()> {
         .arg_from_usage(
             "-a --address=[Address] 'Findora account to receive FRA, eg:fra1rkv...'",
         )
-        .arg_from_usage("-b --balance=<Balance> 'Withdraw FRA amount'")
+        .arg_from_usage("-n --amount=<Amount> 'Withdraw FRA amount'")
         .arg_from_usage(
             "-e --eth-key=[MNEMONIC] 'Ethereum account mnemonic phrase sign withdraw tx'",
         );
@@ -141,13 +139,13 @@ fn run() -> Result<()> {
         .subcommand(subcmd_account_info)
         .subcommand(subcmd_deposit)
         .subcommand(subcmd_withdraw)
+        .subcommand(subcmd_staker_update)
         //.subcommand(subcmd_set_initial_validators)
         .get_matches();
 
     if matches.is_present("version") {
         println!("{}", env!("VERGEN_SHA"));
     } else if matches.is_present("genkey") {
-<<<<<<<< HEAD:src/components/finutils/src/bins/fns.rs
         common::gen_key_and_print();
     } else if let Some(m) = matches.subcommand_matches("staker-update") {
         let cr = m.value_of("commission-rate");
@@ -160,9 +158,6 @@ fn run() -> Result<()> {
         } else {
             common::staker_update(cr, vm).c(d!())?;
         }
-========
-        gen_key_and_print();
->>>>>>>> 42b24bd8 (merge develop refactor code (#453)):components/fintools/src/bins/fns.rs
     } else if let Some(m) = matches.subcommand_matches("stake") {
         let am = m.value_of("amount");
         if m.is_present("append") {
@@ -176,17 +171,14 @@ fn run() -> Result<()> {
         } else {
             let cr = m.value_of("commission-rate");
             let vm = m.value_of("validator-memo");
+            let force = m.is_present("force");
             if am.is_none() || cr.is_none() {
                 println!("{}", m.usage());
                 println!(
                     "Tips: if you want to raise the power of your node, please use `fns stake --append [OPTIONS]`"
                 );
             } else {
-<<<<<<<< HEAD:src/components/finutils/src/bins/fns.rs
                 common::stake(am.unwrap(), cr.unwrap(), vm, force).c(d!())?;
-========
-                fns::stake(am.unwrap(), cr.unwrap(), vm).c(d!())?;
->>>>>>>> 42b24bd8 (merge develop refactor code (#453)):components/fintools/src/bins/fns.rs
             }
         }
     } else if let Some(m) = matches.subcommand_matches("unstake") {
@@ -211,7 +203,6 @@ fn run() -> Result<()> {
         }
     } else if let Some(m) = matches.subcommand_matches("transfer") {
         let f = m.value_of("from-seckey");
-<<<<<<<< HEAD:src/components/finutils/src/bins/fns.rs
         let t = m
             .value_of("to-pubkey")
             .map(|pk_str| pk_str.to_owned())
@@ -225,17 +216,14 @@ fn run() -> Result<()> {
                     })
                     .map(|pk| libutils::wallet::public_key_to_base64(&pk))
             })?;
-========
-        let t = m.value_of("to-pubkey");
->>>>>>>> 42b24bd8 (merge develop refactor code (#453)):components/fintools/src/bins/fns.rs
         let am = m.value_of("amount");
 
-        if t.is_none() || am.is_none() {
+        if am.is_none() {
             println!("{}", m.usage());
         } else {
             common::transfer_fra(
                 f,
-                t.unwrap(),
+                &t,
                 am.unwrap(),
                 m.is_present("confidential-amount"),
                 m.is_present("confidential-type"),
@@ -258,18 +246,14 @@ fn run() -> Result<()> {
         let (account, info) = contract_account_info(address)?;
         println!("AccountId: {}\n{:#?}\n", account, info);
     } else if let Some(m) = matches.subcommand_matches("contract-deposit") {
-        let amount = m.value_of("balance").c(d!())?;
+        let amount = m.value_of("amount").c(d!())?;
         let address = m.value_of("address");
-        transfer_to_account(u64::from_str_radix(amount, 10).c(d!())?, address)?
+        transfer_to_account(amount.parse::<u64>().c(d!())?, address)?
     } else if let Some(m) = matches.subcommand_matches("contract-withdraw") {
-        let amount = m.value_of("balance").c(d!())?;
+        let amount = m.value_of("amount").c(d!())?;
         let address = m.value_of("address");
         let eth_key = m.value_of("eth-key");
-        transfer_from_account(
-            u64::from_str_radix(amount, 10).c(d!())?,
-            address,
-            eth_key,
-        )?
+        transfer_from_account(amount.parse::<u64>().c(d!())?, address, eth_key)?
     } else {
         println!("{}", matches.usage());
     }
@@ -288,22 +272,5 @@ fn tip_fail(e: impl fmt::Display) {
 fn tip_success() {
     println!(
         "\x1b[35;01mNote\x1b[01m:\n\tYour operations has been executed without local error,\n\tbut the final result may need an asynchronous query.\x1b[00m"
-    );
-}
-
-fn gen_key_and_print() {
-    let (m, k) = loop {
-        let mnemonic = pnk!(wallet::generate_mnemonic_custom(24, "en"));
-        let key = wallet::restore_keypair_from_mnemonic_default(&mnemonic)
-            .c(d!())
-            .and_then(|kp| serde_json::to_string_pretty(&kp).c(d!()));
-        let k = pnk!(key);
-        if !k.contains('-') {
-            break (mnemonic, k);
-        }
-    };
-    println!(
-        "\x1b[31;01mMnemonic:\x1b[00m {}\n\x1b[31;01mKey:\x1b[00m {}\n",
-        m, k
     );
 }

@@ -1,5 +1,6 @@
 use crate::hash::StorageHasher;
 use crate::*;
+use ruc::*;
 use std::str::FromStr;
 use storage::db::{IterOrder, MerkleDB};
 use storage::state::{KVecMap, State};
@@ -10,8 +11,8 @@ use storage::state::{KVecMap, State};
 /// Each value is stored at:
 /// ```nocompile
 /// Sha256(Prefix::module_prefix() + Prefix::STORAGE_PREFIX)
-///		++ serialize(key1)
-///		++ serialize(key2)
+///    ++ serialize(key1)
+///    ++ serialize(key2)
 /// ```
 ///
 pub struct StorageDoubleMap<Prefix, Hasher, Key1, Key2, Value>(
@@ -49,16 +50,12 @@ where
             .to_vec()
     }
 
-    pub fn parse_key_for(key_list: Vec<&str>) -> std::result::Result<Key2, ()> {
-        let last_key = key_list.last().copied();
-        if last_key.is_none() {
-            return Err(());
-        }
-        let key = Key2::from_str(last_key.unwrap());
-        match key {
-            Ok(k) => Ok(k),
-            Err(_) => Err(()),
-        }
+    pub fn parse_key_for(key_list: Vec<&str>) -> Result<Key2> {
+        let last_key = key_list
+            .last()
+            .copied()
+            .ok_or(eg!("parse key failed with empty list"))?;
+        Key2::from_str(last_key).map_err(|_| eg!("key convert to string err"))
     }
 
     /// Does the value (explicitly) exist in storage?
@@ -145,8 +142,9 @@ where
 
             let key = Self::parse_key_for(key_list);
             let raw_value = serde_json::from_slice::<Value>(v.as_slice()).ok();
-            if key.is_ok() && raw_value.is_some() {
-                res.push((key.unwrap(), raw_value.unwrap()))
+
+            if let (Ok(k), Some(v)) = (key, raw_value) {
+                res.push((k, v))
             }
         }
         res

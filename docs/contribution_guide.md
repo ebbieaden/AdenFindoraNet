@@ -68,6 +68,8 @@ mod abc {
     //! # Modular Docs
     //!
 
+    #![deny(missing_docs)]
+
     fn xxx() {}
 }
 ```
@@ -77,6 +79,8 @@ wrong style:
 ```rust
 /// # Modular Docs
 mod abc {
+    #![allow(missing_docs)]
+
     fn xxx() {}
 }
 ```

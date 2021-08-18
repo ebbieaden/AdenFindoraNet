@@ -19,6 +19,7 @@ pub struct ActionRunner<C: Config> {
 }
 
 impl<C: Config> ActionRunner<C> {
+    #[allow(clippy::too_many_arguments)]
     /// Execute an EVM operation.
     pub fn execute<'config, F, R>(
         ctx: &Context,
@@ -52,7 +53,7 @@ impl<C: Config> ActionRunner<C> {
             origin: source,
         };
 
-        let metadata = StackSubstateMetadata::new(gas_limit, &config);
+        let metadata = StackSubstateMetadata::new(gas_limit, config);
         let state = FindoraStackState::new(ctx, &vicinity, metadata);
         let mut executor =
             StackExecutor::new_with_precompile(state, config, C::Precompiles::execute);
@@ -60,7 +61,7 @@ impl<C: Config> ActionRunner<C> {
         let total_fee = gas_price
             .checked_mul(U256::from(gas_limit))
             .ok_or(eg!("FeeOverflow"))?;
-        let total_fee = C::DecimalsMapping::into_native_token(total_fee);
+        let total_fee = C::DecimalsMapping::convert_to_native_token(total_fee);
         let total_payment =
             value.checked_add(total_fee).ok_or(eg!("PaymentOverflow"))?;
         let source_account = App::<C>::account_basic(ctx, &source);
@@ -98,7 +99,7 @@ impl<C: Config> ActionRunner<C> {
         );
 
         if !config.estimate {
-            let actual_fee = C::DecimalsMapping::into_native_token(actual_fee);
+            let actual_fee = C::DecimalsMapping::convert_to_native_token(actual_fee);
             // Refund fees to the `source` account if deducted more before,
             App::<C>::correct_and_deposit_fee(ctx, &source, actual_fee, total_fee)?;
         }

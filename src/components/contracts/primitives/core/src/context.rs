@@ -1,8 +1,8 @@
-use abci::Header;
 use storage::{
     db::FinDB,
     state::{ChainState, State},
 };
+use tm_protos::abci::Header;
 
 pub use parking_lot::RwLock;
 pub use std::sync::Arc;

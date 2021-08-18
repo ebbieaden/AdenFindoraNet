@@ -5,14 +5,14 @@ use ruc::Result;
 use std::convert::TryFrom;
 
 pub trait AddressMapping {
-    fn into_account_id(address: H160) -> Address;
+    fn convert_to_account_id(address: H160) -> Address;
 }
 
 /// Ethereum address mapping.
 pub struct EthereumAddressMapping;
 
 impl AddressMapping for EthereumAddressMapping {
-    fn into_account_id(address: H160) -> Address {
+    fn convert_to_account_id(address: H160) -> Address {
         let mut data = [0u8; 32];
         data[0..20].copy_from_slice(&address[..]);
         Address::try_from(&data[..]).unwrap()
@@ -27,7 +27,7 @@ pub trait BlockHashMapping {
 pub trait DecimalsMapping {
     fn from_native_token(balance: U256) -> Option<U256>;
 
-    fn into_native_token(balance: U256) -> U256;
+    fn convert_to_native_token(balance: U256) -> U256;
 }
 
 /// FRA decimals
@@ -44,10 +44,10 @@ impl DecimalsMapping for EthereumDecimalsMapping {
         balance.checked_mul(U256::from(10_u64.pow(ETH_DECIMALS - FRA_DECIMALS)))
     }
 
-    fn into_native_token(balance: U256) -> U256 {
+    fn convert_to_native_token(balance: U256) -> U256 {
         balance
             .checked_div(U256::from(10_u64.pow(ETH_DECIMALS - FRA_DECIMALS)))
-            .unwrap_or(U256::zero())
+            .unwrap_or_else(U256::zero)
     }
 }
 

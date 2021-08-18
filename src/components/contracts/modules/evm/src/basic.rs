@@ -15,14 +15,6 @@ impl<C: Config> AppModuleBasic for App<C> {
         todo!()
     }
 
-    fn register_rest_routes(&self) {
-        todo!()
-    }
-
-    fn register_grpc_gateway_routes(&self) {
-        todo!()
-    }
-
     fn get_tx_cmd(&self) {
         todo!()
     }

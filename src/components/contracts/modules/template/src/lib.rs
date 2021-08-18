@@ -2,7 +2,6 @@ mod basic;
 mod genesis;
 
 pub use crate::storage::*;
-use abci::{RequestEndBlock, RequestQuery, ResponseEndBlock, ResponseQuery};
 use fp_core::{
     context::Context,
     module::AppModule,
@@ -11,6 +10,7 @@ use fp_core::{
 use fp_types::{actions::template::Action, crypto::Address};
 use ruc::Result;
 use std::marker::PhantomData;
+use tm_protos::abci::{RequestQuery, ResponseQuery};
 
 pub const MODULE_NAME: &str = "template";
 
@@ -26,8 +26,8 @@ pub struct App<C> {
     phantom: PhantomData<C>,
 }
 
-impl<C: Config> App<C> {
-    pub fn new() -> Self {
+impl<C: Config> Default for App<C> {
+    fn default() -> Self {
         App {
             phantom: Default::default(),
         }
@@ -41,24 +41,16 @@ impl<C: Config> AppModule for App<C> {
         path: Vec<&str>,
         _req: &RequestQuery,
     ) -> ResponseQuery {
-        let mut resp = ResponseQuery::new();
+        let mut resp = ResponseQuery::default();
         if path.len() != 1 {
             resp.code = 1;
             resp.log = String::from("template: invalid query path");
             return resp;
         }
 
-        let value = ValueStore::get(ctx.store.clone()).unwrap_or_default();
+        let value = ValueStore::get(ctx.store).unwrap_or_default();
         resp.value = serde_json::to_vec(&value).unwrap_or_default();
         resp
-    }
-
-    fn end_block(
-        &mut self,
-        _ctx: &mut Context,
-        _req: &RequestEndBlock,
-    ) -> ResponseEndBlock {
-        ResponseEndBlock::new()
     }
 }
 
@@ -74,9 +66,10 @@ impl<C: Config> Executable for App<C> {
         match call {
             Action::SetValue(v) => {
                 ValueStore::put(ctx.store.clone(), v);
-                let mut ar = ActionResult::default();
-                ar.data = v.to_be_bytes().to_vec();
-                Ok(ar)
+                Ok(ActionResult {
+                    data: v.to_be_bytes().to_vec(),
+                    ..Default::default()
+                })
             }
         }
     }

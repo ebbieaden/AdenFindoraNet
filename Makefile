@@ -133,9 +133,9 @@ else
 endif
 
 test:
-	cargo test --release --workspace -- --test-threads=1
-	cargo test --release --features="abci_mock" -- --test-threads=1
-	cargo test --release --workspace -- --ignored
+	cargo test --release --workspace -- --test-threads=1 # --nocapture
+	cargo test --release --features="abci_mock" -- --test-threads=1 # --nocapture
+	cargo test --release --workspace -- --ignored # --nocapture
 
 staking_cfg:
 	cargo run --bin staking_cfg_generator
@@ -174,16 +174,16 @@ debug_env: stop_debug_env build_release_debug
 	@ mkdir -p $(FIN_HOME)/devnet
 	@ cp tools/debug_env.tar.gz $(FIN_HOME)
 	@ cd $(FIN_HOME) && tar -xpf debug_env.tar.gz -C devnet
-	@ ./scripts/devnet/startnodes.sh
+	@ ./tools/devnet/startnodes.sh
 
 run_staking_demo:
 	bash tools/staking/demo.sh
 
 start_debug_env:
-	./scripts/devnet/startnodes.sh
+	./tools/devnet/startnodes.sh
 
 stop_debug_env:
-	@./scripts/devnet/stopnodes.sh
+	@./tools/devnet/stopnodes.sh
 
 # ci_build_image:
 # 	@if [ ! -d "release/bin/" ] && [ -d "debug/bin" ]; then \
@@ -232,12 +232,12 @@ ifeq ($(ENV),release)
 	docker rmi $(PUBLIC_ECR_URL)/$(ENV)/findorad:latest
 endif
 
-####@./scripts/devnet/resetnodes.sh <num_of_validator_nodes> <num_of_normal_nodes>
+####@./tools/devnet/resetnodes.sh <num_of_validator_nodes> <num_of_normal_nodes>
 reset:
-	@./scripts/devnet/stopnodes.sh
-	@./scripts/devnet/resetnodes.sh 1 0
+	@./tools/devnet/stopnodes.sh
+	@./tools/devnet/resetnodes.sh 1 0
 
 snapshot:
-	@./scripts/devnet/snapshot.sh
+	@./tools/devnet/snapshot.sh
 
 devnet: reset snapshot

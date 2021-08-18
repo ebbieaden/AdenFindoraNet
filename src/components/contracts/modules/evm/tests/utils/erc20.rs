@@ -2,10 +2,9 @@ use super::solidity::*;
 use baseapp::BaseApp;
 use ethereum::TransactionAction;
 use ethereum_types::{H160, U256};
+use fp_mocks::*;
 use fp_traits::evm::FeeCalculator;
-use fp_utils::ethereum::UnsignedTransaction;
 use std::path::{Path, PathBuf};
-use std::sync::Once;
 
 pub struct ERC20Constructor(pub ContractConstructor);
 
@@ -18,15 +17,13 @@ impl From<ERC20Constructor> for ContractConstructor {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ERC20(pub DeployedContract);
 
-static DOWNLOAD_ONCE: Once = Once::new();
-
 impl ERC20Constructor {
     pub fn load() -> Self {
         Self(ContractConstructor::compile_from_source(
-            Self::download_solidity_sources(),
+            Path::new("tests").join("contracts"),
             Self::solidity_artifacts_path(),
-            "token/ERC20/presets/ERC20PresetMinterPauser.sol",
-            "ERC20PresetMinterPauser",
+            "ERC20.sol",
+            "ERC20",
         ))
     }
 
@@ -51,22 +48,6 @@ impl ERC20Constructor {
             action: TransactionAction::Create,
             value: Default::default(),
             input,
-        }
-    }
-
-    fn download_solidity_sources() -> PathBuf {
-        let sources_dir = Path::new("target").join("openzeppelin-contracts");
-        let contracts_dir = sources_dir.join("contracts");
-        if contracts_dir.exists() {
-            contracts_dir
-        } else {
-            // Contracts not already present, so download them (but only once, even
-            // if multiple tests running in parallel saw `contracts_dir` does not exist).
-            DOWNLOAD_ONCE.call_once(|| {
-                let url = "https://github.com/OpenZeppelin/openzeppelin-contracts";
-                git2::Repository::clone(url, sources_dir).unwrap();
-            });
-            contracts_dir
         }
     }
 

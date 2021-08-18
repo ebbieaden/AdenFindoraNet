@@ -3,7 +3,6 @@ mod client;
 mod genesis;
 mod impls;
 
-use abci::{RequestQuery, ResponseQuery};
 use fp_core::{
     context::Context,
     module::AppModule,
@@ -13,6 +12,7 @@ use fp_traits::account::{AccountAsset, FeeCalculator};
 use fp_types::{actions::account::Action, crypto::Address};
 use ruc::*;
 use std::marker::PhantomData;
+use tm_protos::abci::{RequestQuery, ResponseQuery};
 
 pub const MODULE_NAME: &str = "account";
 
@@ -36,8 +36,8 @@ pub struct App<C> {
     phantom: PhantomData<C>,
 }
 
-impl<C: Config> App<C> {
-    pub fn new() -> Self {
+impl<C: Config> Default for App<C> {
+    fn default() -> Self {
         App {
             phantom: Default::default(),
         }
@@ -51,7 +51,7 @@ impl<C: Config> AppModule for App<C> {
         path: Vec<&str>,
         req: &RequestQuery,
     ) -> ResponseQuery {
-        let mut resp = ResponseQuery::new();
+        let mut resp: ResponseQuery = Default::default();
         if path.len() != 1 {
             resp.code = 1;
             resp.log = String::from("account: invalid query path");
@@ -69,36 +69,6 @@ impl<C: Config> AppModule for App<C> {
                 resp.value = serde_json::to_vec(&info).unwrap();
                 resp
             }
-            "nonce" => {
-                let data = serde_json::from_slice::<Address>(req.data.as_slice());
-                if data.is_err() {
-                    resp.code = 1;
-                    resp.log = String::from("account: query nonce with invalid params");
-                    return resp;
-                }
-                let nonce = Self::nonce(&ctx, &data.unwrap());
-                resp.value = serde_json::to_vec(&nonce).unwrap();
-                resp
-            }
-            _ => resp,
-        }
-    }
-}
-
-impl<C: Config> AppModule for App<C> {
-    fn query_route(
-        &self,
-        ctx: Context,
-        path: Vec<&str>,
-        req: &RequestQuery,
-    ) -> ResponseQuery {
-        let mut resp = ResponseQuery::new();
-        if path.len() != 1 {
-            resp.code = 1;
-            resp.log = String::from("account: invalid query path");
-            return resp;
-        }
-        match path[0] {
             "nonce" => {
                 let data = serde_json::from_slice::<Address>(req.data.as_slice());
                 if data.is_err() {

@@ -35,16 +35,16 @@ pub trait StorageInstance {
 ///
 /// // generate a storage map from String to u32
 /// generate_storage!(
-/// 	Prefix, StorageMapName => Map<String, u32>
+///    Prefix, StorageMapName => Map<String, u32>
 /// );
 ///
 /// // generate a double map from `(u32, u32)` to `Vec<u8>`
 /// generate_storage!(
-/// 	Prefix, StorageDoubleMapName => DoubleMap<
-/// 		(u32, u32),
-/// 		(u32, u32),
-/// 		Vec<u8>
-/// 	>
+///    Prefix, StorageDoubleMapName => DoubleMap<
+///        (u32, u32),
+///        (u32, u32),
+///        Vec<u8>
+///    >
 /// );
 ///
 /// # fn main() {}

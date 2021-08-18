@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # env
-source scripts/devnet/env.sh || exit 1
+source tools/devnet/env.sh || exit 1
 
 # paths
 WALLET="$HOME/.findora"

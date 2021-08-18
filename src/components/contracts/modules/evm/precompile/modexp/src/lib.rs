@@ -20,6 +20,7 @@ use core::ops::BitAnd;
 use evm::{executor::PrecompileOutput, Context, ExitError, ExitSucceed};
 use fp_evm::Precompile;
 use num::{BigUint, FromPrimitive, One, ToPrimitive, Zero};
+use std::cmp::Ordering;
 
 pub struct Modexp;
 
@@ -66,12 +67,10 @@ fn calculate_gas_cost(
     let multiplication_complexity =
         calculate_multiplication_complexity(base_length, mod_length);
     let iteration_count = calculate_iteration_count(exp_length, exponent);
-    let gas = max(
+    max(
         MIN_GAS_COST,
         multiplication_complexity * iteration_count / 3,
-    );
-
-    gas
+    )
 }
 
 // ModExp expects the following as inputs:
@@ -180,25 +179,25 @@ impl Precompile for Modexp {
 
         // always true except in the case of zero-length modulus, which leads to
         // output of length and value 1.
-        if bytes.len() == mod_len {
-            Ok(PrecompileOutput {
+        match mod_len.cmp(&bytes.len()) {
+            Ordering::Less => Err(ExitError::Other("failed".into())),
+            Ordering::Equal => Ok(PrecompileOutput {
                 exit_status: ExitSucceed::Returned,
                 cost: gas_cost,
                 output: bytes.to_vec(),
                 logs: Default::default(),
-            })
-        } else if bytes.len() < mod_len {
-            let mut ret = Vec::with_capacity(mod_len);
-            ret.extend(core::iter::repeat(0).take(mod_len - bytes.len()));
-            ret.extend_from_slice(&bytes[..]);
-            Ok(PrecompileOutput {
-                exit_status: ExitSucceed::Returned,
-                cost: gas_cost,
-                output: ret.to_vec(),
-                logs: Default::default(),
-            })
-        } else {
-            Err(ExitError::Other("failed".into()))
+            }),
+            Ordering::Greater => {
+                let mut ret = Vec::with_capacity(mod_len);
+                ret.extend(core::iter::repeat(0).take(mod_len - bytes.len()));
+                ret.extend_from_slice(&bytes[..]);
+                Ok(PrecompileOutput {
+                    exit_status: ExitSucceed::Returned,
+                    cost: gas_cost,
+                    output: ret.to_vec(),
+                    logs: Default::default(),
+                })
+            }
         }
     }
 }

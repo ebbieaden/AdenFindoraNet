@@ -6,8 +6,7 @@ use curve25519_dalek::scalar::Scalar;
 use fp_types::crypto::MultiSigner;
 use ledger::{
     address::operation::ConvertAccount,
-    data_model::{errors::PlatformError, *},
-    inv_fail,
+    data_model::*,
     staking::{
         is_valid_tendermint_addr,
         ops::{
@@ -56,7 +55,7 @@ use zei::{
 
 macro_rules! no_transfer_err {
     () => {
-        inv_fail!("Transaction has not yet been finalized".to_string())
+        ("Transaction has not yet been finalized".to_string())
     };
 }
 
@@ -227,7 +226,7 @@ pub trait BuildsTransactions {
                 open_blind_asset_record(&ba, owner_memo, &key_pair)
             })
             .collect();
-        let input_oars = input_oars.c(d!(PlatformError::ZeiError(None)))?;
+        let input_oars = input_oars.c(d!())?;
         let input_total: u64 = input_amounts.iter().sum();
         let mut partially_consumed_inputs = Vec::new();
         for ((input_amount, oar), input_tracing_policy) in input_amounts
@@ -236,7 +235,7 @@ pub trait BuildsTransactions {
             .zip(input_tracing_policies.iter())
         {
             if input_amount > oar.get_amount() {
-                return Err(eg!(PlatformError::InputsError(None)));
+                return Err(eg!());
             } else if input_amount < oar.get_amount() {
                 let mut policies = TracingPolicies::new();
                 if let Some(policy) = &input_tracing_policy {
@@ -254,7 +253,7 @@ pub trait BuildsTransactions {
         }
         let output_total = transfer_to.iter().fold(0, |acc, (amount, _)| acc + amount);
         if input_total != output_total {
-            return Err(eg!(PlatformError::InputsError(None)));
+            return Err(eg!());
         }
         let asset_type = input_oars[0].get_asset_type();
         let asset_record_type = input_oars[0].get_record_type();
@@ -280,7 +279,7 @@ pub trait BuildsTransactions {
             .iter()
             .map(|x| AssetRecord::from_template_no_identity_tracing(&mut prng, x))
             .collect();
-        let output_ars = output_ars.c(d!(PlatformError::ZeiError(None)))?;
+        let output_ars = output_ars.c(d!())?;
         self.add_operation_transfer_asset(
             &key_pair,
             input_sids,
@@ -593,7 +592,7 @@ impl BuildsTransactions for TransactionBuilder {
                     oar.clone(),
                     policies,
                 )
-                .c(d!(PlatformError::ZeiError(None)))?,
+                .c(d!())?,
             );
         }
 
@@ -850,7 +849,7 @@ pub(crate) fn build_record_and_get_blinds<R: CryptoRng + RngCore>(
                     .is_none()
                     && identity_proof.is_some())
     {
-        return Err(eg!(PlatformError::InputsError(None)));
+        return Err(eg!());
     }
     // 1. get ciphertext and proofs from identity proof structure
     let (attr_ctext, reveal_proof) = match identity_proof {
@@ -942,9 +941,9 @@ impl TransferOperationBuilder {
         amount: u64,
     ) -> Result<&mut Self> {
         if self.transfer.is_some() {
-            return Err(eg!(inv_fail!(
-                "Cannot mutate a transfer that has been signed".to_string()
-            )));
+            return Err(eg!(
+                ("Cannot mutate a transfer that has been signed".to_string())
+            ));
         }
         let policies = tracing_policies.unwrap_or_default();
 
@@ -954,7 +953,7 @@ impl TransferOperationBuilder {
                 open_ar,
                 policies.clone(),
             )
-            .c(d!(PlatformError::ZeiError(None)))?;
+            .c(d!())?;
         self.input_sids.push(txo_sid);
         self.input_records.push(asset_record);
         self.inputs_tracing_policies.push(policies);
@@ -972,9 +971,9 @@ impl TransferOperationBuilder {
     ) -> Result<&mut Self> {
         let prng = &mut ChaChaRng::from_entropy();
         if self.transfer.is_some() {
-            return Err(eg!(inv_fail!(
-                "Cannot mutate a transfer that has been signed".to_string()
-            )));
+            return Err(eg!(
+                ("Cannot mutate a transfer that has been signed".to_string())
+            ));
         }
         let policies = tracing_policies.unwrap_or_default();
         let ar = if let Some((user_secret_key, credential, commitment_key)) =
@@ -1007,9 +1006,9 @@ impl TransferOperationBuilder {
         blinds: &mut ((Scalar, Scalar), Scalar),
     ) -> Result<&mut Self> {
         if self.transfer.is_some() {
-            return Err(eg!(inv_fail!(
-                "Cannot mutate a transfer that has been signed".to_string()
-            )));
+            return Err(eg!(
+                ("Cannot mutate a transfer that has been signed".to_string())
+            ));
         }
         let (ar, amount_blinds, type_blind) =
             if let Some((user_secret_key, credential, commitment_key)) =
@@ -1018,13 +1017,13 @@ impl TransferOperationBuilder {
                 match asset_record_template.asset_tracing_policies.get_policy(0) {
                     None => {
                         // identity tracing must have asset_tracing policy
-                        return Err(eg!(PlatformError::InputsError(None)));
+                        return Err(eg!());
                     }
                     Some(policy) => {
                         match &policy.identity_tracing {
                             // policy must have a identity tracing policy
                             None => {
-                                return Err(eg!(PlatformError::InputsError(None)));
+                                return Err(eg!());
                             }
                             Some(reveal_policy) => {
                                 let conf_ac = ac_confidential_open_commitment(
@@ -1036,7 +1035,7 @@ impl TransferOperationBuilder {
                                     &reveal_policy.reveal_map,
                                     &[],
                                 )
-                                .c(d!(PlatformError::ZeiError(None)))?;
+                                .c(d!())?;
                                 build_record_and_get_blinds(
                                     prng,
                                     &asset_record_template,
@@ -1052,7 +1051,7 @@ impl TransferOperationBuilder {
                     asset_record_template.asset_tracing_policies.get_policy(0)
                 {
                     if policy.identity_tracing.is_some() {
-                        return Err(eg!(PlatformError::InputsError(None)));
+                        return Err(eg!());
                     }
                 }
                 build_record_and_get_blinds(prng, &asset_record_template, None)?
@@ -1071,9 +1070,9 @@ impl TransferOperationBuilder {
     pub fn balance(&mut self) -> Result<&mut Self> {
         let mut prng = ChaChaRng::from_entropy();
         if self.transfer.is_some() {
-            return Err(eg!(inv_fail!(
-                "Cannot mutate a transfer that has been signed".to_string()
-            )));
+            return Err(eg!(
+                ("Cannot mutate a transfer that has been signed".to_string())
+            ));
         }
 
         // for: repeated/idempotent balance
@@ -1092,7 +1091,7 @@ impl TransferOperationBuilder {
             let amt = ar.open_asset_record.get_amount();
             match spend_amount.cmp(amt) {
                 Ordering::Greater => {
-                    return Err(eg!(PlatformError::InputsError(None)));
+                    return Err(eg!());
                 }
                 Ordering::Less => {
                     let asset_type = *ar.open_asset_record.get_asset_type();
@@ -1126,7 +1125,7 @@ impl TransferOperationBuilder {
             .iter()
             .fold(0, |acc, ar| acc + ar.open_asset_record.amount);
         if spend_total != output_total {
-            return Err(eg!(PlatformError::InputsError(None)));
+            return Err(eg!());
         }
         self.output_records.append(&mut partially_consumed_inputs);
 
@@ -1251,14 +1250,14 @@ impl TransferOperationBuilder {
         let mut sig_keys = HashSet::new();
         for sig in &trn.body_signatures {
             if !sig.verify(&trn.body) {
-                return Err(eg!(inv_fail!("Invalid signature")));
+                return Err(eg!(("Invalid signature")));
             }
             sig_keys.insert(sig.address.key.zei_to_bytes());
         }
 
         for record in &trn.body.transfer.inputs {
             if !sig_keys.contains(&record.public_key.zei_to_bytes()) {
-                return Err(eg!(inv_fail!("Not all signatures present")));
+                return Err(eg!(("Not all signatures present")));
             }
         }
         Ok(self)
@@ -1521,7 +1520,7 @@ mod tests {
                     .add_input(
                         TxoRef::Absolute($txo_sid),
                         open_blind_asset_record(
-                            &ledger.get_utxo($txo_sid).unwrap().utxo.0.record,
+                            &ledger.get_utxo_light($txo_sid).unwrap().utxo.0.record,
                             &None,
                             &fra_owner_kp,
                         )
@@ -1565,16 +1564,12 @@ mod tests {
 
         // (0) transfer first time
         let mut fi = FeeInputs::new();
-        let utxo = ledger.get_utxo(txo_sid[0]).unwrap();
+        let utxo = ledger.get_utxo_light(txo_sid[0]).unwrap();
         fi.append(
             TX_FEE_MIN,
             TxoRef::Absolute(txo_sid[0]),
             utxo.utxo.0,
-            utxo.authenticated_txn
-                .finalized_txn
-                .txn
-                .get_owner_memos_ref()[utxo.utxo_location.0]
-                .cloned(),
+            utxo.txn.txn.get_owner_memos_ref()[utxo.utxo_location.0].cloned(),
             bob_kp.get_sk().into_keypair(),
         );
         let mut tx3 = TransactionBuilder::from_seq_id(2);
@@ -1599,16 +1594,12 @@ mod tests {
 
         // (2) transfer second time
         let mut fi = FeeInputs::new();
-        let utxo = ledger.get_utxo(txo_sid[0]).unwrap();
+        let utxo = ledger.get_utxo_light(txo_sid[0]).unwrap();
         fi.append(
             TX_FEE_MIN,
             TxoRef::Absolute(txo_sid[0]),
             utxo.utxo.0,
-            utxo.authenticated_txn
-                .finalized_txn
-                .txn
-                .get_owner_memos_ref()[utxo.utxo_location.0]
-                .cloned(),
+            utxo.txn.txn.get_owner_memos_ref()[utxo.utxo_location.0].cloned(),
             bob_kp.get_sk().into_keypair(),
         );
         let mut tx4 = TransactionBuilder::from_seq_id(3);

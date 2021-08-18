@@ -1,5 +1,6 @@
 use crate::context::Context;
 use ruc::Result;
+use tm_protos::abci::*;
 
 /// AppModuleBasic is the standard form for basic non-dependant elements of an application module.
 pub trait AppModuleBasic {
@@ -11,12 +12,6 @@ pub trait AppModuleBasic {
 
     /// Performs genesis state validation for the module.
     fn validate_genesis(&self) -> Result<()>;
-
-    /// Registers the REST routes for the module.
-    fn register_rest_routes(&self);
-
-    /// Registers the gRPC Gateway routes for the module.
-    fn register_grpc_gateway_routes(&self);
 
     /// Returns the root tx command for the module.
     fn get_tx_cmd(&self);
@@ -41,20 +36,20 @@ pub trait AppModule: AppModuleBasic + AppModuleGenesis {
         &self,
         _ctx: Context,
         _path: Vec<&str>,
-        _req: &abci::RequestQuery,
-    ) -> abci::ResponseQuery {
-        abci::ResponseQuery::new()
+        _req: &RequestQuery,
+    ) -> ResponseQuery {
+        Default::default()
     }
 
     /// Tendermint consensus connection: called at the start of processing a block of transactions.
-    fn begin_block(&mut self, _ctx: &mut Context, _req: &abci::RequestBeginBlock) {}
+    fn begin_block(&mut self, _ctx: &mut Context, _req: &RequestBeginBlock) {}
 
     /// Tendermint consensus connection: called at the end of the block.
     fn end_block(
         &mut self,
         _ctx: &mut Context,
-        _req: &abci::RequestEndBlock,
-    ) -> abci::ResponseEndBlock {
-        abci::ResponseEndBlock::new()
+        _req: &RequestEndBlock,
+    ) -> ResponseEndBlock {
+        Default::default()
     }
 }

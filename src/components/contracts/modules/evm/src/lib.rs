@@ -57,8 +57,8 @@ pub struct App<C> {
     phantom: PhantomData<C>,
 }
 
-impl<C: Config> App<C> {
-    pub fn new() -> Self {
+impl<C: Config> Default for App<C> {
+    fn default() -> Self {
         App {
             phantom: Default::default(),
         }
