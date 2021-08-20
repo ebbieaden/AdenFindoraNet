@@ -17,6 +17,7 @@ serde = { version = "1.0.124", features = ["derive"] }
 storage = { git = "ssh://git@github.com/FindoraNetwork/storage.git", branch = "develop" }
 tm-protos = { git = "ssh://git@github.com/FindoraNetwork/tendermint-sys.git", branch = "findora-0.33.6" }
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.4" }
+serde_with = { version = "1.9.4"}
 
 # primitives
 fp-types = { path = "../types" }

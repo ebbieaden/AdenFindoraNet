@@ -89,21 +89,18 @@ impl<C: Config> AccountAsset<Address> for App<C> {
         asset: AssetType,
     ) -> Result<()> {
         let mut target_account: SmartAccount =
-            AccountStore::get(ctx.store.clone(), target)
-                .c(d!("account does not exist"))?;
+            Self::account_of(ctx, target).c(d!("account does not exist"))?;
         if asset == ASSET_TYPE_FRA {
             target_account.balance = target_account
                 .balance
                 .checked_sub(balance)
                 .c(d!("insufficient balance"))?;
+        } else if let Some(amount) = target_account.assets.get_mut(&asset) {
+            *amount = (*amount)
+                .checked_sub(balance)
+                .c(d!("insufficient balance"))?;
         } else {
-            if let Some(amount) = target_account.assets.get_mut(&asset) {
-                *amount = (*amount)
-                    .checked_sub(balance)
-                    .c(d!("insufficient balance"))?;
-            } else {
-            }
-            return Err(eg!("no this assets"));
+            return Err(eg!("account doesn't own this asset"));
         }
         AccountStore::insert(ctx.store.clone(), target, &target_account);
         Ok(())
@@ -176,29 +173,25 @@ impl<C: Config> App<C> {
         Ok(ActionResult::default())
     }
 
-    fn add_mint(ctx: &Context, mut outputs: Vec<MintOutput>) -> Result<()> {
+    pub(crate) fn add_mint(ctx: &Context, mut outputs: Vec<MintOutput>) -> Result<()> {
         let ops = if let Some(mut ori_outputs) = MintOutputs::get(ctx.store.clone()) {
             ori_outputs.append(&mut outputs);
             ori_outputs
         } else {
             outputs
         };
-        MintOutputs::put(ctx.store.clone(), ops);
+        MintOutputs::put(ctx.store.clone(), &ops);
         Ok(())
     }
 
     pub fn consume_mint(ctx: &Context, size: usize) -> Result<Vec<MintOutput>> {
-        let res = if let Some(mut outputs) = MintOutputs::get(ctx.store.clone()) {
-            if outputs.len() > size {
-                let vec2 = outputs.split_off(size - outputs.len());
-                MintOutputs::put(ctx.store.clone(), vec2);
-            } else {
-                MintOutputs::put(ctx.store.clone(), Vec::new());
-            }
-            outputs
+        let mut outputs = MintOutputs::get(ctx.store.clone()).unwrap_or_default();
+        if outputs.len() > size {
+            let vec2 = outputs.split_off(size);
+            MintOutputs::put(ctx.store.clone(), &vec2);
         } else {
-            Vec::new()
-        };
-        Ok(res)
+            MintOutputs::delete(ctx.store.clone());
+        }
+        Ok(outputs)
     }
 }

@@ -9,7 +9,9 @@ pub use parking_lot::RwLock;
 pub use paste;
 pub use ruc::{d, Result, RucResult};
 pub use serde::{de::DeserializeOwned, Serialize};
+pub use std::ops::{Deref, DerefMut};
 pub use std::sync::Arc;
+pub use storage::store::traits::StatelessStore;
 
 const DB_SEPARATOR: &str = "_";
 
@@ -132,6 +134,8 @@ macro_rules! generate_storage {
                 fn module_prefix() -> &'static str { stringify!($module) }
                 const STORAGE_PREFIX: &'static str = stringify!($name);
             }
+
+            impl $crate::StatelessStore for [<$name Instance>] {}
         }
     };
 }

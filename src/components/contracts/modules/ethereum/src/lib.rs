@@ -21,7 +21,6 @@ use fp_traits::{
 use fp_types::{actions::ethereum::Action, crypto::Address};
 use ruc::*;
 use std::marker::PhantomData;
-use storage::*;
 use tm_protos::abci::{RequestEndBlock, ResponseEndBlock};
 
 pub const MODULE_NAME: &str = "ethereum";
@@ -101,7 +100,6 @@ impl<C: Config> AppModule for App<C> {
         req: &RequestEndBlock,
     ) -> ResponseEndBlock {
         let _ = ruc::info!(Self::store_block(ctx, U256::from(req.height)));
-        Pending::delete(ctx.store.clone());
         Default::default()
     }
 }

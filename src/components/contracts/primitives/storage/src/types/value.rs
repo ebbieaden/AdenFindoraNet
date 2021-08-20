@@ -1,68 +1,94 @@
-use crate::hash::StorageHasher;
+use crate::hash::*;
 use crate::*;
 use storage::db::MerkleDB;
 use storage::state::State;
+use storage::store::Prefix;
 
 /// A type that allow to store a value.
 ///
 /// Each value is stored at:
 /// ```nocompile
-/// Sha256(Prefix::module_name() + Prefix::STORAGE_PREFIX)
+/// Sha256(Instance::module_name() + Instance::STORAGE_PREFIX)
 /// ```
 ///
-pub struct StorageValue<Prefix, Hasher, Value>(
-    core::marker::PhantomData<(Prefix, Hasher, Value)>,
+pub struct StorageValue<Instance, Hasher, Value>(
+    core::marker::PhantomData<(Instance, Hasher, Value)>,
 );
 
-impl<Prefix, Hasher, Value> StorageValue<Prefix, Hasher, Value>
+impl<Instance, Hasher, Value> StorageHashedKey for StorageValue<Instance, Hasher, Value>
 where
-    Prefix: StorageInstance,
+    Instance: StorageInstance + StatelessStore,
+    Hasher: StorageHasher<Output = [u8; 32]>,
+    Value: Serialize + DeserializeOwned,
+{
+    /// Get the storage hashed key.
+    fn store_key() -> Vec<u8> {
+        let raw_key: Vec<u8> = [Self::module_prefix(), Self::storage_prefix()].concat();
+        Hasher::hash(raw_key.as_slice()).to_vec()
+    }
+}
+
+impl<Instance, Hasher, Value> StoragePrefixKey for StorageValue<Instance, Hasher, Value>
+where
+    Instance: StorageInstance + StatelessStore,
+    Hasher: StorageHasher<Output = [u8; 32]>,
+    Value: Serialize + DeserializeOwned,
+{
+    /// Get the storage key.
+    fn store_key() -> Vec<u8> {
+        let prefix = Prefix::new(Self::module_prefix());
+        prefix.push(Self::storage_prefix()).as_ref().to_vec()
+    }
+}
+
+impl<Instance, Hasher, Value> StorageValue<Instance, Hasher, Value>
+where
+    Instance: StorageInstance + StatelessStore,
     Hasher: StorageHasher<Output = [u8; 32]>,
     Value: Serialize + DeserializeOwned,
 {
     pub fn module_prefix() -> &'static [u8] {
-        Prefix::module_prefix().as_bytes()
+        Instance::module_prefix().as_bytes()
     }
 
     pub fn storage_prefix() -> &'static [u8] {
-        Prefix::STORAGE_PREFIX.as_bytes()
-    }
-
-    /// Get the storage key.
-    pub fn hashed_key() -> [u8; 32] {
-        let raw_key: Vec<u8> = [Self::module_prefix(), Self::storage_prefix()].concat();
-        Hasher::hash(raw_key.as_slice())
+        Instance::STORAGE_PREFIX.as_bytes()
     }
 
     /// Does the value (explicitly) exist in storage?
-    pub fn exists<T: MerkleDB>(store: Arc<RwLock<State<T>>>) -> bool {
-        store
-            .read()
-            .exists(Self::hashed_key().as_ref())
-            .unwrap_or(false)
+    pub fn exists<D: MerkleDB>(state: Arc<RwLock<State<D>>>) -> bool {
+        Instance::exists(
+            state.read().deref(),
+            <Self as StoragePrefixKey>::store_key().as_ref(),
+        )
+        .unwrap()
     }
 
     /// Load the value from the provided storage instance.
-    pub fn get<T: MerkleDB>(store: Arc<RwLock<State<T>>>) -> Option<Value> {
-        let output = store
-            .read()
-            .get(Self::hashed_key().as_ref())
-            .unwrap_or(None);
-        if let Some(val) = output {
-            serde_json::from_slice::<Value>(val.as_slice()).ok()
-        } else {
-            None
-        }
+    pub fn get<D: MerkleDB>(state: Arc<RwLock<State<D>>>) -> Option<Value> {
+        Instance::get_obj::<Value, D>(
+            state.read().deref(),
+            <Self as StoragePrefixKey>::store_key().as_ref(),
+        )
+        .unwrap()
     }
 
     /// Store a value under this hashed key into the provided storage instance.
-    pub fn put<T: MerkleDB>(store: Arc<RwLock<State<T>>>, val: Value) {
-        let _ = serde_json::to_vec(&val)
-            .map(|v| store.write().set(Self::hashed_key().as_ref(), v));
+    pub fn put<D: MerkleDB>(state: Arc<RwLock<State<D>>>, val: &Value) {
+        Instance::set_obj::<Value, D>(
+            state.write().deref_mut(),
+            <Self as StoragePrefixKey>::store_key().as_ref(),
+            val,
+        )
+        .unwrap()
     }
 
     /// Take a value from storage, removing it afterwards.
-    pub fn delete<T: MerkleDB>(store: Arc<RwLock<State<T>>>) {
-        let _ = store.write().delete(Self::hashed_key().as_ref());
+    pub fn delete<D: MerkleDB>(state: Arc<RwLock<State<D>>>) {
+        Instance::delete(
+            state.write().deref_mut(),
+            <Self as StoragePrefixKey>::store_key().as_ref(),
+        )
+        .unwrap()
     }
 }

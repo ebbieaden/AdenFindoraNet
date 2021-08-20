@@ -2,34 +2,35 @@ use crate::hash::StorageHasher;
 use crate::*;
 use ruc::*;
 use std::str::FromStr;
-use storage::db::{IterOrder, MerkleDB};
-use storage::state::{KVecMap, State};
+use storage::db::MerkleDB;
+use storage::state::State;
+use storage::store::Prefix;
 
 /// A type that allow to store value for given key. Allowing to insert/remove/iterate on values.
 ///
 /// Each value is stored at:
 /// ```nocompile
-/// Sha256(Prefix::module_prefix() + Prefix::STORAGE_PREFIX)
+/// Sha256(Instance::module_prefix() + Instance::STORAGE_PREFIX)
 ///     ++ serialize(key)
 /// ```
 ///
-pub struct StorageMap<Prefix, Hasher, Key, Value>(
-    core::marker::PhantomData<(Prefix, Hasher, Key, Value)>,
+pub struct StorageMap<Instance, Hasher, Key, Value>(
+    core::marker::PhantomData<(Instance, Hasher, Key, Value)>,
 );
 
-impl<Prefix, Hasher, Key, Value> StorageMap<Prefix, Hasher, Key, Value>
+impl<Instance, Hasher, Key, Value> StorageMap<Instance, Hasher, Key, Value>
 where
-    Prefix: StorageInstance,
+    Instance: StorageInstance + StatelessStore,
     Hasher: StorageHasher<Output = [u8; 32]>,
     Key: ToString + FromStr,
     Value: Serialize + DeserializeOwned,
 {
     pub fn module_prefix() -> &'static [u8] {
-        Prefix::module_prefix().as_bytes()
+        Instance::module_prefix().as_bytes()
     }
 
     pub fn storage_prefix() -> &'static [u8] {
-        Prefix::STORAGE_PREFIX.as_bytes()
+        Instance::STORAGE_PREFIX.as_bytes()
     }
 
     /// Get the storage key used to fetch a value corresponding to a specific key.
@@ -38,7 +39,7 @@ where
             [Self::module_prefix(), Self::storage_prefix()].concat();
         let data_key = key.to_string();
 
-        let final_key = storage::store::Prefix::new(prefix_key.as_slice());
+        let final_key = Prefix::new(prefix_key.as_slice());
         final_key.push(data_key.as_ref()).as_ref().to_vec()
     }
 
@@ -51,70 +52,57 @@ where
     }
 
     /// Does the value (explicitly) exist in storage?
-    pub fn contains_key<T: MerkleDB>(store: Arc<RwLock<State<T>>>, key: &Key) -> bool {
-        store
-            .read()
-            .exists(Self::build_key_for(key).as_slice())
-            .unwrap_or(false)
+    pub fn contains_key<D: MerkleDB>(state: Arc<RwLock<State<D>>>, key: &Key) -> bool {
+        Instance::exists(state.read().deref(), Self::build_key_for(key).as_slice())
+            .unwrap()
     }
 
     /// Read the length of the storage value without decoding the entire value under the
     /// given `key`.
-    pub fn decode_len<T: MerkleDB>(
-        store: Arc<RwLock<State<T>>>,
+    pub fn decode_len<D: MerkleDB>(
+        state: Arc<RwLock<State<D>>>,
         key: &Key,
     ) -> Option<usize> {
-        let output = store
-            .read()
-            .get(Self::build_key_for(key).as_slice())
-            .unwrap_or(None);
-        output.map(|val| val.len())
+        Instance::get::<D>(state.read().deref(), Self::build_key_for(key).as_slice())
+            .unwrap()
+            .map(|val| val.len())
     }
 
     /// Load the value associated with the given key from the map.
-    pub fn get<T: MerkleDB>(store: Arc<RwLock<State<T>>>, key: &Key) -> Option<Value> {
-        let output = store
-            .read()
-            .get(Self::build_key_for(key).as_slice())
-            .unwrap_or(None);
-        if let Some(val) = output {
-            serde_json::from_slice::<Value>(val.as_slice()).ok()
-        } else {
-            None
-        }
+    pub fn get<D: MerkleDB>(state: Arc<RwLock<State<D>>>, key: &Key) -> Option<Value> {
+        Instance::get_obj::<Value, D>(
+            state.read().deref(),
+            Self::build_key_for(key).as_slice(),
+        )
+        .unwrap()
     }
 
     /// Store a value to be associated with the given key from the map.
-    pub fn insert<T: MerkleDB>(store: Arc<RwLock<State<T>>>, key: &Key, val: &Value) {
-        let _ = serde_json::to_vec(val)
-            .map(|v| store.write().set(Self::build_key_for(key).as_slice(), v));
+    pub fn insert<D: MerkleDB>(state: Arc<RwLock<State<D>>>, key: &Key, val: &Value) {
+        Instance::set_obj::<Value, D>(
+            state.write().deref_mut(),
+            Self::build_key_for(key).as_slice(),
+            val,
+        )
+        .unwrap()
     }
 
     /// Remove the value under a key.
-    pub fn remove<T: MerkleDB>(store: Arc<RwLock<State<T>>>, key: &Key) {
-        let _ = store.write().delete(Self::build_key_for(key).as_slice());
+    pub fn remove<D: MerkleDB>(state: Arc<RwLock<State<D>>>, key: &Key) {
+        Instance::delete(
+            state.write().deref_mut(),
+            Self::build_key_for(key).as_slice(),
+        )
+        .unwrap()
     }
 
     /// Iter over all value of the storage.
-    pub fn iterate<T: MerkleDB>(store: Arc<RwLock<State<T>>>) -> Vec<(Key, Value)> {
+    pub fn iterate<D: MerkleDB>(state: Arc<RwLock<State<D>>>) -> Vec<(Key, Value)> {
         let prefix_key: Vec<u8> =
             [Self::module_prefix(), Self::storage_prefix()].concat();
-        let prefix: storage::store::Prefix =
-            storage::store::Prefix::new(prefix_key.as_ref());
+        let prefix = Prefix::new(prefix_key.as_ref());
 
-        // Iterate db
-        let mut kv_map = KVecMap::new();
-        store.read().iterate(
-            &prefix.begin(),
-            &prefix.end(),
-            IterOrder::Asc,
-            &mut |(k, v)| -> bool {
-                kv_map.insert(k, v);
-                false
-            },
-        );
-        // Iterate cache
-        store.read().iterate_cache(prefix.as_ref(), &mut kv_map);
+        let kv_map = Instance::iter_cur(state.read().deref(), prefix);
 
         let mut res = Vec::new();
         for (k, v) in kv_map {

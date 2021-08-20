@@ -7,6 +7,7 @@ use fp_core::{
     module::AppModule,
     transaction::{ActionResult, Executable},
 };
+// use fp_storage::{hash::StoragePrefixKey, Deref, StatelessStore};
 use fp_types::{actions::template::Action, crypto::Address};
 use ruc::Result;
 use std::marker::PhantomData;
@@ -19,6 +20,9 @@ pub trait Config {}
 mod storage {
     use fp_storage::*;
 
+    // Two new types will be defined:
+    // 1. type ValueStore = StorageValue (at /primitive/storage/types/value.rs)
+    // 2. ValueStoreInstance:  which ("ValueStore" + "Instance") impls StatelessStore traits
     generate_storage!(Template, ValueStore => Value<u64>);
 }
 
@@ -49,6 +53,14 @@ impl<C: Config> AppModule for App<C> {
         }
 
         let value = ValueStore::get(ctx.store).unwrap_or_default();
+
+        // let value: u64 = <ValueStoreInstance as StatelessStore>::get_obj(
+        //     ctx.store.read().deref(),
+        //     ValueStore::store_key().as_ref(),
+        // )
+        // .unwrap()
+        // .unwrap_or_default();
+
         resp.value = serde_json::to_vec(&value).unwrap_or_default();
         resp
     }
@@ -65,7 +77,7 @@ impl<C: Config> Executable for App<C> {
     ) -> Result<ActionResult> {
         match call {
             Action::SetValue(v) => {
-                ValueStore::put(ctx.store.clone(), v);
+                ValueStore::put(ctx.store.clone(), &v);
                 Ok(ActionResult {
                     data: v.to_be_bytes().to_vec(),
                     ..Default::default()

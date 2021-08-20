@@ -50,3 +50,9 @@ pub trait AccountAsset<Address> {
 pub trait FeeCalculator {
     fn min_fee() -> u64;
 }
+
+impl FeeCalculator for () {
+    fn min_fee() -> u64 {
+        0
+    }
+}

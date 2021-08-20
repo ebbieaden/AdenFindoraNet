@@ -85,6 +85,7 @@ impl<C: Config> App<C> {
         CurrentReceipts::insert(ctx.store.clone(), &block_hash, &receipts);
         CurrentTransactionStatuses::insert(ctx.store.clone(), &block_hash, &statuses);
         BlockHash::insert(ctx.store.clone(), &block_number, &block_hash);
+        Pending::delete(ctx.store.clone());
 
         Ok(())
     }
@@ -180,7 +181,7 @@ impl<C: Config> App<C> {
         };
 
         pending.push((transaction, status, receipt));
-        Pending::put(ctx.store.clone(), pending);
+        Pending::put(ctx.store.clone(), &pending);
 
         events.push(Event::emit_event(
             Self::name(),

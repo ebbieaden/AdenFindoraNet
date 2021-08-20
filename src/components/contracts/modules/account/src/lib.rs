@@ -3,6 +3,9 @@ mod client;
 mod genesis;
 mod impls;
 
+#[cfg(test)]
+mod tests;
+
 use fp_core::{
     context::Context,
     module::AppModule,
@@ -18,6 +21,10 @@ pub const MODULE_NAME: &str = "account";
 
 pub trait Config {
     type FeeCalculator: FeeCalculator;
+}
+
+impl Config for () {
+    type FeeCalculator = ();
 }
 
 mod storage {

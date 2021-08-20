@@ -17,3 +17,13 @@ impl StorageHasher for Sha256 {
         dest
     }
 }
+
+/// Get the storage hashed key.
+pub trait StorageHashedKey {
+    fn store_key() -> Vec<u8>;
+}
+
+/// Get the storage prefix key.
+pub trait StoragePrefixKey {
+    fn store_key() -> Vec<u8>;
+}
