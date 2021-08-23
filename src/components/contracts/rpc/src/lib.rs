@@ -23,7 +23,10 @@ pub fn start_service(
 ) {
     let mut io = jsonrpc_core::IoHandler::default();
 
-    let signers = vec![SecpPair::generate_with_phrase(None).0];
+    // PrivateKey: 9f7bebaa5c55464b10150bc2e0fd552e915e2bdbca95cc45ed1c909aca96e7f5
+    // Address: 0xf6aca39539374993b37d29ccf0d93fa214ea0af1
+    let dev_signer = "zebra paddle unveil toilet weekend space gorilla lesson relief useless arrive picture";
+    let signers = vec![SecpPair::from_phrase(dev_signer, None).unwrap().0];
     io.extend_with(EthApiServer::to_delegate(EthApiImpl::new(
         url_tdmt,
         account_base_app,
