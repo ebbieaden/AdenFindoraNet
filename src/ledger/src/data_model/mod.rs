@@ -6,7 +6,7 @@ mod effects;
 
 pub use effects::*;
 
-use crate::address::operation::ConvertAccount;
+use crate::address::ConvertAccount;
 use crate::staking::{
     is_coinbase_tx,
     ops::{

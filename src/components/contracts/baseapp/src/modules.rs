@@ -12,9 +12,7 @@ use fp_types::{
     assemble::{convert_unsigned_transaction, CheckedTransaction, UncheckedTransaction},
     crypto::Address,
 };
-use ledger::{
-    address::operation::check_convert_tx, data_model::Transaction as FindoraTransaction,
-};
+use ledger::{address::check_convert_tx, data_model::Transaction as FindoraTransaction};
 use ruc::*;
 use serde::Serialize;
 use tm_protos::abci::*;

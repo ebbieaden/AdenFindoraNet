@@ -5,7 +5,7 @@ use credentials::CredUserSecretKey;
 use curve25519_dalek::scalar::Scalar;
 use fp_types::crypto::MultiSigner;
 use ledger::{
-    address::operation::ConvertAccount,
+    address::ConvertAccount,
     data_model::*,
     staking::{
         is_valid_tendermint_addr,

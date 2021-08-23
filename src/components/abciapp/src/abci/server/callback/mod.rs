@@ -4,9 +4,7 @@ use crate::{
 };
 use fp_storage::hash::StorageHasher;
 use lazy_static::lazy_static;
-use ledger::{
-    address::operation::is_convert_tx, data_model::TxnEffect, staking::is_coinbase_tx,
-};
+use ledger::{address::is_convert_tx, data_model::TxnEffect, staking::is_coinbase_tx};
 use log::debug;
 use parking_lot::Mutex;
 use ruc::*;
