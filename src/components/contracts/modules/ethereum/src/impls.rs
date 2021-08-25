@@ -10,6 +10,7 @@ use fp_evm::{BlockId, CallOrCreateInfo, Runner, TransactionStatus};
 use fp_traits::evm::DecimalsMapping;
 use fp_types::{actions::evm as EvmAction, crypto::secp256k1_ecdsa_recover};
 use fp_utils::{proposer_converter, timestamp_converter};
+use log::debug;
 use ruc::*;
 use sha3::{Digest, Keccak256};
 
@@ -81,12 +82,14 @@ impl<C: Config> App<C> {
         let block = ethereum::Block::new(partial_header, transactions, ommers);
         let block_hash = block.header.hash();
 
+        CurrentBlockNumber::put(ctx.store.clone(), &block_number);
         CurrentBlock::insert(ctx.store.clone(), &block_hash, &block);
         CurrentReceipts::insert(ctx.store.clone(), &block_hash, &receipts);
         CurrentTransactionStatuses::insert(ctx.store.clone(), &block_hash, &statuses);
         BlockHash::insert(ctx.store.clone(), &block_number, &block_hash);
         Pending::delete(ctx.store.clone());
 
+        debug!(target: "ethereum", "store new ethereum block: {}", block_number);
         Ok(())
     }
 
@@ -277,8 +280,11 @@ impl<C: Config> App<C> {
 
     /// Get current block hash
     pub fn current_block_hash(ctx: &Context) -> Option<H256> {
-        let number = ctx.store.read().height().unwrap_or_default();
-        BlockHash::get(ctx.store.clone(), &U256::from(number))
+        if let Some(number) = CurrentBlockNumber::get(ctx.store.clone()) {
+            BlockHash::get(ctx.store.clone(), &number)
+        } else {
+            None
+        }
     }
 
     /// Get header hash of given block id.

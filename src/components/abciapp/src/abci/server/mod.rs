@@ -1,11 +1,18 @@
-use crate::api::submission_server::SubmissionServer;
+use crate::abci::config::global_cfg::CFG;
+use crate::{
+    abci::server::callback::TENDERMINT_BLOCK_HEIGHT,
+    api::submission_server::SubmissionServer,
+};
 use baseapp::BaseApp as AccountBaseAPP;
 use ledger::store::LedgerState;
 use parking_lot::RwLock;
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::*;
-use std::{path::Path, sync::Arc};
+use std::{
+    path::Path,
+    sync::{atomic::Ordering, Arc},
+};
 use tendermint_sys::SyncApplication;
 use tm_protos::abci::*;
 use tx_sender::TendermintForward;
@@ -29,13 +36,18 @@ impl ABCISubmissionServer {
             None => LedgerState::test_ledger(),
             Some(base_dir) => pnk!(LedgerState::load_or_init(base_dir)),
         };
+        let tendermint_height = ledger_state.get_staking().cur_height();
+        TENDERMINT_BLOCK_HEIGHT.swap(tendermint_height as i64, Ordering::Relaxed);
 
         let account_base_app = match base_dir {
             None => {
-                pnk!(AccountBaseAPP::new(tempfile::tempdir().unwrap().path()))
+                pnk!(AccountBaseAPP::new(
+                    tempfile::tempdir().unwrap().path(),
+                    CFG.enable_eth_empty_blocks
+                ))
             }
             Some(base_dir) => {
-                pnk!(AccountBaseAPP::new(base_dir))
+                pnk!(AccountBaseAPP::new(base_dir, CFG.enable_eth_empty_blocks))
             }
         };
 

@@ -17,6 +17,7 @@ use fp_traits::{
     evm::{EthereumAddressMapping, EthereumDecimalsMapping},
 };
 use fp_types::{actions::account::MintOutput, actions::Action, crypto::Address};
+use lazy_static::lazy_static;
 use ledger::data_model::{Transaction as FindoraTransaction, TX_FEE_MIN};
 use parking_lot::RwLock;
 use primitive_types::{H160, H256, U256};
@@ -25,6 +26,12 @@ use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
 use tm_protos::abci::Header;
+
+lazy_static! {
+    /// An identifier that distinguishes different EVM chains.
+    static ref EVM_CAHIN_ID: u64 = std::env::var("EVM_CHAIN_ID").map(
+        |id| id.as_str().parse::<u64>().unwrap()).unwrap_or(523);
+}
 
 const APP_NAME: &str = "findora";
 const APP_DB_NAME: &str = "findora_db";
@@ -65,7 +72,7 @@ impl module_account::Config for BaseApp {
 }
 
 parameter_types! {
-    pub const ChainId: u64 = 523;
+    pub ChainId: u64 = *EVM_CAHIN_ID;
     pub BlockGasLimit: U256 = U256::from(u32::max_value());
 }
 
@@ -100,7 +107,7 @@ impl module_evm::Config for BaseApp {
 }
 
 impl BaseApp {
-    pub fn new(base_dir: &Path) -> Result<Self> {
+    pub fn new(base_dir: &Path, empty_block: bool) -> Result<Self> {
         // Creates a fresh chain state db
         let fdb_path = base_dir.join(CHAIN_STATE_PATH);
         let fdb = FinDB::open(fdb_path.as_path())?;
@@ -114,7 +121,10 @@ impl BaseApp {
             chain_state: chain_state.clone(),
             check_state: Context::new(chain_state.clone()),
             deliver_state: Context::new(chain_state),
-            modules: ModuleManager::default(),
+            modules: ModuleManager {
+                ethereum_module: module_ethereum::App::<Self>::new(empty_block),
+                ..Default::default()
+            },
         })
     }
 }

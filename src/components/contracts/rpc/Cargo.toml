@@ -29,6 +29,7 @@ rand = "0.7"
 rlp = "0.5"
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 rustc-hex = { version = "2.1.0" }
+rustc_version = "0.4.0"
 serde_json = "1.0"
 sha3 = "0.8"
 tendermint-rpc = { version = "0.19.0", features = ["http-client", "websocket-client"] }

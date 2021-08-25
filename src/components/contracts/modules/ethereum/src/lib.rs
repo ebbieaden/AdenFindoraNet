@@ -21,6 +21,7 @@ use fp_traits::{
 use fp_types::{actions::ethereum::Action, crypto::Address};
 use ruc::*;
 use std::marker::PhantomData;
+use storage::*;
 use tm_protos::abci::{RequestEndBlock, ResponseEndBlock};
 
 pub const MODULE_NAME: &str = "ethereum";
@@ -64,6 +65,8 @@ pub mod storage {
     generate_storage!(Ethereum, CurrentTransactionStatuses => Map<H256, Vec<TransactionStatus>>);
     // Mapping for block number and hashes.
     generate_storage!(Ethereum, BlockHash => Map<U256, H256>);
+    // The current Ethereum block number.
+    generate_storage!(Ethereum, CurrentBlockNumber => Value<U256>);
 }
 
 #[derive(Event)]
@@ -82,12 +85,23 @@ pub struct ContractLog {
 }
 
 pub struct App<C> {
+    enable_eth_empty_blocks: bool,
     phantom: PhantomData<C>,
+}
+
+impl<C: Config> App<C> {
+    pub fn new(empty_block: bool) -> Self {
+        App {
+            enable_eth_empty_blocks: empty_block,
+            phantom: Default::default(),
+        }
+    }
 }
 
 impl<C: Config> Default for App<C> {
     fn default() -> Self {
         App {
+            enable_eth_empty_blocks: false,
             phantom: Default::default(),
         }
     }
@@ -99,7 +113,12 @@ impl<C: Config> AppModule for App<C> {
         ctx: &mut Context,
         req: &RequestEndBlock,
     ) -> ResponseEndBlock {
-        let _ = ruc::info!(Self::store_block(ctx, U256::from(req.height)));
+        let block_number =
+            CurrentBlockNumber::get(ctx.store.clone()).unwrap_or_default();
+        let txs = Pending::get(ctx.store.clone()).map_or(0, |v| v.len());
+        if txs > 0 || self.enable_eth_empty_blocks || block_number == U256::zero() {
+            let _ = ruc::info!(Self::store_block(ctx, U256::from(req.height)));
+        }
         Default::default()
     }
 }

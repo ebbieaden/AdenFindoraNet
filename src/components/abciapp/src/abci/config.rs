@@ -97,6 +97,7 @@ pub(crate) mod global_cfg {
         static ref ENABLE_QUERY_SERVICE: Option<String> = env::var("ENABLE_QUERY_SERVICE").ok();
         static ref TD_NODE_SELF_ADDR: Option<String> = env::var("TD_NODE_SELF_ADDR").ok();
         static ref TENDERMINT_NODE_KEY_CONFIG_PATH: Option<String> = env::var("TENDERMINT_NODE_KEY_CONFIG_PATH").ok();
+        static ref ENABLE_ETH_EMPTY_BLOCKS: Option<String> = env::var("ENABLE_ETH_EMPTY_BLOCKS").ok();
         static ref ENABLE_ETH_API_SERVICE: Option<String> = env::var("ENABLE_ETH_API_SERVICE").ok();
         static ref EVM_API_PORT: Option<String> = env::var("EVM_API_PORT").ok();
 
@@ -115,8 +116,9 @@ pub(crate) mod global_cfg {
                 .arg_from_usage("--ledger-service-port=[Ledger Service Port]")
                 .arg_from_usage("-l, --enable-ledger-service")
                 .arg_from_usage("-q, --enable-query-service")
+                .arg_from_usage("--enable-eth-empty-blocks 'whether to generate empty ethereum blocks when there is no ethereum transaction'")
                 .arg_from_usage("--enable-eth-api-service")
-                .arg_from_usage("--web3-port=[Web3 Port]")
+                .arg_from_usage("--evm-api-port=[EVM Web3 Provider Port]")
                 .arg_from_usage("--tendermint-node-self-addr=[Address] 'the address of your tendermint node, in upper-hex format'")
                 .arg_from_usage("--tendermint-node-key-config-path=[Path] 'such as: ${HOME}/.tendermint/config/priv_validator_key.json'")
                 .arg_from_usage("-d, --ledger-dir=[Path]")
@@ -157,6 +159,7 @@ pub(crate) mod global_cfg {
         pub ledger_service_port: u16,
         pub enable_ledger_service: bool,
         pub enable_query_service: bool,
+        pub enable_eth_empty_blocks: bool,
         pub enable_eth_api_service: bool,
         pub evm_api_port: u16,
         pub tendermint_node_self_addr: Option<&'static str>,
@@ -230,10 +233,12 @@ pub(crate) mod global_cfg {
             .value_of("base-dir")
             .or_else(|| TENDERMINT_HOME.as_deref());
 
+        let eeb =
+            M.is_present("enable-eth-empty-blocks") || ENABLE_ETH_EMPTY_BLOCKS.is_some();
         let eas =
             M.is_present("enable-eth-api-service") || ENABLE_ETH_API_SERVICE.is_some();
         let eap = M
-            .value_of("web3-port")
+            .value_of("evm-api-port")
             .or_else(|| EVM_API_PORT.as_deref())
             .unwrap_or("8545")
             .parse::<u16>()
@@ -258,6 +263,7 @@ pub(crate) mod global_cfg {
             ledger_service_port: lsp,
             enable_ledger_service: els,
             enable_query_service: eqs,
+            enable_eth_empty_blocks: eeb,
             enable_eth_api_service: eas,
             evm_api_port: eap,
             tendermint_node_self_addr: tnsa,

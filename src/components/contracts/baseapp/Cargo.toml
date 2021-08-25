@@ -11,6 +11,7 @@ readme = "README.md"
 [dependencies]
 ethereum = { version = "0.7.1", features = ["with-serde"] }
 ethereum-types = "0.11.0"
+lazy_static = "1.4.0"
 ledger = { path = "../../../ledger" }
 log = "0.4"
 parking_lot = "0.11.1"

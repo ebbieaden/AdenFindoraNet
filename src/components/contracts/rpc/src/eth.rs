@@ -23,9 +23,10 @@ use fp_types::{
 };
 use fp_utils::{ecdsa::SecpPair, proposer_converter};
 use jsonrpc_core::{futures::future, BoxFuture, Result};
-use log::debug;
+use log::{debug, warn};
 use parking_lot::RwLock;
 use ruc::eg;
+use rustc_version::version;
 use sha3::{Digest, Keccak256};
 use std::collections::BTreeMap;
 use std::convert::Into;
@@ -75,14 +76,10 @@ impl EthApi for EthApiImpl {
     }
 
     fn balance(&self, address: H160, number: Option<BlockNumber>) -> Result<U256> {
-        let ctx = if let Some(BlockNumber::Pending) = number {
-            Some(self.account_base_app.read().deliver_state.clone())
-        } else {
-            None
-        };
+        debug!(target: "eth_rpc", "balance, address:{:?}, number:{:?}", address, number);
 
         let account_id = EthereumAddressMapping::convert_to_account_id(address);
-        if let Ok(sa) = self.account_base_app.read().account_of(&account_id, ctx) {
+        if let Ok(sa) = self.account_base_app.read().account_of(&account_id, None) {
             Ok(
                 <BaseApp as module_evm::Config>::DecimalsMapping::from_native_token(
                     U256::from(sa.balance),
@@ -95,6 +92,8 @@ impl EthApi for EthApiImpl {
     }
 
     fn send_transaction(&self, request: TransactionRequest) -> BoxFuture<H256> {
+        debug!(target: "eth_rpc", "send_transaction, request:{:?}", request);
+
         let from = match request.from {
             Some(from) => from,
             None => {
@@ -194,6 +193,8 @@ impl EthApi for EthApiImpl {
     }
 
     fn call(&self, request: CallRequest, _: Option<BlockNumber>) -> Result<Bytes> {
+        debug!(target: "eth_rpc", "call, request:{:?}", request);
+
         let CallRequest {
             from,
             to,
@@ -321,8 +322,9 @@ impl EthApi for EthApiImpl {
         &self,
         address: H160,
         index: U256,
-        _number: Option<BlockNumber>,
+        number: Option<BlockNumber>,
     ) -> Result<H256> {
+        warn!(target: "eth_rpc", "storage_at, address:{:?}, index:{:?}, number:{:?}", address, index, number);
         // TODO
         Ok(self
             .account_base_app
@@ -332,6 +334,8 @@ impl EthApi for EthApiImpl {
     }
 
     fn block_by_hash(&self, hash: H256, full: bool) -> Result<Option<RichBlock>> {
+        debug!(target: "eth_rpc", "block_by_hash, hash:{:?}, full:{:?}", hash, full);
+
         let block = self
             .account_base_app
             .read()
@@ -357,6 +361,8 @@ impl EthApi for EthApiImpl {
         number: BlockNumber,
         full: bool,
     ) -> Result<Option<RichBlock>> {
+        debug!(target: "eth_rpc", "block_by_number, number:{:?}, full:{:?}", number, full);
+
         let id = native_block_id(Some(number));
         let block = self.account_base_app.read().current_block(id.clone());
         let statuses = self
@@ -384,25 +390,23 @@ impl EthApi for EthApiImpl {
         address: H160,
         number: Option<BlockNumber>,
     ) -> Result<U256> {
+        debug!(target: "eth_rpc", "transaction_count, address:{:?}, number:{:?}", address, number);
+
         let account_id =
             <BaseApp as module_evm::Config>::AddressMapping::convert_to_account_id(
                 address,
             );
-
-        let ctx = if let Some(BlockNumber::Pending) = number {
-            Some(self.account_base_app.read().check_state.clone())
-        } else {
-            None
-        };
         let sa = self
             .account_base_app
             .read()
-            .account_of(&account_id, ctx)
+            .account_of(&account_id, None)
             .map_err(internal_err)?;
         Ok(U256::from(sa.nonce))
     }
 
     fn block_transaction_count_by_hash(&self, hash: H256) -> Result<Option<U256>> {
+        debug!(target: "eth_rpc", "block_transaction_count_by_hash, hash:{:?}", hash);
+
         let block = self
             .account_base_app
             .read()
@@ -417,6 +421,8 @@ impl EthApi for EthApiImpl {
         &self,
         number: BlockNumber,
     ) -> Result<Option<U256>> {
+        debug!(target: "eth_rpc", "block_transaction_count_by_number, number:{:?}", number);
+
         let id = native_block_id(Some(number));
         let block = self.account_base_app.read().current_block(id);
         match block {
@@ -433,7 +439,8 @@ impl EthApi for EthApiImpl {
         Ok(U256::zero())
     }
 
-    fn code_at(&self, address: H160, _number: Option<BlockNumber>) -> Result<Bytes> {
+    fn code_at(&self, address: H160, number: Option<BlockNumber>) -> Result<Bytes> {
+        debug!(target: "eth_rpc", "code_at, address:{:?}, number:{:?}", address, number);
         // TODO
         Ok(self
             .account_base_app
@@ -567,6 +574,8 @@ impl EthApi for EthApiImpl {
     }
 
     fn transaction_by_hash(&self, hash: H256) -> Result<Option<Transaction>> {
+        debug!(target: "eth_rpc", "transaction_by_hash, hash:{:?}", hash);
+
         let block = self.account_base_app.read().current_block(None);
         let statuses = self
             .account_base_app
@@ -595,6 +604,8 @@ impl EthApi for EthApiImpl {
         hash: H256,
         index: Index,
     ) -> Result<Option<Transaction>> {
+        debug!(target: "eth_rpc", "transaction_by_block_hash_and_index, hash:{:?}, index:{:?}", hash, index);
+
         let id = Some(BlockId::Hash(hash));
         let index = index.value();
         let block = self.account_base_app.read().current_block(id.clone());
@@ -624,6 +635,8 @@ impl EthApi for EthApiImpl {
         number: BlockNumber,
         index: Index,
     ) -> Result<Option<Transaction>> {
+        debug!(target: "eth_rpc", "transaction_by_block_number_and_index, number:{:?}, index:{:?}", number, index);
+
         let id = native_block_id(Some(number));
         let index = index.value();
         let block = self.account_base_app.read().current_block(id.clone());
@@ -649,6 +662,8 @@ impl EthApi for EthApiImpl {
     }
 
     fn transaction_receipt(&self, hash: H256) -> Result<Option<Receipt>> {
+        debug!(target: "eth_rpc", "transaction_receipt, hash:{:?}", hash);
+
         let block = self.account_base_app.read().current_block(None);
         let statuses = self
             .account_base_app
@@ -744,6 +759,8 @@ impl EthApi for EthApiImpl {
     }
 
     fn logs(&self, filter: Filter) -> Result<Vec<Log>> {
+        warn!(target: "eth_rpc", "logs, filter:{:?}", filter);
+
         let mut ret: Vec<Log> = Vec::new();
         if let Some(hash) = filter.block_hash {
             let block = self
@@ -796,12 +813,12 @@ impl Default for NetApiImpl {
 
 impl NetApi for NetApiImpl {
     fn is_listening(&self) -> Result<bool> {
-        println!("invoked: fn is_listening");
+        warn!(target: "eth_rpc", "NetApi::is_listening");
         Ok(true)
     }
 
     fn peer_count(&self) -> Result<PeerCount> {
-        println!("invoked: fn peer_count");
+        warn!(target: "eth_rpc", "NetApi::peer_count");
         Ok(PeerCount::String(format!("0x{:x}", 1)))
     }
 
@@ -827,7 +844,12 @@ impl Default for Web3ApiImpl {
 
 impl Web3Api for Web3ApiImpl {
     fn client_version(&self) -> Result<String> {
-        Ok(String::from("findora-eth-api/v0.1.0-rust"))
+        Ok(format!(
+            "findora-web3-engine/{}-{}-{}",
+            version().unwrap(),
+            std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or("amd64".to_string()),
+            std::env::var("CARGO_CFG_TARGET_OS").unwrap_or("linux".to_string())
+        ))
     }
 
     fn sha3(&self, input: Bytes) -> Result<H256> {
