@@ -41,7 +41,8 @@ use zei::anon_xfr::bar_to_from_abar::gen_bar_to_abar_body;
 use zei::anon_xfr::gen_anon_xfr_body;
 use zei::anon_xfr::keys::{AXfrKeyPair, AXfrPubKey};
 use zei::anon_xfr::structs::{
-    AXfrBody, AXfrNote, OpenAnonBlindAssetRecord, OpenAnonBlindAssetRecordBuilder,
+    AXfrBody, AXfrNote, AnonBlindAssetRecord, OpenAnonBlindAssetRecord,
+    OpenAnonBlindAssetRecordBuilder,
 };
 use zei::api::anon_creds::{
     ac_confidential_open_commitment, ACCommitment, ACCommitmentKey, ConfidentialAC,
@@ -331,7 +332,7 @@ pub trait BuildsTransactions {
         txo_sid: TxoSID,
         input_record: &OpenAssetRecord,
         enc_key: &XPublicKey,
-    ) -> Result<&mut Self>;
+    ) -> Result<(&mut Self, AnonBlindAssetRecord)>;
     fn add_operation_anon_transfer(
         &mut self,
         inputs: &[OpenAnonBlindAssetRecord],
@@ -893,11 +894,9 @@ impl BuildsTransactions for TransactionBuilder {
         txo_sid: TxoSID,
         input_record: &OpenAssetRecord,
         enc_key: &XPublicKey,
-    ) -> Result<&mut Self> {
-        let mut prng = ChaChaRng::from_seed([0u8; 32]);
-        let user_params =
-            UserParams::from_file_if_exists(1, 1, Some(41), DEFAULT_BP_NUM_GENS, None)
-                .unwrap();
+    ) -> Result<(&mut Self, AnonBlindAssetRecord)> {
+        let mut prng = ChaChaRng::from_entropy();
+        let user_params = UserParams::eq_committed_vals_params();
         let body = gen_bar_to_abar_body(
             &mut prng,
             &user_params,
@@ -908,10 +907,10 @@ impl BuildsTransactions for TransactionBuilder {
         .c(d!(PlatformError::ZeiError(None)))?;
 
         let bar_to_abar = BarToAbar::new(body, auth_key_pair, txo_sid)?;
-
+        let abar = bar_to_abar.note.body.output.clone();
         let op = Operation::BarToAbar(bar_to_abar);
         self.txn.add_operation(op);
-        Ok(self)
+        Ok((self, abar))
     }
 
     fn add_operation_anon_transfer(
@@ -1657,14 +1656,18 @@ impl AnonymousTransferOperationBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crypto::basics::commitments::ristretto_pedersen::RistrettoPedersenGens;
+    use crypto::basics::hybrid_encryption::XSecretKey;
     use ledger::data_model::TxoRef;
     use ledger::store::{fra_gen_initial_tx, LedgerAccess, LedgerState, LedgerUpdate};
     use rand_chacha::ChaChaRng;
     use rand_core::SeedableRng;
-    use zei::setup::PublicParams;
+    use zei::anon_xfr::bar_to_from_abar::verify_bar_to_abar_note;
+    use zei::setup::{NodeParams, PublicParams};
     use zei::xfr::asset_record::AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType;
     use zei::xfr::asset_record::{build_blind_asset_record, open_blind_asset_record};
     use zei::xfr::sig::XfrKeyPair;
+    use zei::xfr::structs::AssetType as AT;
 
     // Defines an asset type
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2019,5 +2022,45 @@ mod tests {
         let mut block = ledger.start_block().unwrap();
         assert!(ledger.apply_transaction(&mut block, effect, false).is_err());
         ledger.abort_block(block);
+    }
+
+    #[test]
+    fn test_operation_bar_to_abar() {
+        let mut builder = TransactionBuilder::from_seq_id(1);
+
+        let mut prng = ChaChaRng::from_seed([0u8; 32]);
+        let from = XfrKeyPair::generate(&mut prng);
+        let to = AXfrKeyPair::generate(&mut prng).pub_key();
+        let to_enc_key = XSecretKey::new(&mut prng);
+
+        let ar = AssetRecordTemplate::with_no_asset_tracing(
+            10u64,
+            AT::from_identical_byte(1u8),
+            AssetRecordType::ConfidentialAmount_ConfidentialAssetType,
+            from.get_pk(),
+        );
+        let pc_gens = RistrettoPedersenGens::default();
+        let (bar, _, memo) = build_blind_asset_record(&mut prng, &pc_gens, &ar, vec![]);
+        let dummy_input = open_blind_asset_record(&bar, &memo, &from).unwrap();
+
+        let _ = builder
+            .add_operation_bar_to_abar(
+                &from,
+                &to,
+                TxoSID(123),
+                &dummy_input,
+                &XPublicKey::from(&to_enc_key),
+            )
+            .is_ok();
+
+        let txn = builder.take_transaction();
+
+        if let Operation::BarToAbar(note) = txn.body.operations[0].clone() {
+            let user_params = UserParams::eq_committed_vals_params();
+            let node_params = NodeParams::from(user_params);
+            let result =
+                verify_bar_to_abar_note(&node_params, &note.note, from.get_pk_ref());
+            assert!(result.is_ok());
+        }
     }
 }

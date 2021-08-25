@@ -8,6 +8,7 @@
 
 use crate::fns::utils::parse_td_validator_keys;
 use lazy_static::lazy_static;
+use ledger::data_model::TxoSID;
 use ledger::{
     data_model::BLACK_HOLE_PUBKEY_STAKING,
     staking::{
@@ -20,6 +21,7 @@ use ruc::*;
 use std::{env, fs};
 use tendermint::PrivateKey;
 use txn_builder::BuildsTransactions;
+use zei::anon_xfr::structs::AnonBlindAssetRecord;
 use zei::xfr::sig::{XfrKeyPair, XfrSecretKey};
 
 pub mod utils;
@@ -258,6 +260,34 @@ pub fn transfer_fra(
     let am = am.parse::<u64>().c(d!("'amount' must be an integer"))?;
 
     utils::transfer(&from, &to, am, confidential_am, confidential_ty).c(d!())
+}
+
+pub fn convert_bar2abar(
+    owner_sk: Option<&str>,
+    target_addr: &str,
+    owner_enc_key: &str,
+    txo_sid: &str,
+) -> Result<AnonBlindAssetRecord> {
+    let from = owner_sk
+        .c(d!())
+        .and_then(|sk| {
+            ruc::info!(serde_json::from_str::<XfrSecretKey>(&format!("\"{}\"", sk)))
+                .c(d!())
+                .map(|sk| sk.into_keypair())
+        })
+        .or_else(|_| get_keypair().c(d!()))?;
+    let to = wallet::anon_public_key_from_base64(target_addr)
+        .c(d!("invalid 'target-addr'"))?;
+    let enc_key = wallet::x_public_key_from_base64(owner_enc_key)
+        .c(d!("invalid owner_enc_key"))?;
+    let sid = txo_sid.parse::<u64>().c(d!("error parsing TxoSID"))?;
+
+    let oar =
+        utils::get_oar(&from, TxoSID(sid)).c(d!("error fetching open asset record"))?;
+
+    let abar = utils::generate_bar2abar_op(&from, &to, TxoSID(sid), &oar, &enc_key)?;
+
+    Ok(abar)
 }
 
 /// Mainly for official usage,

@@ -34,8 +34,8 @@ txn_builder = {path = "../txn_builder"}
 wasm-bindgen = { version = "=0.2.62", features = ["serde-serialize"]  }
 wasm-bindgen-futures = "0.3.27"
 wasm-bindgen-test = "0.2.50"
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", branch = "bar2abar_integration" }
-crypto = { package = "crypto", git = "ssh://git@github.com/FindoraNetwork/zei", branch = "bar2abar_integration" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", branch = "develop" }
+crypto = { package = "crypto", git = "ssh://git@github.com/FindoraNetwork/zei", branch = "develop" }
 utils = { path = "../../libs/utils" }
 fp-core = { path = "../contracts/primitives/core" }
 module-account = { path = "../contracts/modules/account" }

@@ -24,4 +24,4 @@ fp-utils = { path = "../../primitives/utils" }
 hex = "0.4.2"
 lazy_static = "1.4.0"
 rand_chacha = "0.2.0"
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.3a" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", branch = "develop" }

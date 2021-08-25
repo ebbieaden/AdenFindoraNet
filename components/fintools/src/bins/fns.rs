@@ -26,9 +26,14 @@
 #![deny(warnings)]
 
 use clap::{crate_authors, App, ArgGroup, SubCommand};
+use crypto::basics::hybrid_encryption::{XPublicKey, XSecretKey};
 use fintools::fns;
+use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaChaRng;
 use ruc::*;
 use std::fmt;
+use zei::anon_xfr::keys::AXfrKeyPair;
+use zei::serialization::ZeiFromToBytes;
 
 fn main() {
     if let Err(e) = run() {
@@ -87,6 +92,20 @@ fn run() -> Result<()> {
         .arg_from_usage("--confidential-type 'asset types of your TXO outputs confidential'")
         .about("Transfer tokens from one address to another");
     //let subcmd_set_initial_validators = SubCommand::with_name("set-initial-validators");
+    let subcmd_convert_bar_to_abar = SubCommand::with_name("convert-bar-to-abar")
+        .arg_from_usage(
+            "--from-seckey=[SecKey] 'base64-formated `XfrPrivateKey` of the converter'",
+        )
+        .arg_from_usage(
+            "--to-pubkey=<PubKey> 'base64-formated `AXfrPubKey` of the receiver'",
+        )
+        .arg_from_usage(
+            "--enc-key=<PubKey> 'base64-formated `XPublicKey` of the receiver'",
+        )
+        .arg_from_usage("--txo-sid=<Sid> 'sid of the utxo to convert of the sender'")
+        .about("Create a bar to abar conversion note transaction");
+    let subcmd_generate_anon_keys = SubCommand::with_name("generate-anon-keys")
+        .about("Generates and prints keys for anon transfer");
 
     let matches = App::new("fns")
         .version(fns::version())
@@ -101,6 +120,8 @@ fn run() -> Result<()> {
         .subcommand(subcmd_setup)
         .subcommand(subcmd_transfer)
         //.subcommand(subcmd_set_initial_validators)
+        .subcommand(subcmd_convert_bar_to_abar)
+        .subcommand(subcmd_generate_anon_keys)
         .get_matches();
 
     if matches.is_present("version") {
@@ -167,6 +188,46 @@ fn run() -> Result<()> {
         }
     } else if matches.is_present("set-initial-validators") {
         fns::set_initial_validators().c(d!())?;
+    } else if let Some(m) = matches.subcommand_matches("convert-bar-to-abar") {
+        let owner_sk = m.value_of("from-seckey");
+        let target_addr = m.value_of("to-pubkey");
+        let owner_enc_key = m.value_of("enc-key");
+        let txo_sid = m.value_of("txo-sid");
+
+        if target_addr.is_none() || owner_enc_key.is_none() || txo_sid.is_none() {
+            println!("{}", m.usage());
+        } else {
+            fns::convert_bar2abar(
+                owner_sk,
+                target_addr.unwrap(),
+                owner_enc_key.unwrap(),
+                txo_sid.unwrap(),
+            )
+            .c(d!())?;
+        }
+    } else if let Some(_m) = matches.subcommand_matches("generate-anon-keys") {
+        let mut prng = ChaChaRng::from_entropy();
+        let keypair = AXfrKeyPair::generate(&mut prng);
+
+        println!(
+            "AXfrSecretKey: {}",
+            base64::encode(keypair.zei_to_bytes().as_slice())
+        );
+        println!(
+            "AXfrPublicKey: {}",
+            base64::encode(keypair.pub_key().zei_to_bytes().as_slice())
+        );
+
+        let secret_key = XSecretKey::new(&mut prng);
+        let public_key = XPublicKey::from(&secret_key);
+        println!(
+            "Decryption Key: {}",
+            base64::encode(secret_key.zei_to_bytes().as_slice())
+        );
+        println!(
+            "Encryption Key: {}",
+            base64::encode(public_key.zei_to_bytes().as_slice())
+        );
     } else {
         println!("{}", matches.usage());
     }
