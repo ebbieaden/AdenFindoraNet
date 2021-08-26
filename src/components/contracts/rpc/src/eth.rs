@@ -847,8 +847,9 @@ impl Web3Api for Web3ApiImpl {
         Ok(format!(
             "findora-web3-engine/{}-{}-{}",
             version().unwrap(),
-            std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or("amd64".to_string()),
-            std::env::var("CARGO_CFG_TARGET_OS").unwrap_or("linux".to_string())
+            std::env::var("CARGO_CFG_TARGET_ARCH")
+                .unwrap_or_else(|_| "amd64".to_string()),
+            std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string())
         ))
     }
 

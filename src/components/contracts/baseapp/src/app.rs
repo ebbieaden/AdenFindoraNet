@@ -1,5 +1,5 @@
 use crate::extensions::SignedExtra;
-use fp_core::context::{Context, RunTxMode};
+use fp_core::context::RunTxMode;
 use fp_types::assemble::convert_unchecked_transaction;
 use log::{debug, error};
 use ruc::*;
@@ -172,10 +172,11 @@ impl SyncApplication for crate::BaseApp {
             });
 
         // Reset the Check state to the latest committed.
+        self.check_state.store.write().discard_session();
         Self::update_state(&mut self.check_state, header.clone(), header_hash);
 
         // Reset the deliver state
-        self.deliver_state = Context::new(self.chain_state.clone());
+        Self::update_state(&mut self.deliver_state, Default::default(), vec![]);
 
         // Set root hash
         let mut res: ResponseCommit = Default::default();
