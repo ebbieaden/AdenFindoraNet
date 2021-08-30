@@ -23,11 +23,11 @@ use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 
 use crate::types::{
-    BlockNumber, Bytes, CallRequest, Filter, FilterChanges, Index, Log, Receipt,
-    RichBlock, SyncStatus, Transaction, TransactionRequest, Work,
+    BlockNumber, Bytes, CallRequest, Filter, Index, Log, Receipt, RichBlock, SyncStatus,
+    Transaction, TransactionRequest, Work,
 };
+
 pub use rpc_impl_EthApi::gen_server::EthApi as EthApiServer;
-pub use rpc_impl_EthFilterApi::gen_server::EthFilterApi as EthFilterApiServer;
 
 /// Eth rpc interface.
 #[rpc(server)]
@@ -57,7 +57,7 @@ pub trait EthApi {
     /// Sends transaction; will block waiting for signer to return the
     /// transaction hash.
     #[rpc(name = "eth_sendTransaction")]
-    fn send_transaction(&self, _: TransactionRequest) -> BoxFuture<H256>;
+    fn send_transaction(&self, _: TransactionRequest) -> BoxFuture<Result<H256>>;
 
     /// Call contract, returning the output data.
     #[rpc(name = "eth_call")]
@@ -121,7 +121,7 @@ pub trait EthApi {
 
     /// Sends signed transaction, returning its hash.
     #[rpc(name = "eth_sendRawTransaction")]
-    fn send_raw_transaction(&self, _: Bytes) -> BoxFuture<H256>;
+    fn send_raw_transaction(&self, _: Bytes) -> BoxFuture<Result<H256>>;
 
     /// Estimate gas needed for execution of given contract.
     #[rpc(name = "eth_estimateGas")]
@@ -182,32 +182,4 @@ pub trait EthApi {
     /// Used for submitting mining hashrate.
     #[rpc(name = "eth_submitHashrate")]
     fn submit_hashrate(&self, _: U256, _: H256) -> Result<bool>;
-}
-
-/// Eth filters rpc api (polling).
-#[rpc(server)]
-pub trait EthFilterApi {
-    /// Returns id of new filter.
-    #[rpc(name = "eth_newFilter")]
-    fn new_filter(&self, _: Filter) -> Result<U256>;
-
-    /// Returns id of new block filter.
-    #[rpc(name = "eth_newBlockFilter")]
-    fn new_block_filter(&self) -> Result<U256>;
-
-    /// Returns id of new block filter.
-    #[rpc(name = "eth_newPendingTransactionFilter")]
-    fn new_pending_transaction_filter(&self) -> Result<U256>;
-
-    /// Returns filter changes since last poll.
-    #[rpc(name = "eth_getFilterChanges")]
-    fn filter_changes(&self, _: Index) -> Result<FilterChanges>;
-
-    /// Returns all logs matching given filter (in a range 'from' - 'to').
-    #[rpc(name = "eth_getFilterLogs")]
-    fn filter_logs(&self, _: Index) -> Result<Vec<Log>>;
-
-    /// Uninstalls filter.
-    #[rpc(name = "eth_uninstallFilter")]
-    fn uninstall_filter(&self, _: Index) -> Result<bool>;
 }

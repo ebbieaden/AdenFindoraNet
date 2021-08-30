@@ -22,7 +22,8 @@ submission_port = "8669"
 
 ledger_port = "8668"
 
-evm_api_port = "8545"
+evm_http_port = "8545"
+evm_ws_port = "8546"
 """
 
 # toml set
@@ -76,23 +77,26 @@ def gen_abci_toml(abci_toml, contents, i):
     with open(abci_toml, 'w+') as f:
         f.write(toml_string)
     
-    # tendermint_port, submission_port, ledger_port, evm_api_port
+    # tendermint_port, submission_port, ledger_port, evm_http_port, evm_ws_port
     """ e.g.
     26657
     8669
     8668
     8545
+    8546
     """
     tendermint_port = contents["rpc"]["laddr"].split(":")[2]
     submission_port = str(base_port_abci + 10 * i + 9)
     ledger_port = str(base_port_abci + 10 * i + 8)
-    evm_api_port = str(base_port_evm + 10 * i + 5)
+    evm_http_port = str(base_port_evm + 10 * i + 5)
+    evm_ws_port = str(base_port_evm + 10 * i + 6)
 
     # set ports
     set_toml(abci_toml, "tendermint_port", tendermint_port)
     set_toml(abci_toml, "submission_port", submission_port)
     set_toml(abci_toml, "ledger_port", ledger_port)
-    set_toml(abci_toml, "evm_api_port", evm_api_port)
+    set_toml(abci_toml, "evm_http_port", evm_http_port)
+    set_toml(abci_toml, "evm_ws_port", evm_ws_port)
 
 if __name__ == "__main__":
     # list nodes in devnet

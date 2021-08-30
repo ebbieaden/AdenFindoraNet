@@ -7,11 +7,11 @@ use ethereum::{
 use ethereum_types::{BigEndianHash, H160, H256, H512, H64, U256, U64};
 use fp_evm::{BlockId, Runner, TransactionStatus};
 use fp_rpc_core::types::{
-    Block, BlockNumber, BlockTransactions, Bytes, CallRequest, Filter, FilterChanges,
-    FilteredParams, Index, Log, PeerCount, Receipt, Rich, RichBlock, SyncStatus,
-    Transaction, TransactionRequest, Work,
+    Block, BlockNumber, BlockTransactions, Bytes, CallRequest, Filter, FilteredParams,
+    Index, Log, Receipt, Rich, RichBlock, SyncStatus, Transaction, TransactionRequest,
+    Work,
 };
-use fp_rpc_core::{EthApi, EthFilterApi, NetApi, Web3Api};
+use fp_rpc_core::EthApi;
 use fp_traits::{
     base::BaseProvider,
     evm::{AddressMapping, DecimalsMapping, EthereumAddressMapping, FeeCalculator},
@@ -23,10 +23,10 @@ use fp_types::{
 };
 use fp_utils::{ecdsa::SecpPair, proposer_converter};
 use jsonrpc_core::{futures::future, BoxFuture, Result};
+use lazy_static::lazy_static;
 use log::{debug, warn};
 use parking_lot::RwLock;
 use ruc::eg;
-use rustc_version::version;
 use sha3::{Digest, Keccak256};
 use std::collections::BTreeMap;
 use std::convert::Into;
@@ -34,10 +34,15 @@ use std::sync::Arc;
 use tendermint_rpc::{Client, HttpClient};
 use tokio::runtime::Runtime;
 
+lazy_static! {
+    static ref RT: Runtime =
+        Runtime::new().expect("Failed to create thread pool executor");
+}
+
 pub struct EthApiImpl {
     account_base_app: Arc<RwLock<BaseApp>>,
     signers: Vec<SecpPair>,
-    tm_client: HttpClient,
+    tm_client: Arc<HttpClient>,
 }
 
 impl EthApiImpl {
@@ -49,7 +54,7 @@ impl EthApiImpl {
         Self {
             account_base_app,
             signers,
-            tm_client: HttpClient::new(url.as_str()).unwrap(),
+            tm_client: Arc::new(HttpClient::new(url.as_str()).unwrap()),
         }
     }
 }
@@ -91,7 +96,7 @@ impl EthApi for EthApiImpl {
         }
     }
 
-    fn send_transaction(&self, request: TransactionRequest) -> BoxFuture<H256> {
+    fn send_transaction(&self, request: TransactionRequest) -> BoxFuture<Result<H256>> {
         debug!(target: "eth_rpc", "send_transaction, request:{:?}", request);
 
         let from = match request.from {
@@ -99,15 +104,15 @@ impl EthApi for EthApiImpl {
             None => {
                 let accounts = match self.accounts() {
                     Ok(accounts) => accounts,
-                    Err(e) => return Box::new(future::result(Err(e))),
+                    Err(e) => return Box::pin(future::err(e)),
                 };
 
                 match accounts.get(0) {
                     Some(account) => *account,
                     None => {
-                        return Box::new(future::result(Err(internal_err(
+                        return Box::pin(future::err(internal_err(
                             "no signer available",
-                        ))));
+                        )));
                     }
                 }
             }
@@ -117,13 +122,13 @@ impl EthApi for EthApiImpl {
             Some(nonce) => nonce,
             None => match self.transaction_count(from, None) {
                 Ok(nonce) => nonce,
-                Err(e) => return Box::new(future::result(Err(e))),
+                Err(e) => return Box::pin(future::err(e)),
             },
         };
 
         let chain_id = match self.chain_id() {
             Ok(chain_id) => chain_id,
-            Err(e) => return Box::new(future::result(Err(e))),
+            Err(e) => return Box::pin(future::err(e)),
         };
 
         let message = ethereum::TransactionMessage {
@@ -148,7 +153,7 @@ impl EthApi for EthApiImpl {
                     .map_err(internal_err)
                 {
                     Ok(tx) => transaction = Some(tx),
-                    Err(e) => return Box::new(future::result(Err(e))),
+                    Err(e) => return Box::pin(future::err(e)),
                 }
                 break;
             }
@@ -157,9 +162,7 @@ impl EthApi for EthApiImpl {
         let transaction = match transaction {
             Some(transaction) => transaction,
             None => {
-                return Box::new(future::result(Err(internal_err(
-                    "no signer available",
-                ))));
+                return Box::pin(future::err(internal_err("no signer available")));
             }
         };
         let transaction_hash =
@@ -171,25 +174,12 @@ impl EthApi for EthApiImpl {
         )
         .map_err(internal_err);
         if let Err(e) = txn {
-            return Box::new(future::result(Err(e)));
+            return Box::pin(future::err(e));
         }
 
-        let future_resp = async {
-            match self.tm_client.broadcast_tx_sync(txn.unwrap().into()).await {
-                Ok(resp) => {
-                    if resp.code.is_ok() {
-                        future::result(Ok(transaction_hash))
-                    } else {
-                        future::result(Err(internal_err(format!(
-                            "send ethereum transaction resp: {:?}",
-                            resp
-                        ))))
-                    }
-                }
-                Err(e) => future::result(Err(internal_err(e))),
-            }
-        };
-        Box::new(Runtime::new().unwrap().block_on(future_resp))
+        let client = self.tm_client.clone();
+        RT.spawn(async move { client.broadcast_tx_sync(txn.unwrap().into()).await });
+        Box::pin(future::ok(transaction_hash))
     }
 
     fn call(&self, request: CallRequest, _: Option<BlockNumber>) -> Result<Bytes> {
@@ -450,13 +440,13 @@ impl EthApi for EthApiImpl {
             .into())
     }
 
-    fn send_raw_transaction(&self, bytes: Bytes) -> BoxFuture<H256> {
+    fn send_raw_transaction(&self, bytes: Bytes) -> BoxFuture<Result<H256>> {
+        debug!(target: "eth_rpc", "send_raw_transaction, bytes:{:?}", bytes);
+
         let transaction = match rlp::decode::<ethereum::Transaction>(&bytes.0[..]) {
             Ok(transaction) => transaction,
             Err(_) => {
-                return Box::new(future::result(Err(internal_err(
-                    "decode transaction failed",
-                ))));
+                return Box::pin(future::err(internal_err("decode transaction failed")));
             }
         };
         let transaction_hash =
@@ -468,25 +458,12 @@ impl EthApi for EthApiImpl {
         )
         .map_err(internal_err);
         if let Err(e) = txn {
-            return Box::new(future::result(Err(e)));
+            return Box::pin(future::err(e));
         }
 
-        let future_resp = async {
-            match self.tm_client.broadcast_tx_sync(txn.unwrap().into()).await {
-                Ok(resp) => {
-                    if resp.code.is_ok() {
-                        future::result(Ok(transaction_hash))
-                    } else {
-                        future::result(Err(internal_err(format!(
-                            "send ethereum transaction resp: {:?}",
-                            resp
-                        ))))
-                    }
-                }
-                Err(e) => future::result(Err(internal_err(e))),
-            }
-        };
-        Box::new(Runtime::new().unwrap().block_on(future_resp))
+        let client = self.tm_client.clone();
+        RT.spawn(async move { client.broadcast_tx_sync(txn.unwrap().into()).await });
+        Box::pin(future::ok(transaction_hash))
     }
 
     fn estimate_gas(
@@ -794,111 +771,6 @@ impl EthApi for EthApiImpl {
 
     fn submit_hashrate(&self, _: U256, _: H256) -> Result<bool> {
         Ok(false)
-    }
-}
-
-pub struct NetApiImpl;
-
-impl NetApiImpl {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for NetApiImpl {
-    fn default() -> Self {
-        NetApiImpl::new()
-    }
-}
-
-impl NetApi for NetApiImpl {
-    fn is_listening(&self) -> Result<bool> {
-        warn!(target: "eth_rpc", "NetApi::is_listening");
-        Ok(true)
-    }
-
-    fn peer_count(&self) -> Result<PeerCount> {
-        warn!(target: "eth_rpc", "NetApi::peer_count");
-        Ok(PeerCount::String(format!("0x{:x}", 1)))
-    }
-
-    fn version(&self) -> Result<String> {
-        let chain_id = <BaseApp as module_evm::Config>::ChainId::get();
-        Ok(chain_id.to_string())
-    }
-}
-
-pub struct Web3ApiImpl;
-
-impl Web3ApiImpl {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for Web3ApiImpl {
-    fn default() -> Self {
-        Web3ApiImpl::new()
-    }
-}
-
-impl Web3Api for Web3ApiImpl {
-    fn client_version(&self) -> Result<String> {
-        Ok(format!(
-            "findora-web3-engine/{}-{}-{}",
-            version().unwrap(),
-            std::env::var("CARGO_CFG_TARGET_ARCH")
-                .unwrap_or_else(|_| "amd64".to_string()),
-            std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string())
-        ))
-    }
-
-    fn sha3(&self, input: Bytes) -> Result<H256> {
-        Ok(H256::from_slice(
-            Keccak256::digest(&input.into_vec()).as_slice(),
-        ))
-    }
-}
-
-pub struct EthFilterApiImpl;
-
-impl EthFilterApiImpl {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for EthFilterApiImpl {
-    fn default() -> Self {
-        EthFilterApiImpl::new()
-    }
-}
-
-impl EthFilterApi for EthFilterApiImpl {
-    fn new_filter(&self, _filter: Filter) -> Result<U256> {
-        Ok(U256::zero())
-    }
-
-    fn new_block_filter(&self) -> Result<U256> {
-        Ok(U256::zero())
-    }
-
-    fn new_pending_transaction_filter(&self) -> Result<U256> {
-        Err(internal_err(
-            "new_pending_transaction_filter method not available.",
-        ))
-    }
-
-    fn filter_changes(&self, _index: Index) -> Result<FilterChanges> {
-        Err(internal_err("filter_changes method not available."))
-    }
-
-    fn filter_logs(&self, _index: Index) -> Result<Vec<Log>> {
-        Err(internal_err("filter_logs method not available."))
-    }
-
-    fn uninstall_filter(&self, _index: Index) -> Result<bool> {
-        Err(internal_err("uninstall_filter method not available."))
     }
 }
 

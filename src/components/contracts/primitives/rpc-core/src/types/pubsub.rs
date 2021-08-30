@@ -20,9 +20,12 @@
 
 use crate::types::{Filter, Log, RichHeader};
 use ethereum_types::H256;
+use futures::channel::mpsc;
+use jsonrpc_pubsub::{PubSubMetadata, Session};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{from_value, Value};
+use std::sync::Arc;
 
 /// Subscription result.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +63,7 @@ impl Serialize for Result {
 }
 
 /// Subscription kind.
-#[derive(Debug, Deserialize, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Clone)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
@@ -100,8 +103,47 @@ impl<'a> Deserialize<'a> for Params {
             return Ok(Params::None);
         }
 
-        from_value(v.clone())
+        from_value(v)
             .map(Params::Logs)
             .map_err(|e| D::Error::custom(format!("Invalid Pub-Sub parameters: {}", e)))
+    }
+}
+
+/// RPC Metadata.
+///
+/// Manages persistent session for transports that support it
+/// and may contain some additional info extracted from specific transports
+/// (like remote client IP address, request headers, etc)
+#[derive(Default, Clone)]
+pub struct Metadata {
+    session: Option<Arc<Session>>,
+}
+
+impl jsonrpc_core::Metadata for Metadata {}
+impl PubSubMetadata for Metadata {
+    fn session(&self) -> Option<Arc<Session>> {
+        self.session.clone()
+    }
+}
+
+impl Metadata {
+    /// Create new `Metadata` with session (Pub/Sub) support.
+    pub fn new(transport: mpsc::UnboundedSender<String>) -> Self {
+        Metadata {
+            session: Some(Arc::new(Session::new(transport))),
+        }
+    }
+
+    /// Create new `Metadata` for tests.
+    #[cfg(test)]
+    pub fn new_test() -> (mpsc::UnboundedReceiver<String>, Self) {
+        let (tx, rx) = mpsc::unbounded();
+        (rx, Self::new(tx))
+    }
+}
+
+impl From<mpsc::UnboundedSender<String>> for Metadata {
+    fn from(sender: mpsc::UnboundedSender<String>) -> Self {
+        Self::new(sender)
     }
 }

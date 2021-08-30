@@ -4,7 +4,7 @@ use storage::{
 };
 use tm_protos::abci::Header;
 
-pub use parking_lot::RwLock;
+pub use parking_lot::{Mutex, RwLock};
 pub use std::sync::Arc;
 
 pub type Store = State<FinDB>;

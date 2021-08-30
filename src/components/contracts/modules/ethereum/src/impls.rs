@@ -31,7 +31,10 @@ impl<C: Config> App<C> {
         )))
     }
 
-    pub fn store_block(ctx: &mut Context, block_number: U256) -> Result<()> {
+    pub fn store_block(
+        ctx: &mut Context,
+        block_number: U256,
+    ) -> Result<(ethereum::Block, Vec<ethereum::Receipt>)> {
         let mut transactions: Vec<ethereum::Transaction> = Vec::new();
         let mut statuses: Vec<TransactionStatus> = Vec::new();
         let mut receipts: Vec<ethereum::Receipt> = Vec::new();
@@ -90,7 +93,7 @@ impl<C: Config> App<C> {
         Pending::delete(ctx.store.clone());
 
         debug!(target: "ethereum", "store new ethereum block: {}", block_number);
-        Ok(())
+        Ok((block, receipts))
     }
 
     pub fn do_transact(
@@ -285,6 +288,11 @@ impl<C: Config> App<C> {
         } else {
             None
         }
+    }
+
+    /// Get current block number
+    pub fn current_block_number(ctx: &Context) -> Option<U256> {
+        CurrentBlockNumber::get(ctx.store.clone())
     }
 
     /// Get header hash of given block id.

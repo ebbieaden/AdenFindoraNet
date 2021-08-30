@@ -1,50 +1,108 @@
 mod eth;
+mod eth_filter;
+mod eth_pubsub;
+mod net;
+mod web3;
 
 use baseapp::BaseApp;
 use evm::{ExitError, ExitReason};
-use fp_utils::ecdsa::SecpPair;
-use jsonrpc_core::{Error, ErrorCode};
-use jsonrpc_http_server::{
-    AccessControlAllowOrigin, DomainsValidation, RestApi, ServerBuilder,
+use fp_rpc_core::types::pubsub::Metadata;
+use fp_rpc_core::{
+    EthApiServer, EthFilterApiServer, EthPubSubApiServer, NetApiServer, Web3ApiServer,
 };
+use fp_rpc_server::{rpc_handler, start_http, start_ws, RpcHandler, RpcMiddleware};
+use fp_utils::ecdsa::SecpPair;
+use jsonrpc_core::*;
+use log::error;
 use parking_lot::RwLock;
+use rustc_hex::ToHex;
 use serde_json::Value;
 use std::sync::Arc;
 
-pub use eth::{EthApiImpl, EthFilterApiImpl, NetApiImpl, Web3ApiImpl};
-pub use fp_rpc_core::{EthApiServer, EthFilterApiServer, NetApiServer, Web3ApiServer};
-use log::error;
-use rustc_hex::ToHex;
-
-pub fn start_service(
-    url_evm: String,
-    url_tdmt: String,
+pub fn start_web3_service(
+    evm_http: String,
+    evm_ws: String,
+    tendermint_rpc: String,
     account_base_app: Arc<RwLock<BaseApp>>,
-) {
-    let mut io = jsonrpc_core::IoHandler::default();
-
+) -> Box<dyn std::any::Any + Send> {
     // PrivateKey: 9f7bebaa5c55464b10150bc2e0fd552e915e2bdbca95cc45ed1c909aca96e7f5
     // Address: 0xf6aca39539374993b37d29ccf0d93fa214ea0af1
     let dev_signer = "zebra paddle unveil toilet weekend space gorilla lesson relief useless arrive picture";
     let signers = vec![SecpPair::from_phrase(dev_signer, None).unwrap().0];
-    io.extend_with(EthApiServer::to_delegate(EthApiImpl::new(
-        url_tdmt,
-        account_base_app,
-        signers,
-    )));
-    io.extend_with(NetApiServer::to_delegate(NetApiImpl::new()));
-    io.extend_with(Web3ApiServer::to_delegate(Web3ApiImpl::new()));
 
-    let server = ServerBuilder::new(io)
-        .threads(2)
-        .rest_api(RestApi::Secure)
-        .cors(DomainsValidation::AllowOnly(vec![
-            AccessControlAllowOrigin::Any,
-        ]))
-        .start_http(&url_evm.parse().unwrap())
-        .expect("Unable to start Ethereum api service");
+    let io = || -> RpcHandler<Metadata> {
+        rpc_handler(
+            (
+                eth::EthApiImpl::new(
+                    tendermint_rpc.clone(),
+                    account_base_app.clone(),
+                    signers.clone(),
+                )
+                .to_delegate(),
+                eth_filter::EthFilterApiImpl::new().to_delegate(),
+                net::NetApiImpl::new().to_delegate(),
+                web3::Web3ApiImpl::new().to_delegate(),
+                eth_pubsub::EthPubSubApiImpl::new(account_base_app.clone())
+                    .to_delegate(),
+            ),
+            RpcMiddleware::new(),
+        )
+    };
 
-    server.wait()
+    let http_server = start_http(
+        &evm_http.parse().unwrap(),
+        None,
+        Some(&vec!["*".to_string()]),
+        io(),
+        None,
+    )
+    .map(|s| waiting::HttpServer(Some(s)))
+    .expect("Unable to start web3 http service");
+
+    let ws_server = start_ws(
+        &evm_ws.parse().unwrap(),
+        None,
+        Some(&vec!["*".to_string()]),
+        io(),
+        None,
+    )
+    .map(|s| waiting::WsServer(Some(s)))
+    .expect("Unable to start web3 ws service");
+
+    Box::new((http_server, ws_server))
+}
+
+// Wrapper for HTTP and WS servers that makes sure they are properly shut down.
+mod waiting {
+    pub struct HttpServer(pub Option<fp_rpc_server::HttpServer>);
+    impl Drop for HttpServer {
+        fn drop(&mut self) {
+            if let Some(server) = self.0.take() {
+                server.close_handle().close();
+                server.wait();
+            }
+        }
+    }
+
+    pub struct IpcServer(pub Option<fp_rpc_server::IpcServer>);
+    impl Drop for IpcServer {
+        fn drop(&mut self) {
+            if let Some(server) = self.0.take() {
+                server.close_handle().close();
+                let _ = server.wait();
+            }
+        }
+    }
+
+    pub struct WsServer(pub Option<fp_rpc_server::WsServer>);
+    impl Drop for WsServer {
+        fn drop(&mut self) {
+            if let Some(server) = self.0.take() {
+                server.close_handle().close();
+                let _ = server.wait();
+            }
+        }
+    }
 }
 
 pub fn internal_err<T: ToString>(message: T) -> Error {
@@ -59,7 +117,7 @@ pub fn internal_err<T: ToString>(message: T) -> Error {
 pub fn error_on_execution_failure(
     reason: &ExitReason,
     data: &[u8],
-) -> Result<(), Error> {
+) -> std::result::Result<(), Error> {
     match reason {
         ExitReason::Succeed(_) => Ok(()),
         ExitReason::Error(e) => {

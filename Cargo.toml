@@ -17,6 +17,7 @@ members = [
     "src/components/contracts/primitives/traits",
     "src/components/contracts/primitives/types",
     "src/components/contracts/primitives/rpc-core",
+    "src/components/contracts/primitives/rpc-server",
     "src/components/contracts/primitives/utils",
     "src/components/contracts/rpc",
     "src/components/wasm",

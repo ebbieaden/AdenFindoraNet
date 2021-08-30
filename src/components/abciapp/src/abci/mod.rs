@@ -1,5 +1,11 @@
+//!
+//! Business Logics of Findora Network
+//!
+
+#![deny(warnings)]
+#![allow(clippy::needless_borrow)]
+
 mod config;
-mod init;
 mod server;
 pub mod staking;
 
@@ -7,18 +13,29 @@ use crate::api::{
     query_server::{ledger_api::RestfulApiService, query_api},
     submission_server::submission_api::SubmissionApi,
 };
+use lazy_static::lazy_static;
 use ruc::*;
-use std::{env, fs, path::Path, sync::Arc, thread};
-use tendermint_sys::Node;
+use std::{
+    fs,
+    net::SocketAddr,
+    path::Path,
+    sync::{atomic::AtomicBool, Arc},
+    thread,
+};
 
 use config::{global_cfg::CFG, ABCIConfig};
 
-pub fn node_command() -> Result<()> {
-    let base_dir = if let Some(d) = CFG.ledger_dir.as_ref() {
-        fs::create_dir_all(d).c(d!())?;
-        Some(Path::new(d))
-    } else {
-        None
+lazy_static! {
+    /// if `true`,
+    /// we can exit safely without the risk of breaking data
+    pub static ref IN_SAFE_ITV: AtomicBool = AtomicBool::new(true);
+}
+
+/// Starting findorad
+pub fn run() -> Result<()> {
+    let base_dir = {
+        fs::create_dir_all(&CFG.ledger_dir).c(d!())?;
+        Some(Path::new(&CFG.ledger_dir))
     };
 
     let config = ruc::info!(ABCIConfig::from_file())
@@ -34,7 +51,7 @@ pub fn node_command() -> Result<()> {
     if CFG.enable_ledger_service {
         let ledger_api_service_hdr =
             submission_service_hdr.read().borrowable_ledger_state();
-        let ledger_host = config.tendermint_host.clone();
+        let ledger_host = config.abci_host.clone();
         let ledger_port = config.ledger_port;
         thread::spawn(move || {
             pnk!(RestfulApiService::create(
@@ -49,30 +66,29 @@ pub fn node_command() -> Result<()> {
         let query_service_hdr = submission_service_hdr.read().borrowable_ledger_state();
         pnk!(query_api::service::start_query_server(
             query_service_hdr,
-            &config.tendermint_host,
+            &config.abci_host,
             config.query_port,
+            Some(Path::new(&config.ledger_dir)),
         ))
         .write()
         .update();
     }
 
+    let mut web3_rpc: Box<dyn std::any::Any + Send> = Box::new(());
     if CFG.enable_eth_api_service {
-        let account_base_app = app.account_base_app.clone();
-        let url_evm =
-            format!("{}:{}", config.tendermint_host.clone(), config.evm_api_port);
-        let url_tdmt = format!(
+        let base_app = app.account_base_app.clone();
+        let evm_http = format!("{}:{}", config.abci_host, config.evm_http_port);
+        let evm_ws = format!("{}:{}", config.abci_host, config.evm_ws_port);
+        let tendermint_rpc = format!(
             "http://{}:{}",
-            config.tendermint_host.clone(),
-            config.tendermint_port
+            config.tendermint_host, config.tendermint_port
         );
-        thread::spawn(move || {
-            fc_rpc::start_service(url_evm, url_tdmt, account_base_app);
-        });
+        web3_rpc =
+            fc_rpc::start_web3_service(evm_http, evm_ws, tendermint_rpc, base_app);
     }
 
-    let submission_host = config.tendermint_host.clone();
+    let submission_host = config.abci_host.clone();
     let submission_port = config.submission_port;
-
     thread::spawn(move || {
         pnk!(SubmissionApi::create(
             submission_service_hdr,
@@ -81,46 +97,12 @@ pub fn node_command() -> Result<()> {
         ));
     });
 
-    // handle SIGINT signal
-    ctrlc::set_handler(move || {
-        std::process::exit(0);
-    })
-    .c(d!())?;
+    let addr_str = format!("{}:{}", config.abci_host, config.abci_port);
+    let addr = addr_str.parse::<SocketAddr>().c(d!())?;
 
-    let config_path = if let Some(path) = CFG.tendermint_config {
-        String::from(path)
-    } else {
-        env::var("HOME").unwrap() + "/.tendermint/config/config.toml"
-    };
+    abci::run(addr, app);
 
-    let node = Node::new(&config_path, app).unwrap();
-    node.start().unwrap();
-    std::thread::park();
+    drop(web3_rpc);
+
     Ok(())
-}
-
-fn init_command() -> Result<()> {
-    let home_path = if let Some(home_path) = CFG.tendermint_home {
-        String::from(home_path)
-    } else {
-        env::var("HOME").unwrap() + "/.tendermint"
-    };
-    tendermint_sys::init_home(&home_path).unwrap();
-    init::init_genesis(
-        CFG.init_mode.unwrap_or(init::InitMode::Dev),
-        &(home_path.clone() + "/config/genesis.json"),
-    )?;
-    init::generate_tendermint_config(
-        CFG.init_mode.unwrap_or(init::InitMode::Dev),
-        &(home_path + "/config/config.toml"),
-    )?;
-    Ok(())
-}
-
-pub fn run() -> Result<()> {
-    match CFG.command {
-        "init" => init_command(),
-        "node" => node_command(),
-        _ => Err(eg!("Must use command is node or init")),
-    }
 }

@@ -2,6 +2,7 @@
 mod app;
 pub mod extensions;
 mod modules;
+mod notify;
 
 use crate::modules::ModuleManager;
 use fp_core::{
@@ -19,6 +20,7 @@ use fp_traits::{
 use fp_types::{actions::account::MintOutput, actions::Action, crypto::Address};
 use lazy_static::lazy_static;
 use ledger::data_model::{Transaction as FindoraTransaction, TX_FEE_MIN};
+use notify::*;
 use parking_lot::RwLock;
 use primitive_types::{H160, H256, U256};
 use ruc::{eg, Result};
@@ -55,6 +57,8 @@ pub struct BaseApp {
     pub deliver_state: Context,
     /// Ordered module set
     pub modules: ModuleManager,
+    /// New Block event notify
+    pub event_notify: Notifications<BlockId>,
 }
 
 impl module_template::Config for BaseApp {}
@@ -125,6 +129,7 @@ impl BaseApp {
                 ethereum_module: module_ethereum::App::<Self>::new(empty_block),
                 ..Default::default()
             },
+            event_notify: Notifications::new(),
         })
     }
 }
@@ -240,10 +245,7 @@ impl BaseApp {
 impl BaseProvider for BaseApp {
     fn account_of(&self, who: &Address, ctx: Option<Context>) -> Result<SmartAccount> {
         let ctx = match ctx {
-            None => self.create_query_context(
-                self.chain_state.read().height().unwrap_or_default(),
-                false,
-            )?,
+            None => self.create_query_context(0, false)?,
             Some(ctx) => ctx,
         };
         module_account::App::<Self>::account_of(&ctx, who)
@@ -251,11 +253,16 @@ impl BaseProvider for BaseApp {
     }
 
     fn current_block(&self, id: Option<BlockId>) -> Option<ethereum::Block> {
-        if let Ok(ctx) = self.create_query_context(
-            self.chain_state.read().height().unwrap_or_default(),
-            false,
-        ) {
+        if let Ok(ctx) = self.create_query_context(0, false) {
             module_ethereum::App::<Self>::current_block(&ctx, id)
+        } else {
+            None
+        }
+    }
+
+    fn current_block_number(&self) -> Option<U256> {
+        if let Ok(ctx) = self.create_query_context(0, false) {
+            module_ethereum::App::<Self>::current_block_number(&ctx)
         } else {
             None
         }
@@ -265,10 +272,7 @@ impl BaseProvider for BaseApp {
         &self,
         id: Option<BlockId>,
     ) -> Option<Vec<fp_evm::TransactionStatus>> {
-        if let Ok(ctx) = self.create_query_context(
-            self.chain_state.read().height().unwrap_or_default(),
-            false,
-        ) {
+        if let Ok(ctx) = self.create_query_context(0, false) {
             module_ethereum::App::<Self>::current_transaction_statuses(&ctx, id)
         } else {
             None
@@ -276,10 +280,7 @@ impl BaseProvider for BaseApp {
     }
 
     fn current_receipts(&self, id: Option<BlockId>) -> Option<Vec<ethereum::Receipt>> {
-        if let Ok(ctx) = self.create_query_context(
-            self.chain_state.read().height().unwrap_or_default(),
-            false,
-        ) {
+        if let Ok(ctx) = self.create_query_context(0, false) {
             module_ethereum::App::<Self>::current_receipts(&ctx, id)
         } else {
             None
@@ -287,10 +288,7 @@ impl BaseProvider for BaseApp {
     }
 
     fn block_hash(&self, id: Option<BlockId>) -> Option<H256> {
-        if let Ok(ctx) = self.create_query_context(
-            self.chain_state.read().height().unwrap_or_default(),
-            false,
-        ) {
+        if let Ok(ctx) = self.create_query_context(0, false) {
             module_ethereum::App::<Self>::block_hash(&ctx, id)
         } else {
             None
@@ -298,10 +296,7 @@ impl BaseProvider for BaseApp {
     }
 
     fn account_code_at(&self, address: H160) -> Option<Vec<u8>> {
-        if let Ok(ctx) = self.create_query_context(
-            self.chain_state.read().height().unwrap_or_default(),
-            false,
-        ) {
+        if let Ok(ctx) = self.create_query_context(0, false) {
             module_evm::App::<Self>::account_codes(&ctx, &address)
         } else {
             None
@@ -309,10 +304,7 @@ impl BaseProvider for BaseApp {
     }
 
     fn account_storage_at(&self, address: H160, index: H256) -> Option<H256> {
-        if let Ok(ctx) = self.create_query_context(
-            self.chain_state.read().height().unwrap_or_default(),
-            false,
-        ) {
+        if let Ok(ctx) = self.create_query_context(0, false) {
             module_evm::App::<Self>::account_storages(&ctx, &address, &index)
         } else {
             None

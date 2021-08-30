@@ -113,7 +113,7 @@ impl FilteredParams {
             return FilteredParams {
                 filter: Some(f.clone()),
                 flat_topics: {
-                    if let Some(t) = f.clone().topics {
+                    if let Some(t) = f.topics {
                         Self::flatten(&t)
                     } else {
                         Vec::new()
@@ -137,7 +137,7 @@ impl FilteredParams {
                     blooms.push(Some(bloom))
                 }
                 VariadicValue::Multiple(addresses) => {
-                    for address in addresses.into_iter() {
+                    for address in addresses.iter() {
                         let bloom: Bloom = BloomInput::Raw(address.as_ref()).into();
                         blooms.push(Some(bloom))
                     }
@@ -166,8 +166,8 @@ impl FilteredParams {
 
     /// Checks the possible existance of an address or topic(s) in a Bloom.
     /// Wildcards (VariadicValue::Null) are matched as positive.
-    pub fn in_bloom(bloom: Bloom, bloom_input: &BloomFilter) -> bool {
-        if bloom_input.len() == 0 {
+    pub fn in_bloom(bloom: Bloom, bloom_input: &[Option<Bloom>]) -> bool {
+        if bloom_input.is_empty() {
             return true;
         } else {
             for inner in bloom_input {
@@ -187,7 +187,7 @@ impl FilteredParams {
     /// Executed once on struct instance.
     /// i.e. `[A,[B,C]]` to `[[A,B],[A,C]]`.
     fn flatten(topic: &Topic) -> Vec<FlatTopic> {
-        fn cartesian(lists: &Vec<Vec<Option<H256>>>) -> Vec<Vec<Option<H256>>> {
+        fn cartesian(lists: &[Vec<Option<H256>>]) -> Vec<Vec<Option<H256>>> {
             let mut res = vec![];
             let mut list_iter = lists.iter();
             if let Some(first_list) = list_iter.next() {
@@ -211,13 +211,13 @@ impl FilteredParams {
         let mut out: Vec<FlatTopic> = Vec::new();
         match topic {
             VariadicValue::Multiple(multi) => {
-                let mut foo: Vec<Vec<Option<H256>>> = Vec::new();
+                let mut vvs: Vec<Vec<Option<H256>>> = Vec::new();
                 for v in multi {
-                    foo.push({
+                    vvs.push({
                         if let Some(v) = v {
                             match v {
                                 VariadicValue::Single(s) => {
-                                    vec![s.clone()]
+                                    vec![*s]
                                 }
                                 VariadicValue::Multiple(s) => s.clone(),
                                 VariadicValue::Null => {
@@ -229,7 +229,7 @@ impl FilteredParams {
                         }
                     });
                 }
-                for permut in cartesian(&foo) {
+                for permut in cartesian(&vvs) {
                     out.push(FlatTopic::Multiple(permut));
                 }
             }
@@ -249,23 +249,21 @@ impl FilteredParams {
     pub fn replace(&self, log: &Log, topic: FlatTopic) -> Option<Vec<H256>> {
         let mut out: Vec<H256> = Vec::new();
         match topic {
-            VariadicValue::Single(value) => {
-                if let Some(value) = value {
-                    out.push(value);
-                }
+            VariadicValue::Single(Some(value)) => {
+                out.push(value);
             }
             VariadicValue::Multiple(value) => {
                 for (k, v) in value.into_iter().enumerate() {
                     if let Some(v) = v {
                         out.push(v);
                     } else {
-                        out.push(log.topics[k].clone());
+                        out.push(log.topics[k]);
                     }
                 }
             }
             _ => {}
         };
-        if out.len() == 0 {
+        if out.is_empty() {
             return None;
         }
         Some(out)
@@ -275,19 +273,16 @@ impl FilteredParams {
         let mut out = true;
         let filter = self.filter.clone().unwrap();
         if let Some(from) = filter.from_block {
-            match from {
-                BlockNumber::Num(_) => {
-                    if from.to_min_block_num().unwrap_or(0 as u64) > block_number {
-                        out = false;
-                    }
+            if let BlockNumber::Num(_) = from {
+                if from.to_min_block_num().unwrap_or(0_u64) > block_number {
+                    out = false;
                 }
-                _ => {}
             }
         }
         if let Some(to) = filter.to_block {
             match to {
                 BlockNumber::Num(_) => {
-                    if to.to_min_block_num().unwrap_or(0 as u64) < block_number {
+                    if to.to_min_block_num().unwrap_or(0_u64) < block_number {
                         out = false;
                     }
                 }
@@ -336,7 +331,7 @@ impl FilteredParams {
             match topic {
                 VariadicValue::Single(single) => {
                     if let Some(single) = single {
-                        if !log.topics.starts_with(&vec![single]) {
+                        if !log.topics.starts_with(&[single]) {
                             out = false;
                         }
                     }
