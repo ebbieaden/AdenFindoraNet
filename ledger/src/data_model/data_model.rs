@@ -1031,6 +1031,7 @@ impl BarToAbar {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum Operation {
     TransferAsset(TransferAsset),
     IssueAsset(IssueAsset),

@@ -44,6 +44,7 @@ utils = { path = "../libs/utils" }
 wasm-bindgen = { version = "0.2.50", features = ["serde-serialize"]  }
 zei = { git = "ssh://git@github.com/FindoraNetwork/zei", branch = "develop" }
 zeiutils = { package = "utils", git = "ssh://git@github.com/FindoraNetwork/zei", branch = "develop" }
+zeialgebra = { package = "algebra", git = "ssh://git@github.com/FindoraNetwork/zei", branch = "develop" }
 sparse_merkle_tree = { path = "../libs/ads/sparse_merkle_tree" }
 time = "0.2.26"
 wallet = { path = "../components/wallet" }

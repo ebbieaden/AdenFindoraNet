@@ -8,7 +8,7 @@ use crate::{
     policy_script::policy_check_txn,
     staking::{Staking, FRA_TOTAL_AMOUNT},
 };
-use aoko::std_ext::{KtStd, VecExt2};
+use aoko::std_ext::KtStd;
 use bitmap::{BitMap, SparseMap};
 use cryptohash::sha256::Digest as BitDigest;
 use log::info;
@@ -40,6 +40,7 @@ use zei::xfr::{
         AssetRecordTemplate, OwnerMemo, TracingPolicies, TracingPolicy, XfrAssetType,
     },
 };
+use zeialgebra::bls12_381::BLSScalar;
 
 const TRANSACTION_WINDOW_WIDTH: u64 = 128;
 
@@ -216,7 +217,9 @@ pub struct LedgerStatus {
     // All currently-unspent TXOs
     utxos: BTreeMap<TxoSID, Utxo>,
 
-    abar_store: MerkleTree,
+    ax_utxos: BTreeMap<ATxoSID, AnonBlindAssetRecord>,
+
+    //abar_store: MerkleTree,
 
     // All spent TXOs
     pub spent_utxos: HashMap<TxoSID, Utxo>,
@@ -231,6 +234,8 @@ pub struct LedgerStatus {
 
     // State commitment history. The BitDigest at index i is the state commitment of the ledger at block height  i + 1.
     state_commitment_versions: Vec<HashOf<Option<StateCommitmentData>>>,
+    // The root hash of the abar Merkle tree for each height
+    abar_commitments: Vec<BLSScalar>,
 
     // TODO(joe): This field should probably exist, but since it is not
     // currently used by anything I'm leaving it commented out. We should
@@ -314,6 +319,7 @@ pub struct LedgerState {
     utxo_map: BitMap,
     // Sparse merkle tree to store the nullifier set
     nullifier: SmtMap256<String>,
+    abar_store: MerkleTree,
     txn_log: Option<(PathBuf, File)>,
 
     block_ctx: Option<BlockEffect>,
@@ -453,12 +459,14 @@ impl LedgerStatus {
             txn_path: txn_path.to_owned(),
             utxo_map_path: utxo_map_path.to_owned(),
             utxos: BTreeMap::new(),
-            abar_store: MerkleTree::new(),
+            ax_utxos: BTreeMap::new(),
+            //abar_store: MerkleTree::new(),
             spent_utxos: map! {},
             txo_to_txn_location: map! {},
             issuance_amounts: map! {},
             utxo_map_versions: VecDeque::new(),
             state_commitment_versions: Vec::new(),
+            abar_commitments: vec![],
             asset_types: map! {},
             tracing_policies: map! {},
             issuance_num: map! {},
@@ -478,6 +486,14 @@ impl LedgerStatus {
     pub fn incr_block_commit_count(&mut self) {
         self.block_commit_count += 1;
         self.sliding_set.incr_current();
+    }
+
+    pub fn get_latest_abar_hash(&self) -> Option<BLSScalar> {
+        self.abar_commitments.last().copied()
+    }
+
+    pub fn add_abar_comitment(&mut self, hash: BLSScalar) {
+        self.abar_commitments.push(hash)
     }
 
     #[cfg(feature = "TESTING")]
@@ -836,7 +852,8 @@ impl LedgerStatus {
             verify_anon_xfr_body(
                 &node_params,
                 axfr_body,
-                &self.abar_store.get_latest_hash(),
+                // Unwrap Now to get the code to compile . Change in Zei later to accept Option<BLSScalar>
+                &self.get_latest_abar_hash().unwrap(),
             )
             .c(d!())?;
         }
@@ -1099,8 +1116,10 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
                 }
             }
 
+            //TODO : Create a finalized transaction for abar
+
             for abar in block.output_abars.iter() {
-                self.status.abar_store.add_abar(&abar).c(d!())?;
+                self.abar_store.add_abar(&abar).c(d!())?;
             }
             for n in block.new_nullifiers.iter() {
                 let str =
@@ -1546,6 +1565,10 @@ impl LedgerState {
         open(path)
     }
 
+    fn init_abar_tree(_path: &str, _create: bool) -> MerkleTree {
+        MerkleTree::new()
+    }
+
     // Initialize a bitmap to track the unspent utxos.
     fn init_utxo_map(path: &str, create: bool) -> Result<BitMap> {
         let mut file = OpenOptions::new();
@@ -1591,6 +1614,7 @@ impl LedgerState {
             blocks: Vec::new(),
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, true).c(d!())?,
             nullifier: LedgerState::init_nullifier_set("", true).c(d!())?,
+            abar_store: Default::default(),
             txn_log: Some((
                 txn_path.into(),
                 OpenOptions::new()
@@ -1669,6 +1693,7 @@ impl LedgerState {
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, false).c(d!())?,
             nullifier: LedgerState::init_nullifier_set("", false)
                 .c(d!(PlatformError::Unknown))?,
+            abar_store: LedgerState::init_abar_tree("", false),
             txn_log: None,
             block_ctx: Some(BlockEffect::new()),
         });
@@ -1774,6 +1799,7 @@ impl LedgerState {
             utxo_map: LedgerState::init_utxo_map(utxo_map_path, true).c(d!())?,
             nullifier: LedgerState::init_nullifier_set("", true)
                 .c(d!(PlatformError::Unknown))?,
+            abar_store: LedgerState::init_abar_tree("", false),
             txn_log: None,
             block_ctx: Some(BlockEffect::new()),
         };
@@ -1874,11 +1900,19 @@ impl LedgerStatus {
             .collect()
     }
 
-    pub fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<TxoSID> {
-        self.abar_store
-            .get_owned_abars_uids(addr.clone())
-            .map(|uid| TxoSID(uid.clone()))
+    pub fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<ATxoSID> {
+        self.ax_utxos
+            .iter()
+            .filter(|(_, axutxo)| &axutxo.public_key == addr)
+            .map(|(sid, _)| *sid)
+            .collect()
     }
+
+    // pub fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<TxoSID> {
+    //     self.abar_store
+    //         .get_owned_abars_uids(addr.clone())
+    //         .map(|uid| TxoSID(uid.clone()))
+    // }
 
     fn get_utxo(&self, addr: TxoSID) -> Option<&Utxo> {
         self.utxos.get(&addr)
@@ -1995,7 +2029,8 @@ impl LedgerAccess for LedgerState {
     }
 
     fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<AnonBlindAssetRecord> {
-        self.status.abar_store.get_owned_abars(addr.clone())
+        // TODO should we access this through the Hashmap in status ?
+        self.abar_store.get_owned_abars(addr.clone())
     }
 
     fn get_issuance_num(&self, code: &AssetTypeCode) -> Option<u64> {

@@ -30,6 +30,7 @@ use ledger::staking::{
     td_addr_to_string, BlockHeight, PartialUnDelegation, StakerMemo, TendermintAddr,
     Validator,
 };
+
 use rand_chacha::ChaChaRng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
 use ruc::*;
@@ -61,6 +62,7 @@ use zei::xfr::structs::{
     AssetRecord, AssetRecordTemplate, BlindAssetRecord, OpenAssetRecord, OwnerMemo,
     TracingPolicies, TracingPolicy,
 };
+// use crypto::basics::commitments::ristretto_pedersen::RistrettoPedersenGens;
 
 macro_rules! no_transfer_err {
     () => {
@@ -1577,9 +1579,7 @@ impl AnonymousTransferOperationBuilder {
         recv_pub_key: AXfrPubKey,
         recv_enc_key: XPublicKey,
     ) -> Result<&mut Self> {
-        if self.net_input_amount <= 0 {
-            return Err(eg!("not enough inputs to spend"));
-        }
+        //net_input_amount is u64 value cannot be less than 0
 
         let mut prng = ChaChaRng::from_entropy();
 
@@ -2064,3 +2064,32 @@ mod tests {
         }
     }
 }
+
+// #[test]
+// fn test_operation_anon_transfer() {
+//     let mut builder = TransactionBuilder::from_seq_id(1);
+//     // Randomness
+//     let mut prng = ChaChaRng::from_seed([0u8; 32]);
+//
+//     // Sender
+//     let from = XfrKeyPair::generate(&mut prng);
+//
+//     // Receiver
+//     let to = AXfrKeyPair::generate(&mut prng).pub_key();
+//     let to_enc_key = XSecretKey::new(&mut prng);
+//     let to_enc_pub_key = XPublicKey::from(&to_enc_key);
+//
+//     // Asset Record being transferred
+//     let oabar_out = OpenAnonBlindAssetRecordBuilder::new()
+//         .amount(10u64)
+//         .asset_type( AT::from_identical_byte(1u8))
+//         .pub_key(to)
+//         .finalize(&mut prng, &to_enc_pub_key)
+//         .unwrap()
+//         .build()
+//         .unwrap();
+//
+//     let mut ledger = LedgerState::test_ledger();
+//
+//
+// }
