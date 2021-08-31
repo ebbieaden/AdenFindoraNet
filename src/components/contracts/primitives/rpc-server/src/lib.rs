@@ -101,7 +101,7 @@ mod inner {
         http::ServerBuilder::new(io)
             .threads(thread_pool_size.unwrap_or(HTTP_THREADS))
             .health_api(("/health", "system_health"))
-            .allowed_hosts(hosts_filtering(cors.is_some()))
+            // .allowed_hosts(hosts_filtering(cors.is_some()))
             .rest_api(if cors.is_some() {
                 http::RestApi::Secure
             } else {
@@ -150,7 +150,7 @@ mod inner {
         .max_payload(rpc_max_payload)
         .max_connections(max_connections.unwrap_or(WS_MAX_CONNECTIONS))
         .allowed_origins(map_cors(cors))
-        .allowed_hosts(hosts_filtering(cors.is_some()))
+        // .allowed_hosts(hosts_filtering(cors.is_some()))
         .start(addr)
         .map_err(|err| match err {
             ws::Error::Io(io) => io,
