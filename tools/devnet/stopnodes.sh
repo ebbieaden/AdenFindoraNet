@@ -24,7 +24,7 @@ then
     for pid in $nodes
     do
         kill -9 $pid
-        echo -en "$pid "
+        echo -en "${YEL}$pid ${NC}"
     done
     echo
 fi
