@@ -37,7 +37,7 @@ lazy_static! {
 
 const APP_NAME: &str = "findora";
 const APP_DB_NAME: &str = "findora_db";
-const CHAIN_STATE_PATH: &str = "chain.db";
+const CHAIN_STATE_PATH: &str = "state.db";
 
 pub struct BaseApp {
     /// application name from abci.Info
@@ -78,12 +78,14 @@ impl module_account::Config for BaseApp {
 parameter_types! {
     pub ChainId: u64 = *EVM_CAHIN_ID;
     pub BlockGasLimit: U256 = U256::from(u32::max_value());
+    pub const BlockHashCount: u32 = 256;
 }
 
 impl module_ethereum::Config for BaseApp {
     type AccountAsset = module_account::App<Self>;
     type AddressMapping = EthereumAddressMapping;
     type BlockGasLimit = BlockGasLimit;
+    type BlockHashCount = BlockHashCount;
     type ChainId = ChainId;
     type DecimalsMapping = EthereumDecimalsMapping;
     type FeeCalculator = ();
@@ -126,7 +128,10 @@ impl BaseApp {
             check_state: Context::new(chain_state.clone()),
             deliver_state: Context::new(chain_state),
             modules: ModuleManager {
-                ethereum_module: module_ethereum::App::<Self>::new(empty_block),
+                ethereum_module: module_ethereum::App::<Self>::new(
+                    base_dir,
+                    empty_block,
+                ),
                 ..Default::default()
             },
             event_notify: Notifications::new(),
@@ -254,7 +259,7 @@ impl BaseProvider for BaseApp {
 
     fn current_block(&self, id: Option<BlockId>) -> Option<ethereum::Block> {
         if let Ok(ctx) = self.create_query_context(0, false) {
-            module_ethereum::App::<Self>::current_block(&ctx, id)
+            self.modules.ethereum_module.current_block(&ctx, id)
         } else {
             None
         }
@@ -273,7 +278,9 @@ impl BaseProvider for BaseApp {
         id: Option<BlockId>,
     ) -> Option<Vec<fp_evm::TransactionStatus>> {
         if let Ok(ctx) = self.create_query_context(0, false) {
-            module_ethereum::App::<Self>::current_transaction_statuses(&ctx, id)
+            self.modules
+                .ethereum_module
+                .current_transaction_statuses(&ctx, id)
         } else {
             None
         }
@@ -281,7 +288,7 @@ impl BaseProvider for BaseApp {
 
     fn current_receipts(&self, id: Option<BlockId>) -> Option<Vec<ethereum::Receipt>> {
         if let Ok(ctx) = self.create_query_context(0, false) {
-            module_ethereum::App::<Self>::current_receipts(&ctx, id)
+            self.modules.ethereum_module.current_receipts(&ctx, id)
         } else {
             None
         }

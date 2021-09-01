@@ -31,10 +31,7 @@ impl<C: Config> App<C> {
         )))
     }
 
-    pub fn store_block(
-        ctx: &mut Context,
-        block_number: U256,
-    ) -> Result<(ethereum::Block, Vec<ethereum::Receipt>)> {
+    pub fn store_block(&mut self, ctx: &mut Context, block_number: U256) -> Result<()> {
         let mut transactions: Vec<ethereum::Transaction> = Vec::new();
         let mut statuses: Vec<TransactionStatus> = Vec::new();
         let mut receipts: Vec<ethereum::Receipt> = Vec::new();
@@ -86,14 +83,18 @@ impl<C: Config> App<C> {
         let block_hash = block.header.hash();
 
         CurrentBlockNumber::put(ctx.store.clone(), &block_number);
-        CurrentBlock::insert(ctx.store.clone(), &block_hash, &block);
-        CurrentReceipts::insert(ctx.store.clone(), &block_hash, &receipts);
-        CurrentTransactionStatuses::insert(ctx.store.clone(), &block_hash, &statuses);
+        // CurrentBlock::insert(ctx.store.clone(), &block_hash, &block);
+        // CurrentReceipts::insert(ctx.store.clone(), &block_hash, &receipts);
+        // CurrentTransactionStatuses::insert(ctx.store.clone(), &block_hash, &statuses);
         BlockHash::insert(ctx.store.clone(), &block_number, &block_hash);
         Pending::delete(ctx.store.clone());
 
+        self.blocks.insert(block_hash, block);
+        self.receipts.insert(block_hash, receipts);
+        self.transaction_statuses.insert(block_hash, statuses);
+
         debug!(target: "ethereum", "store new ethereum block: {}", block_number);
-        Ok((block, receipts))
+        Ok(())
     }
 
     pub fn do_transact(
@@ -259,26 +260,32 @@ impl<C: Config> App<C> {
 
     /// Get the transaction status with given block id.
     pub fn current_transaction_statuses(
+        &self,
         ctx: &Context,
         id: Option<BlockId>,
     ) -> Option<Vec<TransactionStatus>> {
         let hash = Self::block_hash(ctx, id).unwrap_or_default();
-        CurrentTransactionStatuses::get(ctx.store.clone(), &hash)
+        self.transaction_statuses.get(&hash).map(|v| (*v).clone())
     }
 
     /// Get the block with given block id.
-    pub fn current_block(ctx: &Context, id: Option<BlockId>) -> Option<ethereum::Block> {
+    pub fn current_block(
+        &self,
+        ctx: &Context,
+        id: Option<BlockId>,
+    ) -> Option<ethereum::Block> {
         let hash = Self::block_hash(ctx, id).unwrap_or_default();
-        CurrentBlock::get(ctx.store.clone(), &hash)
+        self.blocks.get(&hash).map(|v| (*v).clone())
     }
 
     /// Get receipts with given block id.
     pub fn current_receipts(
+        &self,
         ctx: &Context,
         id: Option<BlockId>,
     ) -> Option<Vec<ethereum::Receipt>> {
         let hash = Self::block_hash(ctx, id).unwrap_or_default();
-        CurrentReceipts::get(ctx.store.clone(), &hash)
+        self.receipts.get(&hash).map(|v| (*v).clone())
     }
 
     /// Get current block hash

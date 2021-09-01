@@ -174,7 +174,7 @@ mod inner {
         .into()
     }
 
-    fn hosts_filtering(enable: bool) -> http::DomainsValidation<http::Host> {
+    fn _hosts_filtering(enable: bool) -> http::DomainsValidation<http::Host> {
         if enable {
             // NOTE The listening address is whitelisted by default.
             // Setting an empty vector here enables the validation

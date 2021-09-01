@@ -1,8 +1,10 @@
 mod basic;
-mod client;
 mod genesis;
 mod impls;
 
+use abci::{RequestEndBlock, ResponseEndBlock};
+use bnc::{mapx::Mapx, new_mapx};
+use ethereum::{Block, Receipt};
 use ethereum_types::{H160, H256, U256};
 use evm::Config as EvmConfig;
 use fp_core::{
@@ -13,7 +15,7 @@ use fp_core::{
     transaction::{ActionResult, Executable, ValidateUnsigned},
 };
 use fp_events::*;
-use fp_evm::{BlockId, Runner};
+use fp_evm::{BlockId, Runner, TransactionStatus};
 use fp_traits::{
     account::AccountAsset,
     evm::{AddressMapping, BlockHashMapping, DecimalsMapping, FeeCalculator},
@@ -21,8 +23,8 @@ use fp_traits::{
 use fp_types::{actions::ethereum::Action, crypto::Address};
 use ruc::*;
 use std::marker::PhantomData;
+use std::path::Path;
 use storage::*;
-use tm_protos::abci::{RequestEndBlock, ResponseEndBlock};
 
 pub const MODULE_NAME: &str = "ethereum";
 
@@ -35,6 +37,8 @@ pub trait Config {
     type AddressMapping: AddressMapping;
     /// The block gas limit. Can be a simple constant, or an adjustment algorithm in another pallet.
     type BlockGasLimit: Get<U256>;
+    /// Maximum number of block number to block hash mappings to keep (oldest pruned first).
+    type BlockHashCount: Get<u32>;
     /// Chain ID of EVM.
     type ChainId: Get<u64>;
     /// Mapping from eth decimals to native token decimals.
@@ -50,23 +54,24 @@ pub trait Config {
 }
 
 pub mod storage {
-    use ethereum::{Block, Receipt, Transaction};
+    use ethereum::{Receipt, Transaction};
     use ethereum_types::{H256, U256};
+
     use fp_evm::TransactionStatus;
     use fp_storage::*;
 
     // Current building block's transactions and receipts.
     generate_storage!(Ethereum, Pending => Value<Vec<(Transaction, TransactionStatus, Receipt)>>);
-    // The current Ethereum block.
-    generate_storage!(Ethereum, CurrentBlock => Map<H256, Block>);
-    // The current Ethereum receipts.
-    generate_storage!(Ethereum, CurrentReceipts => Map<H256, Vec<Receipt>>);
-    // The current transaction statuses.
-    generate_storage!(Ethereum, CurrentTransactionStatuses => Map<H256, Vec<TransactionStatus>>);
     // Mapping for block number and hashes.
     generate_storage!(Ethereum, BlockHash => Map<U256, H256>);
     // The current Ethereum block number.
     generate_storage!(Ethereum, CurrentBlockNumber => Value<U256>);
+    // // The current Ethereum block.
+    // generate_storage!(Ethereum, CurrentBlock => Map<H256, Block>);
+    // // The current Ethereum receipts.
+    // generate_storage!(Ethereum, CurrentReceipts => Map<H256, Vec<Receipt>>);
+    // // The current transaction statuses.
+    // generate_storage!(Ethereum, CurrentTransactionStatuses => Map<H256, Vec<TransactionStatus>>);
 }
 
 #[derive(Event)]
@@ -85,16 +90,38 @@ pub struct ContractLog {
 }
 
 pub struct App<C> {
+    /// Whether to store empty ethereum blocks when no evm contract transaction.
     enable_eth_empty_blocks: bool,
+    /// The ethereum history blocks with block number.
+    pub(crate) blocks: Mapx<H256, Block>,
+    /// The ethereum history receipts with block number.
+    pub(crate) receipts: Mapx<H256, Vec<Receipt>>,
+    /// The ethereum history transaction statuses with block number.
+    pub(crate) transaction_statuses: Mapx<H256, Vec<TransactionStatus>>,
     phantom: PhantomData<C>,
 }
 
 impl<C: Config> App<C> {
-    pub fn new(empty_block: bool) -> Self {
+    pub fn new(base_dir: &Path, empty_block: bool) -> Self {
+        let store_path = base_dir.join("ethereum").to_str().unwrap().to_owned();
+        let blocks_path = store_path.clone() + "/blocks";
+        let receipts_path = store_path.clone() + "/receipts";
+        let transaction_statuses_path = store_path.clone() + "/transaction_statuses";
+
         App {
             enable_eth_empty_blocks: empty_block,
+            blocks: new_mapx!(blocks_path.as_str()),
+            receipts: new_mapx!(receipts_path.as_str()),
+            transaction_statuses: new_mapx!(transaction_statuses_path.as_str()),
             phantom: Default::default(),
         }
+    }
+
+    /// flush data on disk
+    pub fn flush(&self) {
+        self.blocks.flush_data();
+        self.receipts.flush_data();
+        self.transaction_statuses.flush_data();
     }
 }
 
@@ -102,6 +129,9 @@ impl<C: Config> Default for App<C> {
     fn default() -> Self {
         App {
             enable_eth_empty_blocks: false,
+            blocks: new_mapx!(),
+            receipts: new_mapx!(),
+            transaction_statuses: new_mapx!(),
             phantom: Default::default(),
         }
     }
@@ -117,7 +147,15 @@ impl<C: Config> AppModule for App<C> {
             CurrentBlockNumber::get(ctx.store.clone()).unwrap_or_default();
         let txs = Pending::get(ctx.store.clone()).map_or(0, |v| v.len());
         if txs > 0 || self.enable_eth_empty_blocks || block_number == U256::zero() {
-            let _ = ruc::info!(Self::store_block(ctx, U256::from(req.height)));
+            let _ = ruc::info!(self.store_block(ctx, U256::from(req.height)));
+
+            let block_hash_count = C::BlockHashCount::get();
+            let n = BlockHash::iterate(ctx.store.clone()).len() as u32;
+            // keep earliest hash
+            let delete_number = n.saturating_sub(block_hash_count).saturating_sub(1);
+            if delete_number > 0 {
+                BlockHash::remove(ctx.store.clone(), &U256::from(delete_number));
+            }
         }
         Default::default()
     }

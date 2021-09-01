@@ -54,7 +54,7 @@ impl abci::Application for crate::BaseApp {
 
         match path.remove(0) {
             // "store" => self.store.query(path, req),
-            "module" => self.modules.query(ctx.unwrap(), path, &req),
+            "module" => self.modules.query(ctx.unwrap(), path, req),
             _ => err_resp("Invalid query path!".to_string()),
         }
     }
@@ -110,7 +110,7 @@ impl abci::Application for crate::BaseApp {
             req.hash.clone(),
         );
 
-        self.modules.begin_block(&mut self.deliver_state, &req);
+        self.modules.begin_block(&mut self.deliver_state, req);
 
         ResponseBeginBlock::default()
     }
@@ -155,7 +155,7 @@ impl abci::Application for crate::BaseApp {
 
     #[cfg(all(not(feature = "abci_mock"), not(test)))]
     fn end_block(&mut self, req: &RequestEndBlock) -> ResponseEndBlock {
-        self.modules.end_block(&mut self.deliver_state, &req)
+        self.modules.end_block(&mut self.deliver_state, req)
     }
 
     fn commit(&mut self, _req: &RequestCommit) -> ResponseCommit {
@@ -181,6 +181,8 @@ impl abci::Application for crate::BaseApp {
 
         // Reset the deliver state
         Self::update_state(&mut self.deliver_state, Default::default(), vec![]);
+
+        self.modules.ethereum_module.flush();
 
         pnk!(self
             .event_notify

@@ -99,6 +99,39 @@ impl<'a> Visitor<'a> for BlockNumberVisitor {
         )
     }
 
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        Ok(BlockNumber::Num(value))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        match value {
+            "latest" => Ok(BlockNumber::Latest),
+            "earliest" => Ok(BlockNumber::Earliest),
+            "pending" => Ok(BlockNumber::Pending),
+            _ if value.starts_with("0x") => u64::from_str_radix(&value[2..], 16)
+                .map(BlockNumber::Num)
+                .map_err(|e| Error::custom(format!("Invalid block number: {}", e))),
+            _ => value.parse::<u64>().map(BlockNumber::Num).map_err(|_| {
+                Error::custom(
+                    "Invalid block number: non-decimal or missing 0x prefix".to_string(),
+                )
+            }),
+        }
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        self.visit_str(value.as_ref())
+    }
+
     fn visit_map<V>(self, mut visitor: V) -> Result<Self::Value, V::Error>
     where
         V: MapAccess<'a>,
@@ -150,39 +183,6 @@ impl<'a> Visitor<'a> for BlockNumberVisitor {
         }
 
         Err(Error::custom("Invalid input"))
-    }
-
-    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        match value {
-            "latest" => Ok(BlockNumber::Latest),
-            "earliest" => Ok(BlockNumber::Earliest),
-            "pending" => Ok(BlockNumber::Pending),
-            _ if value.starts_with("0x") => u64::from_str_radix(&value[2..], 16)
-                .map(BlockNumber::Num)
-                .map_err(|e| Error::custom(format!("Invalid block number: {}", e))),
-            _ => (&value).parse::<u64>().map(BlockNumber::Num).map_err(|_| {
-                Error::custom(
-                    "Invalid block number: non-decimal or missing 0x prefix".to_string(),
-                )
-            }),
-        }
-    }
-
-    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        self.visit_str(value.as_ref())
-    }
-
-    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        Ok(BlockNumber::Num(value))
     }
 }
 

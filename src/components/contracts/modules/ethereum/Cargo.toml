@@ -9,16 +9,18 @@ description = "Findora module supporting execute ethereum transaction"
 readme = "README.md"
 
 [dependencies]
+abci = { git = "https://github.com/FindoraNetwork/rust-abci", tag = "v0.7.2" }
+bnc = { git = "https://github.com/FindoraNetwork/BNC.git", branch = "feat-rocksdb" }
 ethereum = { version = "0.7.1", features = ["with-serde"] }
 ethereum-types = "0.11.0"
 evm = { version = "0.27.0", features = ["with-serde"] }
 log = "0.4"
+rand = "0.8"
 rlp = "0.5"
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 serde = { version = "1.0.124", features = ["derive"] }
 serde_json = "1.0.64"
 sha3 = "0.8"
-tm-protos = { git = "ssh://git@github.com/FindoraNetwork/tendermint-sys.git", branch = "findora-0.33.6" }
 
 # primitives, don't depend on any modules
 fp-core = { path = "../../primitives/core" }
