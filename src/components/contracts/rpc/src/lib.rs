@@ -1,3 +1,6 @@
+#![deny(warnings)]
+#![allow(missing_docs)]
+
 mod eth;
 mod eth_filter;
 mod eth_pubsub;

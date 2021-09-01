@@ -1,3 +1,6 @@
+#![deny(warnings)]
+#![allow(missing_docs)]
+
 mod precompile;
 
 use ethereum_types::{Bloom, H160, H256, U256};

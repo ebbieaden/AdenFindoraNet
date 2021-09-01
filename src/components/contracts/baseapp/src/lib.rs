@@ -1,4 +1,10 @@
+//! BaseApp is an ABCI application, this instance manages state storage and all module functions,
+//! and provides a state query interface to the outside.
+
+#![deny(warnings)]
+#![allow(missing_docs)]
 #![allow(clippy::field_reassign_with_default)]
+
 mod app;
 pub mod extensions;
 mod modules;

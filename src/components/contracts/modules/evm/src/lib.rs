@@ -1,3 +1,6 @@
+#![deny(warnings)]
+#![allow(missing_docs)]
+
 mod basic;
 mod client;
 mod genesis;

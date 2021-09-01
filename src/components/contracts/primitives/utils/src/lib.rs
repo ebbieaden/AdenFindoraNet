@@ -1,3 +1,6 @@
+#![deny(warnings)]
+#![allow(missing_docs)]
+
 pub mod ecdsa;
 pub mod hashing;
 

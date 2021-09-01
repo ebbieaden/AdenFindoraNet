@@ -1,3 +1,4 @@
+///! Transaction signature extension for transaction verification and validity check.
 use crate::BaseApp;
 use fp_core::{
     context::{Context, RunTxMode},
