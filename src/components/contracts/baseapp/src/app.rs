@@ -61,7 +61,7 @@ impl abci::Application for crate::BaseApp {
 
     /// check_tx implements the ABCI interface and executes a tx in Check/ReCheck mode.
     fn check_tx(&mut self, req: &RequestCheckTx) -> ResponseCheckTx {
-        let mut resp: ResponseCheckTx = Default::default();
+        let mut resp = ResponseCheckTx::new();
         if let Ok(tx) = convert_unchecked_transaction::<SignedExtra>(&req.tx) {
             let check_fn = |mode: RunTxMode| {
                 let ctx = self.retrieve_context(mode, req.tx.clone()).clone();
@@ -76,8 +76,7 @@ impl abci::Application for crate::BaseApp {
                 CheckTxType::Recheck => check_fn(RunTxMode::ReCheck),
             }
         } else {
-            resp.code = 1;
-            resp.log = String::from("Could not unpack transaction");
+            debug!(target: "baseapp", "Could not unpack transaction");
         }
         resp
     }
