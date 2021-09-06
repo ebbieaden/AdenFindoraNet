@@ -12,7 +12,10 @@ use fp_types::{
     assemble::{convert_unsigned_transaction, CheckedTransaction, UncheckedTransaction},
     crypto::Address,
 };
-use ledger::{address::check_convert_tx, data_model::Transaction as FindoraTransaction};
+use ledger::{
+    address::check_convert_tx,
+    data_model::{Transaction as FindoraTransaction, ASSET_TYPE_FRA},
+};
 use ruc::*;
 use serde::Serialize;
 use tm_protos::abci::*;
@@ -118,11 +121,14 @@ impl ModuleManager {
     ) -> Result<()> {
         let (owner, assets) = check_convert_tx(tx)?;
         for (asset, amount) in assets.iter() {
+            ensure!(
+                *asset == ASSET_TYPE_FRA,
+                "invalid asset type only support FRA"
+            );
             module_account::App::<BaseApp>::mint(
                 ctx,
                 &Address::from(owner.clone()),
                 (*amount).into(),
-                *asset,
             )?;
             module_ethereum::App::<BaseApp>::update_block_number(
                 ctx,

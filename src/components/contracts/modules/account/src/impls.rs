@@ -1,12 +1,12 @@
 use crate::storage::*;
 use crate::{App, Config};
-use fp_core::{account::SmartAccount, context::Context, transaction::ActionResult};
+use fp_core::{
+    account::SmartAccount, context::Context, ensure, transaction::ActionResult,
+};
 use fp_traits::account::AccountAsset;
 use fp_types::{actions::account::MintOutput, crypto::Address};
 use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
-use std::collections::HashMap;
-use zei::xfr::structs::AssetType;
 
 impl<C: Config> AccountAsset<Address> for App<C> {
     fn account_of(ctx: &Context, who: &Address) -> Option<SmartAccount> {
@@ -61,47 +61,23 @@ impl<C: Config> AccountAsset<Address> for App<C> {
         Ok(())
     }
 
-    fn mint(
-        ctx: &Context,
-        target: &Address,
-        balance: u128,
-        asset: AssetType,
-    ) -> Result<()> {
+    fn mint(ctx: &Context, target: &Address, balance: u128) -> Result<()> {
         let mut target_account: SmartAccount =
             AccountStore::get(ctx.store.clone(), target).unwrap_or_default();
-        if asset == ASSET_TYPE_FRA {
-            target_account.balance =
-                target_account.balance.checked_add(balance).c(d!())?;
-        } else if let Some(amount) = target_account.assets.get_mut(&asset) {
-            *amount = (*amount).checked_add(balance).c(d!())?;
-        } else {
-            target_account.assets.insert(asset, balance);
-        }
+        target_account.balance = target_account.balance.checked_add(balance).c(d!())?;
 
         AccountStore::insert(ctx.store.clone(), target, &target_account);
         Ok(())
     }
 
-    fn burn(
-        ctx: &Context,
-        target: &Address,
-        balance: u128,
-        asset: AssetType,
-    ) -> Result<()> {
+    fn burn(ctx: &Context, target: &Address, balance: u128) -> Result<()> {
         let mut target_account: SmartAccount =
             Self::account_of(ctx, target).c(d!("account does not exist"))?;
-        if asset == ASSET_TYPE_FRA {
-            target_account.balance = target_account
-                .balance
-                .checked_sub(balance)
-                .c(d!("insufficient balance"))?;
-        } else if let Some(amount) = target_account.assets.get_mut(&asset) {
-            *amount = (*amount)
-                .checked_sub(balance)
-                .c(d!("insufficient balance"))?;
-        } else {
-            return Err(eg!("account doesn't own this asset"));
-        }
+        target_account.balance = target_account
+            .balance
+            .checked_sub(balance)
+            .c(d!("insufficient balance"))?;
+
         AccountStore::insert(ctx.store.clone(), target, &target_account);
         Ok(())
     }
@@ -133,43 +109,25 @@ impl<C: Config> App<C> {
         outputs: Vec<MintOutput>,
     ) -> Result<ActionResult> {
         let mut asset_amount = 0;
-        let mut asset_map = HashMap::new();
         for output in &outputs {
-            if output.asset == ASSET_TYPE_FRA {
-                asset_amount += output.amount;
-            } else if let Some(amount) = asset_map.get_mut(&output.asset) {
-                *amount += output.amount;
-            } else {
-                asset_map.insert(output.asset, output.amount);
-            }
+            ensure!(
+                output.asset == ASSET_TYPE_FRA,
+                "Invalid asset type only support FRA"
+            );
+            asset_amount += output.amount;
         }
 
-        log::debug!(target: "account", "this tx's amount is: FRA: {}, OTHER: {:?}", asset_amount, asset_map);
+        log::debug!(target: "account", "this tx's amount is: FRA: {}", asset_amount);
 
-        let sa = Self::account_of(ctx, &sender).c(d!("no account!"))?;
-
+        let sa = Self::account_of(ctx, &sender).c(d!("account does not exist"))?;
         if sa.balance < asset_amount as u128 {
-            return Err(eg!("insufficient balance fra"));
-        }
-
-        for (k, v) in asset_map.iter() {
-            if let Some(asset_balance) = sa.assets.get(k) {
-                if asset_balance < &(*v as u128) {
-                    return Err(eg!("insufficient balance"));
-                }
-            } else {
-                return Err(eg!("insufficient balance, no asset"));
-            }
+            return Err(eg!("insufficient balance"));
         }
 
         if asset_amount > 0 {
-            Self::burn(ctx, &sender, asset_amount as u128, ASSET_TYPE_FRA)?;
+            Self::burn(ctx, &sender, asset_amount as u128)?;
+            Self::add_mint(ctx, outputs)?;
         }
-
-        for (k, v) in asset_map.into_iter() {
-            Self::burn(ctx, &sender, v as u128, k)?;
-        }
-        Self::add_mint(ctx, outputs)?;
         Ok(ActionResult::default())
     }
 

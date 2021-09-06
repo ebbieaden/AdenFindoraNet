@@ -14,7 +14,6 @@ use std::time::SystemTime;
 use storage::db::FinDB;
 use storage::state::ChainState;
 use zei::xfr::sig::XfrKeyPair;
-use zei::xfr::structs::AssetType;
 
 fn setup() -> Context {
     let time = SystemTime::now()
@@ -207,20 +206,8 @@ fn test_account_mint() {
     AccountStore::insert(ctx.store.clone(), &address, &account);
 
     //MintOutputs FRA for account
-    assert!(App::<()>::mint(&ctx, &address, 500, ASSET_TYPE_FRA).is_ok());
+    assert!(App::<()>::mint(&ctx, &address, 500).is_ok());
     assert_eq!(600, App::<()>::balance(&ctx, &address));
-
-    //MintOutputs Diff Asset for account
-    let asset_type = AssetType::from_identical_byte(b'A');
-
-    assert!(App::<()>::mint(&ctx, &address, 300, asset_type).is_ok());
-    let smart_acct = App::<()>::account_of(&ctx, &address).unwrap();
-    assert_eq!(smart_acct.assets.get(&asset_type), Some(&300));
-
-    //MintOutputs additional amount for Diff Asset
-    assert!(App::<()>::mint(&ctx, &address, 400, asset_type).is_ok());
-    let smart_acct = App::<()>::account_of(&ctx, &address).unwrap();
-    assert_eq!(smart_acct.assets.get(&asset_type), Some(&700));
 }
 
 #[test]
@@ -242,27 +229,9 @@ fn test_account_burn() {
     //Add account to database
     AccountStore::insert(ctx.store.clone(), &address, &account);
 
-    //MintOutputs Diff Asset for account
-    let asset_type = AssetType::from_identical_byte(b'A');
-    assert!(App::<()>::mint(&ctx, &address, 300, asset_type).is_ok());
-
     //burn FRA
-    assert!(App::<()>::burn(&ctx, &address, 200, ASSET_TYPE_FRA).is_ok());
+    assert!(App::<()>::burn(&ctx, &address, 200).is_ok());
     assert_eq!(300, App::<()>::balance(&ctx, &address));
-
-    //burn different asset
-    assert!(App::<()>::burn(&ctx, &address, 100, asset_type).is_ok());
-    let smart_acct = App::<()>::account_of(&ctx, &address).unwrap();
-    assert_eq!(smart_acct.assets.get(&asset_type), Some(&200));
-
-    //burn more than balance of asset
-    let res = App::<()>::burn(&ctx, &address, 300, asset_type);
-    assert!(res.is_err());
-
-    //burn non-existent asset
-    let asset_type_b = AssetType::from_identical_byte(b'B');
-    let res = App::<()>::burn(&ctx, &address, 100, asset_type_b);
-    assert!(res.is_err());
 }
 
 #[test]

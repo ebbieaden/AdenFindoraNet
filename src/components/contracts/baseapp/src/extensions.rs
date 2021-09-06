@@ -6,7 +6,6 @@ use fp_core::{
 };
 use fp_traits::account::{AccountAsset, FeeCalculator};
 use fp_types::crypto::Address;
-use ledger::data_model::ASSET_TYPE_FRA;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 
@@ -77,12 +76,7 @@ impl SignedExtension for CheckFee {
 
         if RunTxMode::Check == ctx.run_mode {
             // deduct tx fee prevent attacks
-            module_account::App::<BaseApp>::burn(
-                ctx,
-                who,
-                tx_fee as u128,
-                ASSET_TYPE_FRA,
-            )?;
+            module_account::App::<BaseApp>::burn(ctx, who, tx_fee as u128)?;
         } else {
             // check tx fee
             let amount = module_account::App::<BaseApp>::balance(ctx, who);
@@ -104,7 +98,7 @@ impl SignedExtension for CheckFee {
                 fee
             }
         };
-        module_account::App::<BaseApp>::burn(ctx, who, tx_fee as u128, ASSET_TYPE_FRA)?;
+        module_account::App::<BaseApp>::burn(ctx, who, tx_fee as u128)?;
         Ok((who.clone(), tx_fee))
     }
 

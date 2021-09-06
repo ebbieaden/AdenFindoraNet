@@ -12,7 +12,6 @@ use fp_traits::account::AccountAsset;
 use fp_traits::evm::{AddressMapping, EthereumAddressMapping};
 use fp_types::crypto::{Address, MultiSignature};
 use lazy_static::lazy_static;
-use ledger::data_model::ASSET_TYPE_FRA;
 use primitive_types::{H160, H256, U256};
 use rand_chacha::{rand_core::SeedableRng, ChaChaRng};
 use rlp::*;
@@ -38,8 +37,7 @@ pub fn test_mint_balance(who: &Address, balance: u128, height: u64) {
     assert!(module_account::App::<BaseApp>::mint(
         &BASE_APP.lock().unwrap().deliver_state,
         who,
-        balance,
-        ASSET_TYPE_FRA
+        balance
     )
     .is_ok());
     BASE_APP

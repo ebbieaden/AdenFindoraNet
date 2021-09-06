@@ -1,6 +1,5 @@
 use fp_core::{account::SmartAccount, context::Context};
 use ruc::Result;
-use zei::xfr::structs::AssetType;
 
 pub trait AccountAsset<Address> {
     /// The smart account info of `who`.
@@ -24,20 +23,10 @@ pub trait AccountAsset<Address> {
     ) -> Result<()>;
 
     /// Mints `value` to the free balance of `who`.
-    fn mint(
-        ctx: &Context,
-        target: &Address,
-        balance: u128,
-        asset: AssetType,
-    ) -> Result<()>;
+    fn mint(ctx: &Context, target: &Address, balance: u128) -> Result<()>;
 
     /// Burns `value` to the free balance of `who`.
-    fn burn(
-        ctx: &Context,
-        target: &Address,
-        balance: u128,
-        asset: AssetType,
-    ) -> Result<()>;
+    fn burn(ctx: &Context, target: &Address, balance: u128) -> Result<()>;
 
     /// Removes some balance from `who` account.
     fn withdraw(ctx: &Context, who: &Address, value: u128) -> Result<()>;

@@ -1,13 +1,16 @@
 //! Multi Signer operation for transaction.
 
-use crate::data_model::NoReplayToken;
-use crate::data_model::{Operation, Transaction, BLACK_HOLE_PUBKEY_STAKING};
+use crate::data_model::{
+    NoReplayToken, Operation, Transaction, ASSET_TYPE_FRA, BLACK_HOLE_PUBKEY_STAKING,
+};
 use fp_types::crypto::MultiSigner;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSignature};
-use zei::xfr::structs::{AssetType, XfrAmount, XfrAssetType};
+use zei::xfr::{
+    sig::{XfrKeyPair, XfrPublicKey, XfrSignature},
+    structs::{AssetType, XfrAmount, XfrAssetType},
+};
 
 /// Use this operation to transfer.
 ///
@@ -99,10 +102,14 @@ pub fn check_convert_tx(
                 if matches!(o.record.asset_type, XfrAssetType::Confidential(_))
                     || matches!(o.record.amount, XfrAmount::Confidential(_))
                 {
-                    return Err(eg!("convert can't support "));
+                    return Err(eg!(
+                        "asset cross ledger transfer not support confidential"
+                    ));
                 }
                 if let XfrAssetType::NonConfidential(ty) = o.record.asset_type {
-                    if o.record.public_key == *BLACK_HOLE_PUBKEY_STAKING {
+                    if o.record.public_key == *BLACK_HOLE_PUBKEY_STAKING
+                        && ty == ASSET_TYPE_FRA
+                    {
                         if let XfrAmount::NonConfidential(i_am) = o.record.amount {
                             if let Some(amount) = assets.get_mut(&ty) {
                                 *amount += i_am;
