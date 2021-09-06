@@ -124,6 +124,10 @@ impl ModuleManager {
                 (*amount).into(),
                 *asset,
             )?;
+            module_ethereum::App::<BaseApp>::update_block_number(
+                ctx,
+                &U256::from(ctx.block_header().height),
+            );
         }
         Ok(())
     }

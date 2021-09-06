@@ -146,10 +146,8 @@ impl<C: Config> AppModule for App<C> {
         ctx: &mut Context,
         req: &RequestEndBlock,
     ) -> ResponseEndBlock {
-        let block_number =
-            CurrentBlockNumber::get(ctx.store.clone()).unwrap_or_default();
         let txs = Pending::get(ctx.store.clone()).map_or(0, |v| v.len());
-        if txs > 0 || self.enable_eth_empty_blocks || block_number == U256::zero() {
+        if txs > 0 || self.enable_eth_empty_blocks {
             let _ = ruc::info!(self.store_block(ctx, U256::from(req.height)));
 
             let block_hash_count = C::BlockHashCount::get();

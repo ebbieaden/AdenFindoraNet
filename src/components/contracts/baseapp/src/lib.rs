@@ -221,7 +221,7 @@ impl BaseApp {
         ensure!(height >= 1, format!("invalid height: {}", height));
         let mut expected_height =
             self.chain_state.read().height().unwrap_or_default() as i64;
-        if expected_height == 0 && height > 1 {
+        if expected_height == 0 {
             expected_height = height;
         } else {
             expected_height += 1;
@@ -250,6 +250,10 @@ impl BaseApp {
 
     pub fn consume_mint(&mut self, size: usize) -> Result<Vec<MintOutput>> {
         self.modules.consume_mint(&self.deliver_state, size)
+    }
+
+    pub fn latest_block_number(&self) -> Option<U256> {
+        module_ethereum::App::<Self>::current_block_number(&self.deliver_state)
     }
 }
 
