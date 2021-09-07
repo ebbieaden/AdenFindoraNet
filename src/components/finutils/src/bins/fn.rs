@@ -354,16 +354,16 @@ fn run() -> Result<()> {
             pair.address()
         );
     } else if let Some(m) = matches.subcommand_matches("account") {
-        let address = m.value_of("address");
+        let address = m.value_of("addr");
         let (account, info) = contract_account_info(address)?;
         println!("AccountId: {}\n{:#?}\n", account, info);
     } else if let Some(m) = matches.subcommand_matches("contract-deposit") {
         let amount = m.value_of("amount").c(d!())?;
-        let address = m.value_of("address");
+        let address = m.value_of("addr");
         transfer_to_account(amount.parse::<u64>().c(d!())?, address)?
     } else if let Some(m) = matches.subcommand_matches("contract-withdraw") {
         let amount = m.value_of("amount").c(d!())?;
-        let address = m.value_of("address");
+        let address = m.value_of("addr");
         let eth_key = m.value_of("eth-key");
         transfer_from_account(amount.parse::<u64>().c(d!())?, address, eth_key)?
     } else {
