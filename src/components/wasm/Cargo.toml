@@ -1,6 +1,6 @@
 [package]
 name = "wasm"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["FindoraNetwork"]
 build = "build.rs"
 edition = "2018"
@@ -35,16 +35,14 @@ bech32 = "0.7.2"
 # OR the compiling will fail.
 getrandom = { version = "0.2", features = ["js"] }
 
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.4" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.4b" }
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
 
 finutils = { path = "../finutils", default-features = false }
-utils = { path = "../../libs/utils" }
+globutils = { path = "../../libs/globutils" }
 credentials = { path = "../../libs/credentials" }
 cryptohash = { path = "../../libs/cryptohash" }
-sparse_merkle_tree = { path = "../../libs/ads/sparse_merkle_tree" }
 ledger = { path = "../../ledger" }
-air = { path = "../../libs/ads/air" }
 
 fp-utils = { path = "../contracts/primitives/utils" }
 fp-types = { path = "../contracts/primitives/types" }
@@ -56,13 +54,13 @@ path = "src/wasm.rs"
 [dependencies.web-sys]
 version = "0.3.4"
 features = [
-    'Headers',
-    'Request',
-    'RequestInit',
-    'RequestMode',
-    'Response',
-    'Window',
-    'console',
+  'Headers',
+  'Request',
+  'RequestInit',
+  'RequestMode',
+  'Response',
+  'Window',
+  'console',
 ]
 
 [build-dependencies]

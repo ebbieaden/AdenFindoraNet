@@ -25,19 +25,22 @@ fn test_emit_event() {
         name: String::from("example"),
         value: 10,
     };
+    let pair = AbciPair::default();
 
     let event = Event::emit_event("mock".to_string(), test_struct);
-    assert_eq!(event.r#type, "mock_MockEvent");
+    assert_eq!(event.get_field_type(), "mock_MockEvent");
     assert_eq!(
         event.attributes.to_vec(),
         vec![
             AbciPair {
                 key: "name".as_bytes().to_vec(),
                 value: serde_json::to_vec("example").unwrap(),
+                ..pair.clone()
             },
             AbciPair {
                 key: "value".as_bytes().to_vec(),
                 value: 10_u32.to_string().as_bytes().to_vec(),
+                ..pair
             }
         ]
     );
@@ -52,15 +55,17 @@ fn test_emit_serde_event() {
             val: String::from("100"),
         },
     };
+    let pair = AbciPair::default();
 
     let event = Event::emit_serde_event("mock".to_string(), test_struct);
-    assert_eq!(event.r#type, "mock_MockEvent2");
+    assert_eq!(event.get_field_type(), "mock_MockEvent2");
     assert_eq!(
         event.attributes.to_vec(),
         vec![
             AbciPair {
                 key: "name".as_bytes().to_vec(),
                 value: serde_json::to_vec("example").unwrap(),
+                ..pair.clone()
             },
             AbciPair {
                 key: "value".as_bytes().to_vec(),
@@ -69,6 +74,7 @@ fn test_emit_serde_event() {
                     val: String::from("100"),
                 })
                 .unwrap(),
+                ..pair
             }
         ]
     );

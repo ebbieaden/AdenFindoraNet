@@ -2,6 +2,7 @@
 
 mod utils;
 
+use abci::*;
 use baseapp::{BaseApp, ChainId};
 use ethereum_types::{H160, H256, U256};
 use fp_evm::{CallOrCreateInfo, Runner};
@@ -11,7 +12,6 @@ use fp_types::{
     assemble::UncheckedTransaction,
 };
 use module_evm::storage::*;
-use tm_protos::abci::*;
 use utils::*;
 
 fn build_erc20_deploy_transaction(
@@ -103,7 +103,7 @@ fn test_deploy_check_tx() {
     req.tx =
         serde_json::to_vec(&build_erc20_deploy_transaction("erc20", "FRA", 0.into()).0)
             .unwrap();
-    let resp = BASE_APP.lock().unwrap().check_tx(req);
+    let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert_eq!(
         resp.code, 0,
         "erc20 deploy check tx failed, code: {}, log: {}",
@@ -116,7 +116,7 @@ fn test_deploy_deliver_tx() -> (H160, ethabi::Contract) {
     let (tx, contract_abi) = build_erc20_deploy_transaction("erc20", "FRA", 0.into());
 
     req.tx = serde_json::to_vec(&tx).unwrap();
-    let resp = BASE_APP.lock().unwrap().deliver_tx(req);
+    let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
     assert_eq!(
         resp.code, 0,
         "erc20 deploy deliver tx failed, code: {}, log: {}",
@@ -141,7 +141,7 @@ fn test_deploy_deliver_tx() -> (H160, ethabi::Contract) {
 }
 
 fn test_deploy_commit(contract_address: H160) {
-    let _ = BASE_APP.lock().unwrap().commit();
+    let _ = BASE_APP.lock().unwrap().commit(&RequestCommit::new());
 
     let ctx = BASE_APP
         .lock()
@@ -160,7 +160,7 @@ fn test_mint_check_tx(contract: ERC20) {
         1.into(),
     ))
     .unwrap();
-    let resp = BASE_APP.lock().unwrap().check_tx(req);
+    let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert_eq!(
         resp.code, 0,
         "erc20 mint check tx failed, code: {}, log: {}",
@@ -177,7 +177,7 @@ fn test_mint_deliver_tx(contract: ERC20) {
         1.into(),
     ))
     .unwrap();
-    let resp = BASE_APP.lock().unwrap().deliver_tx(req);
+    let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
     assert_eq!(
         resp.code, 0,
         "erc20 mint deliver tx failed, code: {}, log: {}",
@@ -198,7 +198,7 @@ fn test_transfer_check_tx(contract: ERC20) {
         BOB_ECDSA.private_key,
     ))
     .unwrap();
-    let resp = BASE_APP.lock().unwrap().check_tx(req);
+    let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert_eq!(
         resp.code, 0,
         "erc20 transfer check tx failed, code: {}, log: {}",
@@ -217,7 +217,7 @@ fn test_transfer_deliver_tx(contract: ERC20) {
         BOB_ECDSA.private_key,
     ))
     .unwrap();
-    let resp = BASE_APP.lock().unwrap().deliver_tx(req);
+    let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
     assert_eq!(
         resp.code, 0,
         "erc20 transfer deliver tx failed, code: {}, log: {}",
@@ -232,7 +232,7 @@ fn test_balance_of_deliver_tx(contract: ERC20, who: H160) -> U256 {
     req.tx =
         serde_json::to_vec(&build_erc20_balance_of_transaction(contract, who, 2.into()))
             .unwrap();
-    let resp = BASE_APP.lock().unwrap().deliver_tx(req);
+    let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
     assert_eq!(
         resp.code, 0,
         "check tx failed, code: {}, log: {}",

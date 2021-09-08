@@ -3,20 +3,19 @@
 //!
 
 #![allow(warnings)]
+#![allow(missing_docs)]
 
 use crate::api::query_server::query_api::QueryServer;
-use finutils::txn_builder::{BuildsTransactions, TransactionBuilder};
+use finutils::txn_builder::TransactionBuilder;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{
-        AccountAddress, AssetRules, AssetTypeCode, IssuerPublicKey, Operation,
-        Transaction, TxOutput, TxnEffect, TxnSID, TxoRef, TxoSID, Utxo, XfrAddress,
-        ASSET_TYPE_FRA,
+        AssetRules, AssetTypeCode, IssuerPublicKey, Operation, Transaction, TxOutput,
+        TxnEffect, TxnSID, TxoRef, TxoSID, Utxo, XfrAddress, ASSET_TYPE_FRA,
     },
     staking::ops::mint_fra::{MintEntry, MintFraOps, MintKind},
     store::LedgerState,
 };
-use metrics_exporter_prometheus::PrometheusHandle;
 use parking_lot::RwLock;
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
@@ -24,6 +23,7 @@ use ruc::*;
 use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, HashSet},
+    path::Path,
     sync::Arc,
 };
 use zei::{
@@ -42,19 +42,21 @@ use zei::{
 };
 
 lazy_static! {
+    /// global ledgerState
     static ref LEDGER: Arc<RwLock<LedgerState>> =
-        Arc::new(RwLock::new(LedgerState::test_ledger()));
+        Arc::new(RwLock::new(LedgerState::tmp_ledger()));
+    /// global query server
     static ref QS: Arc<RwLock<QueryServer>> = Arc::new(RwLock::new(create_server()));
 }
 
+/// create server
 fn create_server() -> QueryServer {
-    let builder = metrics_exporter_prometheus::PrometheusBuilder::new();
-    let recorder = builder.build();
-
-    let mut qs = QueryServer::new(LEDGER.clone());
+    let mut qs =
+        QueryServer::new(LEDGER.clone(), Some(globutils::fresh_tmp_dir().as_path()));
     qs
 }
 
+/// apply transaction
 fn apply_transaction(tx: Transaction) -> Option<(TxnSID, Vec<TxoSID>)> {
     let effect = pnk!(TxnEffect::compute_effect(tx));
     let mut ledger = LEDGER.write();
@@ -178,19 +180,19 @@ fn test_scene_1() -> Result<()> {
     assert_eq!(3, seq_id); // define,issue,mint_fra
 
     if let Some(issue_tx_hash) = QS.read().get_transaction_hash(issue_txns) {
-        assert_eq!(issue_tx_hash, &issue_tx.hash_tm().hex().to_uppercase());
+        assert_eq!(issue_tx_hash, issue_tx.hash_tm().hex().to_uppercase());
 
         if let Some(issue_txn_sid) = QS.read().get_transaction_sid(issue_tx_hash.clone())
         {
-            assert_eq!(issue_txn_sid, &issue_txns);
+            assert_eq!(issue_txn_sid, issue_txns);
         }
     }
 
     if let Some(mint_tx_hash) = QS.read().get_transaction_hash(mint_txns) {
-        assert_eq!(mint_tx_hash, &mint_tx.hash_tm().hex().to_uppercase());
+        assert_eq!(mint_tx_hash, mint_tx.hash_tm().hex().to_uppercase());
 
         if let Some(mint_txn_sid) = QS.read().get_transaction_sid(mint_tx_hash.clone()) {
-            assert_eq!(mint_txn_sid, &mint_txns);
+            assert_eq!(mint_txn_sid, mint_txns);
         }
     }
 
@@ -229,7 +231,7 @@ fn test_scene_1() -> Result<()> {
         .get_traced_assets(&IssuerPublicKey {
             key: x_kp.pub_key.clone()
         })
-        .cloned());
+        .clone());
     assert_eq!(atc_vec[0], code);
 
     let (_, result) = QS
@@ -251,16 +253,13 @@ fn test_scene_1() -> Result<()> {
     judgement_mint_result(result, vec![100, 900]);
 
     for (_, ts) in issue_txos.iter().chain(mint_txos.iter()).enumerate() {
-        let op = QS.read().get_address_of_sid(*ts).cloned();
+        let op = QS.read().get_address_of_sid(*ts);
         assert_eq!(Some(XfrAddress { key: x_kp.pub_key }), op);
     }
 
-    let op = QS
-        .read()
-        .get_owned_utxo_sids(&XfrAddress {
-            key: x_kp.pub_key.clone(),
-        })
-        .cloned();
+    let op = QS.read().get_owned_utxo_sids(&XfrAddress {
+        key: x_kp.pub_key.clone(),
+    });
 
     let map = pnk!(LEDGER.read().get_owned_utxos(&x_kp.get_pk()));
     let judgement_get_utxo_sids_result =

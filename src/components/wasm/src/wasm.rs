@@ -1,11 +1,26 @@
-// Interface for issuing transactions that can be compiled to Wasm.
-// Allows web clients to issue transactions from a browser contexts.
-// For now, forwards transactions to a ledger hosted locally.
-// To compile wasm package, run wasm-pack build in the wasm directory;
+//!
+//! Interface for issuing transactions that can be compiled to Wasm.
+//!
+//! Allows web clients to issue transactions from a browser contexts.
+//!
+//! For now, forwards transactions to a ledger hosted locally.
+//!
+//! To compile wasm package, run wasm-pack build in the wasm directory.
+//!
+
 #![deny(warnings)]
+#![deny(missing_docs)]
 #![allow(clippy::needless_borrow)]
 
-use crate::wasm_data_model::*;
+mod wasm_data_model;
+
+use crate::wasm_data_model::{
+    error_to_jsvalue, AssetRules, AssetTracerKeyPair, AttributeAssignment,
+    AttributeDefinition, ClientAssetRecord, Credential, CredentialCommitment,
+    CredentialCommitmentData, CredentialCommitmentKey, CredentialIssuerKeyPair,
+    CredentialPoK, CredentialRevealSig, CredentialSignature, CredentialUserKeyPair,
+    OwnerMemo, PublicParams, TracingPolicies, TxoRef,
+};
 use core::str::FromStr;
 use credentials::{
     credential_commit, credential_issuer_key_gen, credential_open_commitment,
@@ -15,7 +30,7 @@ use credentials::{
 };
 use cryptohash::sha256;
 use finutils::txn_builder::{
-    BuildsTransactions, FeeInput as PlatformFeeInput, FeeInputs as PlatformFeeInputs,
+    FeeInput as PlatformFeeInput, FeeInputs as PlatformFeeInputs,
     TransactionBuilder as PlatformTransactionBuilder,
     TransferOperationBuilder as PlatformTransferOperationBuilder,
 };
@@ -26,6 +41,7 @@ use fp_types::{
     crypto::{Address, MultiSignature, MultiSigner},
 };
 use fp_utils::ecdsa::SecpPair;
+use globutils::{wallet, HashOf};
 use ledger::{
     data_model::{
         AssetTypeCode, AuthenticatedTransaction, Operation, TransferType, TxOutput,
@@ -40,20 +56,18 @@ use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use ruc::{d, err::RucResult};
 use std::convert::From;
-use util::error_to_jsvalue;
-use utils::HashOf;
 use wasm_bindgen::prelude::*;
-
-use zei::serialization::ZeiFromToBytes;
-use zei::xfr::asset_record::{open_blind_asset_record as open_bar, AssetRecordType};
-use zei::xfr::lib::trace_assets as zei_trace_assets;
-use zei::xfr::sig::{XfrKeyPair, XfrPublicKey, XfrSecretKey};
-use zei::xfr::structs::{
-    AssetRecordTemplate, AssetType as ZeiAssetType, XfrBody, ASSET_TYPE_LENGTH,
+use zei::{
+    serialization::ZeiFromToBytes,
+    xfr::{
+        asset_record::{open_blind_asset_record as open_bar, AssetRecordType},
+        lib::trace_assets as zei_trace_assets,
+        sig::{XfrKeyPair, XfrPublicKey, XfrSecretKey},
+        structs::{
+            AssetRecordTemplate, AssetType as ZeiAssetType, XfrBody, ASSET_TYPE_LENGTH,
+        },
+    },
 };
-
-mod util;
-mod wasm_data_model;
 
 /// Constant defining the git commit hash and commit date of the commit this library was built
 /// against.
@@ -130,10 +144,12 @@ pub struct TransactionBuilder {
 }
 
 impl TransactionBuilder {
+    #[allow(missing_docs)]
     pub fn get_builder(&self) -> &PlatformTransactionBuilder {
         &self.transaction_builder
     }
 
+    #[allow(missing_docs)]
     pub fn get_builder_mut(&mut self) -> &mut PlatformTransactionBuilder {
         &mut self.transaction_builder
     }
@@ -166,6 +182,7 @@ impl From<FeeInput> for PlatformFeeInput {
 
 #[wasm_bindgen]
 #[derive(Default)]
+#[allow(missing_docs)]
 pub struct FeeInputs {
     inner: Vec<FeeInput>,
 }
@@ -180,12 +197,14 @@ impl From<FeeInputs> for PlatformFeeInputs {
 
 #[wasm_bindgen]
 impl FeeInputs {
+    #[allow(missing_docs)]
     pub fn new() -> Self {
         FeeInputs {
             inner: Vec::with_capacity(1),
         }
     }
 
+    #[allow(missing_docs)]
     pub fn append(
         &mut self,
         am: u64,
@@ -197,6 +216,7 @@ impl FeeInputs {
         self.inner.push(FeeInput { am, tr, ar, om, kp })
     }
 
+    #[allow(missing_docs)]
     pub fn append2(
         mut self,
         am: u64,
@@ -496,6 +516,7 @@ impl TransactionBuilder {
         Ok(self)
     }
 
+    #[allow(missing_docs)]
     pub fn sign(mut self, kp: &XfrKeyPair) -> Result<TransactionBuilder, JsValue> {
         self.get_builder_mut().sign(kp);
         Ok(self)
@@ -609,16 +630,19 @@ pub struct TransferOperationBuilder {
 }
 
 impl TransferOperationBuilder {
+    #[allow(missing_docs)]
     pub fn get_builder(&self) -> &PlatformTransferOperationBuilder {
         &self.op_builder
     }
 
+    #[allow(missing_docs)]
     pub fn get_builder_mut(&mut self) -> &mut PlatformTransferOperationBuilder {
         &mut self.op_builder
     }
 }
 
 impl TransferOperationBuilder {
+    #[allow(missing_docs)]
     pub fn add_input(
         mut self,
         txo_ref: TxoRef,
@@ -650,6 +674,7 @@ impl TransferOperationBuilder {
         Ok(self)
     }
 
+    #[allow(missing_docs)]
     pub fn add_output(
         mut self,
         amount: u64,
@@ -699,12 +724,6 @@ impl TransferOperationBuilder {
     /// Create a new transfer operation builder.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    // Debug function that does not need to go into the docs.
-    /// @ignore
-    pub fn debug(&self) -> String {
-        serde_json::to_string(&self.op_builder).unwrap()
     }
 
     /// Wraps around TransferOperationBuilder to add an input to a transfer operation builder.
@@ -847,21 +866,7 @@ impl TransferOperationBuilder {
         Ok(self)
     }
 
-    /// Co-sign an input index
-    /// @param {XfrKeyPair} kp - Co-signature key.
-    /// @params {Number} input_idx - Input index to apply co-signature to.
-    pub fn add_cosignature(
-        mut self,
-        kp: &XfrKeyPair,
-        input_idx: usize,
-    ) -> Result<TransferOperationBuilder, JsValue> {
-        self.get_builder_mut()
-            .sign_cosignature(kp, input_idx)
-            .c(d!())
-            .map_err(error_to_jsvalue)?;
-        Ok(self)
-    }
-
+    #[allow(missing_docs)]
     pub fn builder(&self) -> String {
         serde_json::to_string(self.get_builder()).unwrap()
     }
@@ -932,13 +937,13 @@ pub fn new_keypair_from_seed(seed_str: String, name: Option<String>) -> XfrKeyPa
 #[wasm_bindgen]
 /// Returns base64 encoded representation of an XfrPublicKey.
 pub fn public_key_to_base64(key: &XfrPublicKey) -> String {
-    utils::wallet::public_key_to_base64(key)
+    wallet::public_key_to_base64(key)
 }
 
 #[wasm_bindgen]
 /// Converts a base64 encoded public key string to a public key.
 pub fn public_key_from_base64(pk: &str) -> Result<XfrPublicKey, JsValue> {
-    utils::wallet::public_key_from_base64(pk)
+    wallet::public_key_from_base64(pk)
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1211,14 +1216,6 @@ pub fn trace_assets(
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
-#[test]
-pub fn test() {
-    let kp = new_keypair();
-    let b64 = public_key_to_base64(kp.get_pk_ref());
-    let pk = public_key_from_base64(&b64).unwrap();
-    dbg!(pk);
-}
-
 //////////////////////////////////////////
 // Author: Chao Ma, github.com/chaosma. //
 //////////////////////////////////////////
@@ -1233,30 +1230,33 @@ use std::str;
 #[wasm_bindgen]
 /// Returns bech32 encoded representation of an XfrPublicKey.
 pub fn public_key_to_bech32(key: &XfrPublicKey) -> String {
-    utils::wallet::public_key_to_bech32(key)
+    wallet::public_key_to_bech32(key)
 }
 
 #[wasm_bindgen]
 /// Converts a bech32 encoded public key string to a public key.
 pub fn public_key_from_bech32(addr: &str) -> Result<XfrPublicKey, JsValue> {
-    utils::wallet::public_key_from_bech32(addr)
+    wallet::public_key_from_bech32(addr)
         .c(d!())
         .map_err(error_to_jsvalue)
 }
 
 #[wasm_bindgen]
+#[allow(missing_docs)]
 pub fn bech32_to_base64(pk: &str) -> Result<String, JsValue> {
     let pub_key = public_key_from_bech32(pk)?;
     Ok(public_key_to_base64(&pub_key))
 }
 
 #[wasm_bindgen]
+#[allow(missing_docs)]
 pub fn base64_to_bech32(pk: &str) -> Result<String, JsValue> {
     let pub_key = public_key_from_base64(pk)?;
     Ok(public_key_to_bech32(&pub_key))
 }
 
 #[wasm_bindgen]
+#[allow(missing_docs)]
 pub fn encryption_pbkdf2_aes256gcm(key_pair: String, password: String) -> Vec<u8> {
     const CREDENTIAL_LEN: usize = 32;
     const IV_LEN: usize = 12;
@@ -1291,6 +1291,7 @@ pub fn encryption_pbkdf2_aes256gcm(key_pair: String, password: String) -> Vec<u8
 }
 
 #[wasm_bindgen]
+#[allow(missing_docs)]
 pub fn decryption_pbkdf2_aes256gcm(enc_key_pair: Vec<u8>, password: String) -> String {
     const CREDENTIAL_LEN: usize = 32;
     const IV_LEN: usize = 12;
@@ -1321,6 +1322,7 @@ pub fn decryption_pbkdf2_aes256gcm(enc_key_pair: Vec<u8>, password: String) -> S
 }
 
 #[wasm_bindgen]
+#[allow(missing_docs)]
 pub fn create_keypair_from_secret(sk_str: String) -> Option<XfrKeyPair> {
     serde_json::from_str::<XfrSecretKey>(&sk_str)
         .map(|sk| sk.into_keypair())
@@ -1328,6 +1330,7 @@ pub fn create_keypair_from_secret(sk_str: String) -> Option<XfrKeyPair> {
 }
 
 #[wasm_bindgen]
+#[allow(missing_docs)]
 pub fn get_pk_from_keypair(kp: &XfrKeyPair) -> XfrPublicKey {
     kp.get_pk()
 }
@@ -1339,7 +1342,7 @@ pub fn get_pk_from_keypair(kp: &XfrKeyPair) -> XfrPublicKey {
 /// Randomly generate a 12words-length mnemonic.
 #[wasm_bindgen]
 pub fn generate_mnemonic_default() -> String {
-    utils::wallet::generate_mnemonic_default()
+    wallet::generate_mnemonic_default()
 }
 
 /// Generate mnemonic with custom length and language.
@@ -1347,7 +1350,7 @@ pub fn generate_mnemonic_default() -> String {
 /// - @param `lang`: acceptable value are one of [ "en", "zh", "zh_traditional", "fr", "it", "ko", "sp", "jp" ]
 #[wasm_bindgen]
 pub fn generate_mnemonic_custom(wordslen: u8, lang: &str) -> Result<String, JsValue> {
-    utils::wallet::generate_mnemonic_custom(wordslen, lang)
+    wallet::generate_mnemonic_custom(wordslen, lang)
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1363,6 +1366,7 @@ pub struct BipPath {
 
 #[wasm_bindgen]
 impl BipPath {
+    #[allow(missing_docs)]
     pub fn new(coin: u32, account: u32, change: u32, address: u32) -> Self {
         BipPath {
             coin,
@@ -1373,9 +1377,9 @@ impl BipPath {
     }
 }
 
-impl From<&BipPath> for utils::wallet::BipPath {
+impl From<&BipPath> for wallet::BipPath {
     fn from(p: &BipPath) -> Self {
-        utils::wallet::BipPath::new(p.coin, p.account, p.change, p.address)
+        wallet::BipPath::new(p.coin, p.account, p.change, p.address)
     }
 }
 
@@ -1385,7 +1389,7 @@ impl From<&BipPath> for utils::wallet::BipPath {
 pub fn restore_keypair_from_mnemonic_default(
     phrase: &str,
 ) -> Result<XfrKeyPair, JsValue> {
-    utils::wallet::restore_keypair_from_mnemonic_default(phrase)
+    wallet::restore_keypair_from_mnemonic_default(phrase)
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1398,7 +1402,7 @@ pub fn restore_keypair_from_mnemonic_bip44(
     lang: &str,
     path: &BipPath,
 ) -> Result<XfrKeyPair, JsValue> {
-    utils::wallet::restore_keypair_from_mnemonic_bip44(phrase, lang, &path.into())
+    wallet::restore_keypair_from_mnemonic_bip44(phrase, lang, &path.into())
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1411,7 +1415,7 @@ pub fn restore_keypair_from_mnemonic_bip49(
     lang: &str,
     path: &BipPath,
 ) -> Result<XfrKeyPair, JsValue> {
-    utils::wallet::restore_keypair_from_mnemonic_bip49(phrase, lang, &path.into())
+    wallet::restore_keypair_from_mnemonic_bip49(phrase, lang, &path.into())
         .c(d!())
         .map_err(error_to_jsvalue)
 }
@@ -1446,13 +1450,13 @@ pub fn get_delegation_target_address() -> String {
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_address() -> String {
-    utils::wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]
 #[allow(missing_docs)]
 pub fn get_coinbase_principal_address() -> String {
-    utils::wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
+    wallet::public_key_to_base64(&BLACK_HOLE_PUBKEY_STAKING)
 }
 
 #[wasm_bindgen]
@@ -1468,6 +1472,7 @@ pub fn get_delegation_max_amount() -> u64 {
 }
 
 #[cfg(test)]
+#[allow(missing_docs)]
 mod test {
     use super::*;
 

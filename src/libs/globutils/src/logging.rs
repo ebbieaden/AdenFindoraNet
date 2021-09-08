@@ -1,8 +1,13 @@
+//!
+//! log system
+//!
+
 use std::env;
 use std::io;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
+#[allow(missing_docs)]
 pub fn init_logging(verbose: Option<&str>) {
     let mut env_filter =
         EnvFilter::new("actix_web=warn,actix_server=warn,actix_http=warn,rpc=warn");

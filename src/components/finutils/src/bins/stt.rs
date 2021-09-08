@@ -10,17 +10,17 @@
 #![deny(warnings)]
 
 use clap::{crate_authors, App, SubCommand};
-use finutils::{common, txn_builder::BuildsTransactions};
+use finutils::common;
+use globutils::wallet;
 use lazy_static::lazy_static;
 use ledger::{
     data_model::{Transaction, BLACK_HOLE_PUBKEY_STAKING},
     staking::{
         check_delegation_amount, gen_random_keypair, td_addr_to_bytes, BLOCK_INTERVAL,
-        FRA, FRA_TOTAL_AMOUNT,
+        FRA, FRA_PRE_ISSUE_AMOUNT,
     },
-    store::fra_gen_initial_tx,
+    store::utils::fra_gen_initial_tx,
 };
-use libutils::wallet;
 use ruc::*;
 use serde::Serialize;
 use std::{collections::BTreeMap, env};
@@ -39,8 +39,8 @@ type Name = String;
 type NameRef<'a> = &'a str;
 
 macro_rules! sleep_n_block {
-    ($n_block: expr, $intvl: expr) => {
-        sleep_ms!($n_block * $intvl * 1000);
+    ($n_block: expr) => {
+        sleep_ms!($n_block * BLOCK_INTERVAL * 1000);
     };
 }
 
@@ -49,9 +49,7 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let subcmd_init = SubCommand::with_name("init")
-        .arg_from_usage("-i, --interval=[Interval] 'block interval'")
-        .arg_from_usage("-s, --skip-validator 'skip validator initialization'");
+    let subcmd_init = SubCommand::with_name("init");
     let subcmd_issue = SubCommand::with_name("issue").about("issue FRA on demand");
     let subcmd_delegate = SubCommand::with_name("delegate")
         .arg_from_usage("-u, --user=[User] 'user name of delegator'")
@@ -90,15 +88,8 @@ fn run() -> Result<()> {
 
     if matches.is_present("version") {
         println!("{}", env!("VERGEN_SHA"));
-    } else if let Some(m) = matches.subcommand_matches("init") {
-        let interval = m.value_of("interval");
-        let skip_validator = m.is_present("skip-validator");
-        if interval.is_none() {
-            init::init(0, skip_validator).c(d!())?;
-        } else {
-            let interval = interval.unwrap().parse::<u64>().c(d!())?;
-            init::init(interval, skip_validator).c(d!())?;
-        }
+    } else if matches.is_present("init") {
+        init::init().c(d!())?;
     } else if matches.is_present("issue") {
         issue::issue().c(d!())?;
     } else if let Some(m) = matches.subcommand_matches("delegate") {
@@ -158,7 +149,7 @@ fn run() -> Result<()> {
                     .c(d!())
                     .map(|kp| kp.get_pk())
                     .or_else(|e| wallet::public_key_from_base64(receiver).c(d!(e)))?;
-                common::utils::transfer(owner_kp, &target_pk, am, false, false)
+                common::utils::transfer(owner_kp, &target_pk, am, None, false, false)
                     .c(d!())?;
             }
             _ => {
@@ -186,44 +177,46 @@ fn run() -> Result<()> {
 mod init {
     use super::*;
 
-    pub fn init(mut interval: u64, skip_validator: bool) -> Result<()> {
+    pub fn init() -> Result<()> {
         let root_kp =
             wallet::restore_keypair_from_mnemonic_default(ROOT_MNEMONIC).c(d!())?;
-
-        if interval == 0 {
-            interval = BLOCK_INTERVAL;
-        }
-        println!(">>> block interval: {} seconds", interval);
 
         println!(">>> define and issue FRA...");
         common::utils::send_tx(&fra_gen_initial_tx(&root_kp)).c(d!())?;
 
-        println!(">>> wait 1 block...");
-        sleep_n_block!(1, interval);
-
-        if skip_validator {
-            println!(">>> DONE !");
-            return Ok(());
-        }
+        println!(">>> wait 4 blocks...");
+        sleep_n_block!(4);
 
         println!(">>> set initial validator set...");
         common::utils::set_initial_validators(&root_kp).c(d!())?;
 
         println!(">>> wait 4 blocks...");
-        sleep_n_block!(4, interval);
+        sleep_n_block!(4);
 
-        let target_list = USER_LIST
+        let mut target_list = USER_LIST
             .values()
             .map(|u| &u.pubkey)
             .chain(VALIDATOR_LIST.values().map(|v| &v.pubkey))
-            .map(|pk| (pk, FRA_TOTAL_AMOUNT / 10000))
+            .map(|pk| (pk, FRA_PRE_ISSUE_AMOUNT / 2_0000))
             .collect::<Vec<_>>();
 
+        // Wallet Address: fra18xkez3fum44jq0zhvwq380rfme7u624cccn3z56fjeex6uuhpq6qv9e4g5
+        // Mnemonic: field ranch pencil chest effort coyote april move injury illegal forest amount bid sound mixture use second pet embrace twice total essay valve loan
+        // Key: {
+        //   "pub_key": "Oa2RRTzdayA8V2OBE7xp3n3NKrjGJxFTSZZybXOXCDQ=",
+        //   "sec_key": "Ew9fMaryTL44ZXnEhcF7hQ-AB-fxgaC8vyCH-hCGtzg="
+        // }
+        let bank = pnk!(wallet::public_key_from_base64(
+            "Oa2RRTzdayA8V2OBE7xp3n3NKrjGJxFTSZZybXOXCDQ="
+        ));
+        target_list.push((&bank, FRA_PRE_ISSUE_AMOUNT / 100 * 99));
+
         println!(">>> transfer FRAs to validators...");
-        common::utils::transfer_batch(&root_kp, target_list, false, false).c(d!())?;
+        common::utils::transfer_batch(&root_kp, target_list, None, false, false)
+            .c(d!())?;
 
         println!(">>> wait 6 blocks ...");
-        sleep_n_block!(6, interval);
+        sleep_n_block!(6);
 
         println!(">>> propose self-delegations...");
         for v in VALIDATOR_LIST.values() {
@@ -244,7 +237,7 @@ mod issue {
             AssetTypeCode, IssueAsset, IssueAssetBody, IssuerKeyPair, Operation,
             TxOutput, ASSET_TYPE_FRA,
         },
-        staking::FRA_TOTAL_AMOUNT,
+        staking::FRA_PRE_ISSUE_AMOUNT,
     };
     use rand_chacha::rand_core::SeedableRng;
     use rand_chacha::ChaChaRng;
@@ -267,7 +260,7 @@ mod issue {
         let mut builder = common::utils::new_tx_builder().c(d!())?;
 
         let template = AssetRecordTemplate::with_no_asset_tracing(
-            FRA_TOTAL_AMOUNT / 2,
+            FRA_PRE_ISSUE_AMOUNT / 2,
             ASSET_TYPE_FRA,
             AssetRecordType::NonConfidentialAmount_NonConfidentialAssetType,
             root_kp.get_pk(),
@@ -329,6 +322,7 @@ mod delegate {
         common::utils::gen_transfer_op(
             owner_kp,
             vec![(&BLACK_HOLE_PUBKEY_STAKING, amount)],
+            None,
             false,
             false,
         )

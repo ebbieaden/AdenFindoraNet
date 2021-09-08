@@ -1,20 +1,24 @@
+//!
+//! # query ledger interface
+//!
+
 #[cfg(test)]
+#[allow(missing_docs)]
 mod test;
 
 use actix_cors::Cors;
 use actix_web::{dev, error, middleware, web, App, HttpServer};
 use finutils::api::{
-    DelegationInfo, DelegatorInfo, DelegatorList, Validator, ValidatorDetail,
-    ValidatorList,
+    DelegationInfo, DelegatorInfo, DelegatorList, NetworkRoute, Validator,
+    ValidatorDetail, ValidatorList,
 };
+use globutils::HashOf;
 use ledger::{
     data_model::{
         AssetType, AssetTypeCode, AuthenticatedUtxo, StateCommitmentData, TxnSID,
         TxoSID, UnAuthenticatedUtxo, Utxo,
     },
-    staking::{
-        DelegationRwdDetail, DelegationState, Staking, TendermintAddr, UNBOND_BLOCK_CNT,
-    },
+    staking::{DelegationRwdDetail, DelegationState, TendermintAddr, UNBOND_BLOCK_CNT},
     store::LedgerState,
 };
 use log::info;
@@ -22,18 +26,18 @@ use parking_lot::RwLock;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, mem, sync::Arc};
-use utils::{HashOf, NetworkRoute, SignatureOf};
 use zei::xfr::{sig::XfrPublicKey, structs::OwnerMemo};
 
+/// Structures exposed to the outside world
 pub struct RestfulApiService;
 
-// Ping route to check for liveness of API
+/// Ping route to check for liveness of API
 #[allow(clippy::unnecessary_wraps)]
 async fn ping() -> actix_web::Result<String> {
     Ok("success".into())
 }
 
-// Returns the git commit hash and commit date of this build
+/// Returns the git commit hash and commit date of this build
 #[allow(clippy::unnecessary_wraps)]
 async fn version() -> actix_web::Result<String> {
     Ok(format!(
@@ -43,6 +47,7 @@ async fn version() -> actix_web::Result<String> {
     ))
 }
 
+/// query utxo according to `TxoSID` return Authenticated Utxo
 pub async fn query_utxo(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     info: web::Path<String>,
@@ -63,6 +68,7 @@ pub async fn query_utxo(
     }
 }
 
+/// query utxo according to `TxoSID` return UnAuthenticated Utxo
 pub async fn query_utxo_light(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     info: web::Path<String>,
@@ -83,6 +89,7 @@ pub async fn query_utxo_light(
     }
 }
 
+/// query issuance num according to `AssetTypeCode`
 pub async fn query_asset_issuance_num(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     info: web::Path<String>,
@@ -103,6 +110,7 @@ pub async fn query_asset_issuance_num(
     }
 }
 
+/// Separate a string of `TxoSID` by ',' and query the corresponding Authenticated utxo
 pub async fn query_utxos(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     info: web::Path<String>,
@@ -126,6 +134,7 @@ pub async fn query_utxos(
     Ok(web::Json(reader.get_utxos(sid_list.as_slice())))
 }
 
+/// query asset according to `AssetType`
 pub async fn query_asset(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     info: web::Path<String>,
@@ -133,7 +142,7 @@ pub async fn query_asset(
     let reader = data.read();
     if let Ok(token_code) = AssetTypeCode::new_from_base64(&*info) {
         if let Some(asset) = reader.get_asset_type(&token_code) {
-            Ok(web::Json(asset.clone()))
+            Ok(web::Json(asset))
         } else {
             Err(actix_web::error::ErrorNotFound(
                 "Specified asset definition does not currently exist.",
@@ -146,6 +155,7 @@ pub async fn query_asset(
     }
 }
 
+/// query tx according to `TxnSID`
 pub async fn query_txn(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     info: web::Path<String>,
@@ -167,6 +177,7 @@ pub async fn query_txn(
     }
 }
 
+/// query tx according to `TxnSID`, lighter and faster version
 pub async fn query_txn_light(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     info: web::Path<String>,
@@ -188,27 +199,18 @@ pub async fn query_txn_light(
     }
 }
 
-pub async fn query_public_key(
-    data: web::Data<Arc<RwLock<LedgerState>>>,
-) -> web::Json<XfrPublicKey> {
-    let reader = data.read();
-    web::Json(*reader.public_key())
-}
-
+/// query global state, return (apphash, block count, apphash and block count signatures)
 #[allow(clippy::type_complexity)]
 pub async fn query_global_state(
     data: web::Data<Arc<RwLock<LedgerState>>>,
-) -> web::Json<(
-    HashOf<Option<StateCommitmentData>>,
-    u64,
-    SignatureOf<(HashOf<Option<StateCommitmentData>>, u64)>,
-)> {
+) -> web::Json<(HashOf<Option<StateCommitmentData>>, u64, &'static str)> {
     let reader = data.read();
     let (hash, seq_id) = reader.get_state_commitment();
-    let sig = reader.sign_message(&(hash.clone(), seq_id));
-    web::Json((hash, seq_id, sig))
+
+    web::Json((hash, seq_id, "v4UVgkIBpj0eNYI1B1QhTTduJHCIHH126HcdesCxRdLkVGDKrVUPgwmNLCDafTVgC5e4oDhAGjPNt1VhUr6ZCQ=="))
 }
 
+/// query global state version according to `block_height`
 pub async fn query_global_state_version(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     version: web::Path<u64>,
@@ -218,8 +220,8 @@ pub async fn query_global_state_version(
     web::Json(hash)
 }
 
-// Query current validator list,
-// validtors who have not completed self-deletagion will be filtered out.
+/// Query current validator list,
+/// validtors who have not completed self-deletagion will be filtered out.
 #[allow(unused)]
 async fn query_validators(
     data: web::Data<Arc<RwLock<LedgerState>>>,
@@ -268,12 +270,13 @@ struct DelegationRwdQueryParams {
     height: u64,
 }
 
+/// get delegation reward according to `DelegationRwdQueryParams`
 async fn get_delegation_reward(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     web::Query(info): web::Query<DelegationRwdQueryParams>,
 ) -> actix_web::Result<web::Json<Vec<DelegationRwdDetail>>> {
     // Convert from base64 representation
-    let key: XfrPublicKey = utils::wallet::public_key_from_base64(&info.address)
+    let key: XfrPublicKey = globutils::wallet::public_key_from_base64(&info.address)
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
 
@@ -289,7 +292,7 @@ async fn get_delegation_reward(
         (0..=info.height)
             .into_iter()
             .rev()
-            .filter_map(|i| di.rwd_detail.get(&i))
+            .filter_map(|i| di.rwd_hist.get(&i))
             .take(1)
             .cloned()
             .collect(),
@@ -310,6 +313,7 @@ struct ValidatorDelegation {
     delegated: u64,
 }
 
+/// get history according to `ValidatorDelegationQueryParams`
 async fn get_validator_delegation_history(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     web::Query(info): web::Query<ValidatorDelegationQueryParams>,
@@ -336,7 +340,7 @@ async fn get_validator_delegation_history(
     let delegated = v_self_delegation.delegators.values().sum::<u64>();
 
     history.push(ValidatorDelegation {
-        return_rate: Staking::get_block_rewards_rate(&*read),
+        return_rate: read.staking_get_block_rewards_rate(),
         delegated,
         self_delegation,
     });
@@ -376,7 +380,7 @@ async fn get_validator_delegation_history(
                     }
                 },
                 self_delegation: *v_self_delegation
-                    .self_delegation_detail
+                    .self_delegation_hist
                     .get(&h)
                     .unwrap_or(&history.last().unwrap().self_delegation),
             })
@@ -400,6 +404,7 @@ enum OrderOption {
     Asc,
 }
 
+/// paging Query delegators according to `DelegatorQueryParams`
 async fn get_delegators_with_params(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     web::Query(info): web::Query<DelegatorQueryParams>,
@@ -428,13 +433,14 @@ async fn get_delegators_with_params(
     let list: Vec<DelegatorInfo> = list
         .iter()
         .map(|(key, am)| {
-            DelegatorInfo::new(utils::wallet::public_key_to_base64(key), **am)
+            DelegatorInfo::new(globutils::wallet::public_key_to_base64(key), **am)
         })
         .collect();
 
     Ok(web::Json(DelegatorList::new(list)))
 }
 
+/// query delegator list according to `TendermintAddr`
 async fn query_delegator_list(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     addr: web::Path<TendermintAddr>,
@@ -450,13 +456,14 @@ async fn query_delegator_list(
     let list: Vec<DelegatorInfo> = list
         .iter()
         .map(|(key, am)| {
-            DelegatorInfo::new(utils::wallet::public_key_to_base64(key), **am)
+            DelegatorInfo::new(globutils::wallet::public_key_to_base64(key), **am)
         })
         .collect();
 
     Ok(web::Json(DelegatorList::new(list)))
 }
 
+/// query validator detail according to `TendermintAddr`
 async fn query_validator_detail(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     addr: web::Path<TendermintAddr>,
@@ -480,7 +487,7 @@ async fn query_validator_detail(
                 power_list.sort_unstable();
                 let voting_power_rank =
                     power_list.len() - power_list.binary_search(&v.td_power).unwrap();
-                let realtime_rate = Staking::get_block_rewards_rate(&*read);
+                let realtime_rate = read.staking_get_block_rewards_rate();
                 let expected_annualization = [
                     realtime_rate[0] as u128
                         * v_self_delegation.proposer_rwd_cnt as u128,
@@ -518,18 +525,19 @@ async fn query_validator_detail(
     Err(error::ErrorNotFound("not exists"))
 }
 
+/// query delegation info according to `public_key`
 async fn query_delegation_info(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     address: web::Path<String>,
 ) -> actix_web::Result<web::Json<DelegationInfo>> {
-    let pk = utils::wallet::public_key_from_base64(address.as_str())
+    let pk = globutils::wallet::public_key_from_base64(address.as_str())
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
 
     let read = data.read();
     let staking = read.get_staking();
 
-    let block_rewards_rate = Staking::get_block_rewards_rate(&*read);
+    let block_rewards_rate = read.staking_get_block_rewards_rate();
     let global_staking = staking.validator_global_power();
     let global_delegation = staking.delegation_info_global_amount();
 
@@ -603,23 +611,25 @@ async fn query_delegation_info(
     Ok(web::Json(resp))
 }
 
+/// query utxos according `public_key`
 async fn query_owned_utxos(
     data: web::Data<Arc<RwLock<LedgerState>>>,
     owner: web::Path<String>,
 ) -> actix_web::Result<web::Json<BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)>>> {
-    utils::wallet::public_key_from_base64(owner.as_str())
+    globutils::wallet::public_key_from_base64(owner.as_str())
         .c(d!())
         .map_err(|e| error::ErrorBadRequest(e.generate_log()))
         .map(|pk| web::Json(pnk!(data.read().get_owned_utxos(&pk))))
 }
 
+/// Define interface type
+#[allow(missing_docs)]
 pub enum ApiRoutes {
     UtxoSid,
     UtxoSidLight,
     UtxoSidList,
     AssetIssuanceNum,
     AssetToken,
-    PublicKey,
     GlobalState,
     TxnSid,
     TxnSidLight,
@@ -639,7 +649,6 @@ impl NetworkRoute for ApiRoutes {
             ApiRoutes::UtxoSidList => "utxo_sid_list",
             ApiRoutes::AssetIssuanceNum => "asset_issuance_num",
             ApiRoutes::AssetToken => "asset_token",
-            ApiRoutes::PublicKey => "public_key",
             ApiRoutes::GlobalState => "global_state",
             ApiRoutes::TxnSid => "txn_sid",
             ApiRoutes::TxnSidLight => "txn_sid_light",
@@ -693,10 +702,6 @@ where
                 web::get().to(query_asset),
             )
             .route(
-                &ApiRoutes::PublicKey.route(),
-                web::get().to(query_public_key),
-            )
-            .route(
                 &ApiRoutes::GlobalState.route(),
                 web::get().to(query_global_state),
             )
@@ -748,6 +753,7 @@ where
 }
 
 impl RestfulApiService {
+    /// create ledger api
     pub fn create(
         ledger_access: Arc<RwLock<LedgerState>>,
         host: &str,

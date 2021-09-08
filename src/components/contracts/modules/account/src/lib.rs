@@ -2,13 +2,13 @@
 #![allow(missing_docs)]
 
 mod basic;
-mod client;
 mod genesis;
 mod impls;
 
 #[cfg(test)]
 mod tests;
 
+use abci::{RequestQuery, ResponseQuery};
 use fp_core::{
     context::Context,
     module::AppModule,
@@ -18,7 +18,6 @@ use fp_traits::account::{AccountAsset, FeeCalculator};
 use fp_types::{actions::account::Action, crypto::Address};
 use ruc::*;
 use std::marker::PhantomData;
-use tm_protos::abci::{RequestQuery, ResponseQuery};
 
 pub const MODULE_NAME: &str = "account";
 

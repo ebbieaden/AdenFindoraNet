@@ -3,12 +3,12 @@ use core::convert::TryFrom;
 use core::fmt::Formatter;
 use core::str::FromStr;
 use fp_utils::{ecdsa, hashing::keccak_256};
+use globutils::wallet;
 use hex::FromHex;
 use primitive_types::{H160, H256};
 use ruc::{d, eg, RucResult};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
-use utils::wallet;
 use zei::serialization::ZeiFromToBytes;
 use zei::xfr::sig::{XfrPublicKey, XfrSignature};
 

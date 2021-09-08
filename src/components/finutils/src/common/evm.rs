@@ -1,7 +1,10 @@
+//!
+//! EVM transfer functions
+//!
+
 use super::get_keypair;
 use super::get_serv_addr;
 use super::utils;
-use crate::txn_builder::BuildsTransactions;
 use baseapp::extensions::{CheckFee, CheckNonce};
 use fp_core::account::SmartAccount;
 use fp_types::{
@@ -29,6 +32,7 @@ pub fn transfer_to_account(amount: u64, address: Option<&str>) -> Result<()> {
     let transfer_op = utils::gen_transfer_op(
         &kp,
         vec![(&BLACK_HOLE_PUBKEY_STAKING, amount)],
+        None,
         false,
         false,
     )?;
@@ -43,11 +47,13 @@ pub fn transfer_to_account(amount: u64, address: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+#[allow(missing_docs)]
 pub enum Keypair {
     Ed25519(XfrKeyPair),
     Ecdsa(SecpPair),
 }
 
+#[allow(missing_docs)]
 impl Keypair {
     pub fn sign(&self, data: &[u8]) -> MultiSignature {
         match self {
@@ -69,10 +75,10 @@ pub fn transfer_from_account(
 
     let target = match address {
         Some(s) => {
-            if let Ok(address) = libutils::wallet::public_key_from_base64(s) {
+            if let Ok(address) = globutils::wallet::public_key_from_base64(s) {
                 address
             } else {
-                libutils::wallet::public_key_from_bech32(s)?
+                globutils::wallet::public_key_from_bech32(s)?
             }
         }
         None => fra_kp.get_pk(),

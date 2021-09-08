@@ -2,6 +2,7 @@
 
 #![allow(clippy::field_reassign_with_default)]
 
+use abci::*;
 use baseapp::{BaseApp, ChainId};
 use ethereum_types::{H160, U256};
 use fp_mocks::*;
@@ -13,7 +14,6 @@ use fp_types::{
     actions::{ethereum::Action as EthereumAction, Action},
     assemble::UncheckedTransaction,
 };
-use tm_protos::abci::*;
 
 #[test]
 fn run_all_tests() {
@@ -52,7 +52,7 @@ fn test_abci_check_tx() {
         value.as_u128(),
     ))
     .unwrap();
-    let resp = BASE_APP.lock().unwrap().check_tx(req.clone());
+    let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert!(
         resp.code == 1 && resp.log.contains("InvalidTransaction: InsufficientBalance"),
         "resp log: {}",
@@ -61,7 +61,7 @@ fn test_abci_check_tx() {
 
     test_mint_balance(&ALICE_ECDSA.account_id, 2000000, 2);
 
-    let resp = BASE_APP.lock().unwrap().check_tx(req);
+    let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert_eq!(
         resp.code, 0,
         "check tx failed, code: {}, log: {}",
@@ -74,8 +74,8 @@ fn test_abci_begin_block() {
     req.hash = b"test".to_vec();
     let mut header = Header::default();
     header.height = 3;
-    req.header = Some(header);
-    let _ = BASE_APP.lock().unwrap().begin_block(req);
+    req.set_header(header);
+    let _ = BASE_APP.lock().unwrap().begin_block(&req);
 }
 
 fn test_abci_deliver_tx() {
@@ -90,7 +90,7 @@ fn test_abci_deliver_tx() {
         value.as_u128(),
     ))
     .unwrap();
-    let resp = BASE_APP.lock().unwrap().deliver_tx(req);
+    let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
     assert_eq!(
         resp.code, 0,
         "deliver tx failed, code: {}, log: {}",
@@ -120,11 +120,11 @@ fn test_abci_deliver_tx() {
 fn test_abci_end_block() {
     let mut req = RequestEndBlock::default();
     req.height = 3;
-    let _ = BASE_APP.lock().unwrap().end_block(req);
+    let _ = BASE_APP.lock().unwrap().end_block(&req);
 }
 
 fn test_abci_commit() {
-    let _ = BASE_APP.lock().unwrap().commit();
+    let _ = BASE_APP.lock().unwrap().commit(&RequestCommit::new());
     assert_eq!(
         BASE_APP
             .lock()

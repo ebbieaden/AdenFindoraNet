@@ -9,9 +9,10 @@ description = "Findora Primitive transaction events"
 readme = "README.md"
 
 [dependencies]
+abci = { git = "https://github.com/FindoraNetwork/rust-abci", tag = "v0.7.2" }
 fp-event-derive = { path = "event-derive" }
+protobuf = "2.16"
 serde_json = "1.0"
-tm-protos = { git = "ssh://git@github.com/FindoraNetwork/tendermint-sys.git", branch = "findora-0.33.6" }
 
 [dev-dependencies]
 serde = { version = "1.0.124", features = ["derive"] }

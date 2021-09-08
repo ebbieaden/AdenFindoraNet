@@ -17,7 +17,7 @@ use abci::{
 use fp_storage::hash::{Sha256, StorageHasher};
 use fp_traits::base::BaseProvider;
 use lazy_static::lazy_static;
-use ledger::{address::is_convert_tx, staking::is_coinbase_tx};
+use ledger::{converter::is_convert_tx, staking::is_coinbase_tx};
 use parking_lot::Mutex;
 use protobuf::RepeatedField;
 use ruc::*;
@@ -173,7 +173,7 @@ pub fn end_block(
 
     // mint coinbase, cache system transactions to ledger
     {
-        let laa = la.get_committed_state().write();
+        let laa = la.get_committed_state().read();
         if let Some(tx) =
             staking::system_mint_pay(&*laa, &mut *s.account_base_app.write())
         {

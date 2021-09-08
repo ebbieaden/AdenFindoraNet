@@ -1,12 +1,12 @@
 #![allow(clippy::field_reassign_with_default)]
 
 //! Template module integration tests.
+use abci::*;
 use fp_mocks::*;
 use fp_traits::account::{AccountAsset, FeeCalculator};
 use fp_types::{actions::template::Action as TemplateAction, actions::Action};
 use module_template::ValueStore;
 use std::convert::TryInto;
-use tm_protos::abci::*;
 
 #[test]
 fn run_all_tests() {
@@ -23,7 +23,7 @@ fn run_all_tests() {
 }
 
 fn test_abci_info() {
-    let resp = BASE_APP.lock().unwrap().info(RequestInfo::default());
+    let resp = BASE_APP.lock().unwrap().info(&RequestInfo::default());
     assert_eq!(resp.data, "findora".to_string());
     assert_eq!(resp.version, "1.0.0".to_string());
     assert_eq!(resp.app_version, 1);
@@ -33,7 +33,7 @@ fn test_abci_info() {
 fn test_abci_init_chain() {
     let mut req = RequestInitChain::default();
     req.chain_id = "findora test".to_string();
-    let _ = BASE_APP.lock().unwrap().init_chain(req);
+    let _ = BASE_APP.lock().unwrap().init_chain(&req);
 
     assert_eq!(
         &BASE_APP
@@ -56,7 +56,7 @@ fn test_abci_check_tx() {
     let function = Action::Template(TemplateAction::SetValue(10));
     req.tx =
         serde_json::to_vec(&build_signed_transaction(function, &ALICE_XFR, 0)).unwrap();
-    let resp = BASE_APP.lock().unwrap().check_tx(req);
+    let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert_eq!(
         resp.code, 0,
         "check tx failed, code: {}, log: {}",
@@ -79,12 +79,12 @@ fn test_abci_begin_block() {
     req.hash = b"test".to_vec();
     let mut header = Header::default();
     header.height = 1;
-    req.header = Some(header.clone());
-    let _ = BASE_APP.lock().unwrap().begin_block(req.clone());
-    let _ = BASE_APP.lock().unwrap().commit();
+    req.set_header(header.clone());
+    let _ = BASE_APP.lock().unwrap().begin_block(&req);
+    let _ = BASE_APP.lock().unwrap().commit(&RequestCommit::new());
     header.height = 2;
-    req.header = Some(header);
-    let _ = BASE_APP.lock().unwrap().begin_block(req);
+    req.set_header(header);
+    let _ = BASE_APP.lock().unwrap().begin_block(&req);
 }
 
 fn test_abci_deliver_tx() {
@@ -92,7 +92,7 @@ fn test_abci_deliver_tx() {
     let function = Action::Template(TemplateAction::SetValue(10));
     req.tx =
         serde_json::to_vec(&build_signed_transaction(function, &ALICE_XFR, 0)).unwrap();
-    let resp = BASE_APP.lock().unwrap().deliver_tx(req);
+    let resp = BASE_APP.lock().unwrap().deliver_tx(&req);
     assert_eq!(
         resp.code, 0,
         "deliver tx failed, code: {}, log: {}",
@@ -110,11 +110,11 @@ fn test_abci_deliver_tx() {
 fn test_abci_end_block() {
     let mut req = RequestEndBlock::default();
     req.height = 2;
-    let _ = BASE_APP.lock().unwrap().end_block(req);
+    let _ = BASE_APP.lock().unwrap().end_block(&req);
 }
 
 fn test_abci_commit() {
-    let _ = BASE_APP.lock().unwrap().commit();
+    let _ = BASE_APP.lock().unwrap().commit(&RequestCommit::new());
     assert_eq!(
         BASE_APP
             .lock()
@@ -140,7 +140,7 @@ fn test_abci_commit() {
 fn test_abci_query() {
     let mut req = RequestQuery::default();
     req.path = String::from("module/template/value");
-    let resp = BASE_APP.lock().unwrap().query(req);
+    let resp = BASE_APP.lock().unwrap().query(&req);
 
     assert_eq!(
         resp.code, 0,
@@ -160,7 +160,7 @@ fn test_abci_check_tx_with_bad_nonce() {
     let function = Action::Template(TemplateAction::SetValue(10));
     req.tx =
         serde_json::to_vec(&build_signed_transaction(function, &ALICE_XFR, 0)).unwrap();
-    let resp = BASE_APP.lock().unwrap().check_tx(req);
+    let resp = BASE_APP.lock().unwrap().check_tx(&req);
     assert!(
         resp.code == 1 && resp.log.contains("InvalidNonce, expected: 1, actual: 0"),
         "resp log: {}",

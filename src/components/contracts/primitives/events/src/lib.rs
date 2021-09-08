@@ -4,9 +4,10 @@
 #[cfg(test)]
 mod tests;
 
+pub use abci::{Event as AbciEvent, Pair as AbciPair};
 pub use fp_event_derive::Event;
+pub use protobuf::RepeatedField;
 pub use serde_json::to_vec;
-pub use tm_protos::{abci::Event as AbciEvent, libs::kv::Pair as AbciPair};
 
 pub trait Event {
     /// Generates `Event` where value types are all casted to strings.

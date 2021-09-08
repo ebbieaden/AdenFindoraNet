@@ -17,11 +17,15 @@ use zei::xfr::{
 /// This operation only support binded xfr_address is sender address.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConvertAccount {
+    /// transaction body
     pub data: Data,
+    /// transaction signer
     pub public: XfrPublicKey,
+    /// transaction signature
     pub signature: XfrSignature,
 }
 
+#[allow(missing_docs)]
 impl ConvertAccount {
     pub fn new(
         keypair: &XfrKeyPair,
@@ -60,10 +64,13 @@ impl ConvertAccount {
 /// The body of TranserToAccount.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Data {
+    /// transaction nonce
     pub nonce: NoReplayToken,
+    /// receiver address
     pub address: MultiSigner,
 }
 
+#[allow(missing_docs)]
 impl Data {
     pub fn new(nonce: NoReplayToken, address: MultiSigner) -> Self {
         Data { nonce, address }
@@ -74,6 +81,7 @@ impl Data {
     }
 }
 
+#[allow(missing_docs)]
 pub fn is_convert_tx(tx: &Transaction) -> bool {
     for op in &tx.body.operations {
         if let Operation::ConvertAccount(_) = op {
@@ -83,6 +91,7 @@ pub fn is_convert_tx(tx: &Transaction) -> bool {
     false
 }
 
+#[allow(missing_docs)]
 pub fn check_convert_tx(
     tx: &Transaction,
 ) -> Result<(MultiSigner, HashMap<AssetType, u64>)> {

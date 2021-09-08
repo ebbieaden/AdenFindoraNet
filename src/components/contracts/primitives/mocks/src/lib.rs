@@ -1,11 +1,11 @@
 #![cfg_attr(test, allow(unused_imports))]
 
+pub use abci::Application;
 pub use baseapp::{
     extensions::{CheckFee, CheckNonce, SignedExtra},
     BaseApp,
 };
 pub use fp_types::{actions::Action, assemble::UncheckedTransaction};
-pub use tendermint_sys::SyncApplication;
 
 use ethereum::{Transaction, TransactionAction, TransactionSignature};
 use fp_traits::account::AccountAsset;

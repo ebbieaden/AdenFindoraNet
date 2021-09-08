@@ -3,7 +3,7 @@
 //!
 
 #![deny(warnings)]
-// #![deny(missing_docs)]
+#![deny(missing_docs)]
 
 #[cfg(feature = "std")]
 pub mod api;

@@ -11,6 +11,7 @@ mod modules;
 mod notify;
 
 use crate::modules::ModuleManager;
+use abci::Header;
 use fp_core::{
     account::SmartAccount,
     context::{Context, RunTxMode},
@@ -33,7 +34,6 @@ use ruc::{eg, Result};
 use std::path::Path;
 use std::sync::Arc;
 use storage::{db::FinDB, state::ChainState};
-use tm_protos::abci::Header;
 
 lazy_static! {
     /// An identifier that distinguishes different EVM chains.

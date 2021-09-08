@@ -1,9 +1,9 @@
 use crate::context::Context;
+use abci::Event;
 use fp_types::transaction::CheckedTransaction;
 use impl_trait_for_tuples::impl_for_tuples;
 use ruc::*;
 use std::fmt::Debug;
-use tm_protos::abci::Event;
 
 /// A action (module function and argument values) that can be executed.
 pub trait Executable {

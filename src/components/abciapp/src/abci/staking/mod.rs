@@ -7,6 +7,7 @@
 mod whoami;
 
 use crate::abci::server::callback::TENDERMINT_BLOCK_HEIGHT;
+use abci::{Evidence, Header, LastCommitInfo, PubKey, ValidatorUpdate};
 use baseapp::BaseApp as AccountBaseApp;
 use lazy_static::lazy_static;
 use ledger::{
@@ -24,9 +25,9 @@ use ruc::*;
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
+    ops::{Deref, DerefMut},
     sync::atomic::Ordering,
 };
-use tm_protos::abci::*;
 
 // The top 50~ candidate validators
 // will become official validators.
@@ -126,23 +127,22 @@ pub fn get_validators(
         vs.iter()
             .filter(|(_, power)| -1 < *power)
             .map(|(pubkey, power)| {
-                let mut vu = ValidatorUpdate::default();
-                let pk = PubKey {
-                    r#type: String::from("ed25519"),
-                    data: pubkey.to_vec(),
-                };
-                vu.power = *power;
-                vu.pub_key = Some(pk);
+                let mut vu = ValidatorUpdate::new();
+                let mut pk = PubKey::new();
+                pk.set_field_type("ed25519".to_owned());
+                pk.set_data(pubkey.to_vec());
+                vu.set_power(*power);
+                vu.set_pub_key(pk);
                 vu
             })
             .collect(),
     ))
 }
 
-// Call this function in `EndBlock`,
-// - pay delegation rewards
-// - pay proposer rewards(traditional block rewards)
-// - do governance operations
+/// Call this function in `EndBlock`,
+/// - pay delegation rewards
+/// - pay proposer rewards(traditional block rewards)
+/// - do governance operations
 pub fn system_ops(
     la: &mut LedgerState,
     header: &Header,
@@ -166,10 +166,10 @@ pub fn system_ops(
             let v = ev.validator.as_ref().unwrap();
             let bz = ByzantineInfo {
                 addr: &td_addr_to_string(&v.address),
-                kind: ev.r#type.as_str(),
+                kind: ev.field_type.as_str(),
             };
 
-            ruc::info_omit!(system_governance(la.get_staking_mut(), &bz));
+            ruc::info_omit!(system_governance(la.get_staking_mut().deref_mut(), &bz));
         });
 
     // application custom governances
@@ -181,10 +181,8 @@ pub fn system_ops(
             .flat_map(|info| info.validator.as_ref().map(|v| &v.address))
             .collect::<HashSet<_>>();
 
-        let staking = la.get_staking_mut();
-
         // mark if a validator is online at last block
-        if let Ok(vd) = ruc::info!(staking.validator_get_current_mut()) {
+        if let Ok(vd) = ruc::info!(la.get_staking_mut().validator_get_current_mut()) {
             vd.body.values_mut().for_each(|v| {
                 if online_list.contains(&v.td_addr) {
                     v.signed_last_block = true;
@@ -196,20 +194,26 @@ pub fn system_ops(
         }
 
         if online_list.len() != lci.votes.len() {
-            if let Ok(pl) = ruc::info!(gen_offline_punish_list(staking, &online_list)) {
+            if let Ok(pl) = ruc::info!(gen_offline_punish_list(
+                la.get_staking().deref(),
+                &online_list
+            )) {
                 pl.into_iter().for_each(|v| {
                     let bz = ByzantineInfo {
                         addr: &td_addr_to_string(&v),
                         kind: "OFF_LINE",
                     };
-                    ruc::info_omit!(system_governance(la.get_staking_mut(), &bz));
+                    ruc::info_omit!(system_governance(
+                        la.get_staking_mut().deref_mut(),
+                        &bz
+                    ));
                 });
             }
         }
     }
 }
 
-// Get the actual voted power of last block.
+/// Get the actual voted power of last block.
 fn get_last_vote_percent(last_commit_info: &LastCommitInfo) -> [u64; 2] {
     last_commit_info
         .votes
@@ -227,13 +231,13 @@ fn get_last_vote_percent(last_commit_info: &LastCommitInfo) -> [u64; 2] {
         })
 }
 
-// Set delegation rewards and proposer rewards
+/// Set delegation rewards and proposer rewards
 fn set_rewards(
     la: &mut LedgerState,
     proposer: &[u8],
     last_vote_percent: Option<[u64; 2]>,
 ) -> Result<()> {
-    Staking::set_last_block_rewards(la, &td_addr_to_string(proposer), last_vote_percent)
+    la.staking_set_last_block_rewards(&td_addr_to_string(proposer), last_vote_percent)
         .c(d!())
 }
 
@@ -246,7 +250,7 @@ struct ByzantineInfo<'a> {
     kind: &'a str,
 }
 
-// Auto governance.
+/// Auto governance.
 fn system_governance(staking: &mut Staking, bz: &ByzantineInfo) -> Result<()> {
     ruc::pd!(serde_json::to_string(&bz).unwrap());
     let kind = match bz.kind {
@@ -330,6 +334,7 @@ pub fn system_mint_pay(
     }
 }
 
+/// filtering online lists from staking's validators
 fn gen_offline_punish_list(
     staking: &Staking,
     online_list: &HashSet<&Vec<u8>>,
@@ -359,21 +364,21 @@ fn gen_offline_punish_list(
 }
 
 #[cfg(test)]
+#[allow(missing_docs)]
 #[cfg(feature = "abci_mock")]
 pub mod abci_mock_test;
 
 #[cfg(test)]
+#[allow(missing_docs)]
 mod test {
-    use finutils::txn_builder::{
-        BuildsTransactions, TransactionBuilder, TransferOperationBuilder,
-    };
+    use finutils::txn_builder::{TransactionBuilder, TransferOperationBuilder};
     use ledger::{
         data_model::{
             Transaction, TransferType, TxnEffect, TxoRef, ASSET_TYPE_FRA,
             BLACK_HOLE_PUBKEY, TX_FEE_MIN,
         },
-        staking::{Staking, FF_PK_LIST, FRA_TOTAL_AMOUNT},
-        store::{fra_gen_initial_tx, LedgerState},
+        staking::{FF_PK_LIST, FRA_PRE_ISSUE_AMOUNT},
+        store::{utils::fra_gen_initial_tx, LedgerState},
     };
     use rand::random;
     use rand_chacha::ChaChaRng;
@@ -395,7 +400,7 @@ mod test {
     // 3. transfer to some addresses of the 9 reserved accounts looply
     // 4. check if the block rewards rate is correct per loop
     fn check_block_rewards_rate() -> Result<()> {
-        let mut ledger = LedgerState::test_ledger();
+        let mut ledger = LedgerState::tmp_ledger();
         let root_kp = XfrKeyPair::generate(&mut ChaChaRng::from_entropy());
 
         let tx = fra_gen_initial_tx(&root_kp);
@@ -409,7 +414,7 @@ mod test {
 
         // set a fake delegation amount
         *ledger.get_staking_mut().get_global_delegation_amount_mut() =
-            FRA_TOTAL_AMOUNT / 200;
+            FRA_PRE_ISSUE_AMOUNT / 200;
 
         let mut seq_id = 1;
         let mut prev_rate = [2, 1];
@@ -418,7 +423,7 @@ mod test {
                 &ledger,
                 &root_kp,
                 &FF_PK_LIST[random::<usize>() % FF_PK_LIST.len()],
-                FRA_TOTAL_AMOUNT / 200,
+                FRA_PRE_ISSUE_AMOUNT / 200,
                 seq_id,
             )
             .c(d!())?;
@@ -431,7 +436,7 @@ mod test {
             ledger.finish_block(block).c(d!())?;
 
             {
-                let rate = Staking::get_block_rewards_rate(&ledger);
+                let rate = ledger.staking_get_block_rewards_rate();
                 let rate = [rate[0] as u128, rate[1] as u128];
                 // max value: 105%
                 assert!(rate[0] * 100 <= rate[1] * 105);

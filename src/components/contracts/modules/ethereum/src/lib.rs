@@ -111,7 +111,7 @@ impl<C: Config> App<C> {
         let store_path = base_dir.join("ethereum").to_str().unwrap().to_owned();
         let blocks_path = store_path.clone() + "/blocks";
         let receipts_path = store_path.clone() + "/receipts";
-        let transaction_statuses_path = store_path.clone() + "/transaction_statuses";
+        let transaction_statuses_path = store_path + "/transaction_statuses";
 
         App {
             enable_eth_empty_blocks: empty_block,

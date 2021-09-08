@@ -1,5 +1,6 @@
 use crate::hashing::keccak_256;
 use bip0039::{Count, Language, Mnemonic};
+use bip32::{DerivationPath, XPrv};
 use core::cmp::Ordering;
 use core::convert::{TryFrom, TryInto};
 use core::hash::{Hash, Hasher};
@@ -9,7 +10,7 @@ use rand::{rngs::OsRng, RngCore};
 use ruc::eg;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use sha3::{Digest, Keccak256};
-use tiny_hderive::bip32::ExtendedPrivKey;
+use std::str::FromStr;
 
 /// A secret seed (which is bytewise essentially equivalent to a SecretKey).
 ///
@@ -321,11 +322,15 @@ impl SecpPair {
         let mnemonic = Mnemonic::from_phrase_in(Language::English, phrase)
             .map_err(|_| eg!("InvalidPhrase"))?;
         let bs = mnemonic.to_seed(password.unwrap_or(""));
-        let ext = ExtendedPrivKey::derive(&bs, "m/44'/60'/0'/0/0")
-            .map_err(|_| eg!("InvalidSeed"))?;
+        let ext = XPrv::derive_from_path(
+            &bs,
+            &DerivationPath::from_str("m/44'/60'/0'/0/0")
+                .map_err(|_| eg!("InvalidDerivationPath"))?,
+        )
+        .map_err(|_| eg!("Failed to ExtendedPrivateKey"))?;
         let mut seed = Seed::default();
         seed.copy_from_slice(&bs[0..32]);
-        Self::from_seed_slice(&ext.secret()).map(|x| (x, seed))
+        Self::from_seed_slice(&ext.to_bytes()).map(|x| (x, seed))
     }
 
     /// Make a new key pair from secret seed material.

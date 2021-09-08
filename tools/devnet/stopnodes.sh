@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-
-# env
-source ./tools/devnet/env.sh || exit 1
+RED='\033[31m'
+GRN="\033[32m"
+NC='\033[0m'
 
 # stop all abci nodes
 abcis=`pgrep -f abcid`
@@ -11,7 +11,7 @@ then
     for pid in $abcis
     do
         kill -9 $pid
-        echo -en "${YEL}$pid ${NC}"
+        echo -en "$pid "
     done
     echo
 fi
@@ -24,7 +24,7 @@ then
     for pid in $nodes
     do
         kill -9 $pid
-        echo -en "${YEL}$pid ${NC}"
+        echo -en "$pid "
     done
     echo
 fi
