@@ -82,7 +82,7 @@ impl<C: Config> App<C> {
         let block = ethereum::Block::new(partial_header, transactions, ommers);
         let block_hash = block.header.hash();
 
-        Self::update_block_number(ctx, &block_number);
+        CurrentBlockNumber::put(ctx.store.clone(), &block_number);
         // CurrentBlock::insert(ctx.store.clone(), &block_hash, &block);
         // CurrentReceipts::insert(ctx.store.clone(), &block_hash, &receipts);
         // CurrentTransactionStatuses::insert(ctx.store.clone(), &block_hash, &statuses);
@@ -303,8 +303,9 @@ impl<C: Config> App<C> {
     }
 
     /// Set the latest block number
-    pub fn update_block_number(ctx: &Context, block_number: &U256) {
+    pub fn update_block_number(&mut self, ctx: &Context, block_number: &U256) {
         CurrentBlockNumber::put(ctx.store.clone(), block_number);
+        self.is_store_block = true;
     }
 
     /// Get header hash of given block id.

@@ -101,6 +101,8 @@ pub struct App<C> {
     pub(crate) receipts: Mapx<H256, Vec<Receipt>>,
     /// The ethereum history transaction statuses with block number.
     pub(crate) transaction_statuses: Mapx<H256, Vec<TransactionStatus>>,
+    /// Whether to store the current height of the ethereum block.
+    pub(crate) is_store_block: bool,
     phantom: PhantomData<C>,
 }
 
@@ -116,6 +118,7 @@ impl<C: Config> App<C> {
             blocks: new_mapx!(blocks_path.as_str()),
             receipts: new_mapx!(receipts_path.as_str()),
             transaction_statuses: new_mapx!(transaction_statuses_path.as_str()),
+            is_store_block: false,
             phantom: Default::default(),
         }
     }
@@ -135,6 +138,7 @@ impl<C: Config> Default for App<C> {
             blocks: new_mapx!(),
             receipts: new_mapx!(),
             transaction_statuses: new_mapx!(),
+            is_store_block: false,
             phantom: Default::default(),
         }
     }
@@ -147,7 +151,8 @@ impl<C: Config> AppModule for App<C> {
         req: &RequestEndBlock,
     ) -> ResponseEndBlock {
         let txs = Pending::get(ctx.store.clone()).map_or(0, |v| v.len());
-        if txs > 0 || self.enable_eth_empty_blocks {
+        if txs > 0 || self.enable_eth_empty_blocks || self.is_store_block {
+            self.is_store_block = false;
             let _ = ruc::info!(self.store_block(ctx, U256::from(req.height)));
 
             let block_hash_count = C::BlockHashCount::get();
