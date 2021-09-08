@@ -4,7 +4,7 @@ import os
 import subprocess
 import toml
 
-devnet = os.path.join(os.environ['FIN_HOME'], "devnet")
+devnet = os.path.join(os.environ['FIN_DEBUG'], "devnet")
 localhost = "0.0.0.0"
 base_url = "tcp://0.0.0.0:"
 base_port_node = 26650
@@ -15,6 +15,9 @@ timeout_commit = "15s"
 if os.getenv('BLOCK_INTERVAL') != None:
     timeout_commit = "{}s".format(os.environ['BLOCK_INTERVAL'])
 toml_string = """
+abci_host = "0.0.0.0"
+abci_port = "26008"
+
 tendermint_host = "0.0.0.0"
 tendermint_port = "26657"
 
@@ -51,13 +54,17 @@ def set_persistent_peers(config_toml, contents, i):
 def set_ip_addresses(config_toml, contents, i):
     # rpc, p2p
     """ e.g.
+    tcp://0.0.0.0:26658
     tcp://0.0.0.0:26657
     tcp://0.0.0.0:26656
     """
+    proxy_app = base_url + str(base_port_node + 10 * i + 8)
     rpc_laddr = base_url + str(base_port_node + 10 * i + 7)
     p2p_laddr = base_url + str(base_port_node + 10 * i + 6)
+    contents['proxy_app'] = proxy_app
     contents['rpc']['laddr'] = rpc_laddr
     contents['p2p']['laddr'] = p2p_laddr
+    set_toml(config_toml, 'proxy_app', proxy_app)
     set_toml(config_toml, 'rpc.laddr', rpc_laddr)
     set_toml(config_toml, 'p2p.laddr', p2p_laddr)
 
@@ -85,6 +92,7 @@ def gen_abci_toml(abci_toml, contents, i):
     8545
     8546
     """
+    abci_port = contents["proxy_app"].split(":")[2]
     tendermint_port = contents["rpc"]["laddr"].split(":")[2]
     submission_port = str(base_port_abci + 10 * i + 9)
     ledger_port = str(base_port_abci + 10 * i + 8)
@@ -92,6 +100,7 @@ def gen_abci_toml(abci_toml, contents, i):
     evm_ws_port = str(base_port_evm + 10 * i + 6)
 
     # set ports
+    set_toml(abci_toml, "abci_port", abci_port)
     set_toml(abci_toml, "tendermint_port", tendermint_port)
     set_toml(abci_toml, "submission_port", submission_port)
     set_toml(abci_toml, "ledger_port", ledger_port)

@@ -32,13 +32,13 @@ stopnodes=$(dirname "$0")/stopnodes.sh
 echo -e "${GRN}step-1: run network------------------------------------------------${NC}"
 ./$cleannodes
 ./$startnodes
-sleep 4
+sleep 5
 echo
 
 # init network
 echo -e "${GRN}step-2: init network-----------------------------------------------${NC}"
-$BIN/fns setup -S http://0.0.0.0 > /dev/null
-$BIN/fns setup -O $WALLET/mnenomic.key > /dev/null
+$BIN/fn setup -S http://0.0.0.0 > /dev/null
+$BIN/fn setup -O $WALLET/mnenomic.key > /dev/null
 echo -e "host: http://0.0.0.0"
 echo -e "key : $WALLET/mnenomic.key"
 echo -e "$BIN/stt"
