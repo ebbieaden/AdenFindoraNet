@@ -53,13 +53,13 @@ pub trait LedgerAccess {
     fn get_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
     fn get_spent_utxo(&self, addr: TxoSID) -> Option<AuthenticatedUtxo>;
     fn get_utxos(&self, address_list: &[TxoSID]) -> Vec<Option<AuthenticatedUtxo>>;
-
     fn get_owned_utxos(
         &self,
         addr: &XfrPublicKey,
     ) -> BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)>;
 
     fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<AnonBlindAssetRecord>;
+    fn get_abar_memo(&self, ax_id: ATxoSID) -> Option<Vec<Memo>>;
 
     // The most recently-issued sequence number for the `code`-labelled asset
     // type
@@ -219,13 +219,13 @@ pub struct LedgerStatus {
 
     ax_utxos: BTreeMap<ATxoSID, AnonBlindAssetRecord>,
 
-    //abar_store: MerkleTree,
-
     // All spent TXOs
     pub spent_utxos: HashMap<TxoSID, Utxo>,
 
     // Map a TXO to its output position in a transaction
     txo_to_txn_location: HashMap<TxoSID, (TxnSID, OutputPosition)>,
+    // Map a Anonymous TXO to its output position in a transaction
+    ax_txo_to_txn_location: HashMap<ATxoSID, (TxnSID, OutputPosition)>,
 
     // Digests of the UTXO bitmap to (I think -joe) track recent states of
     // the UTXO map
@@ -321,7 +321,6 @@ pub struct LedgerState {
     nullifier: SmtMap256<String>,
     abar_store: MerkleTree,
     txn_log: Option<(PathBuf, File)>,
-
     block_ctx: Option<BlockEffect>,
 }
 
@@ -461,6 +460,7 @@ impl LedgerStatus {
             utxos: BTreeMap::new(),
             ax_utxos: BTreeMap::new(),
             //abar_store: MerkleTree::new(),
+            // ax_utxos_pub: BTreeMap::new(),
             spent_utxos: map! {},
             txo_to_txn_location: map! {},
             issuance_amounts: map! {},
@@ -478,6 +478,7 @@ impl LedgerStatus {
             block_commit_count: 0,
             pulse_count: 0,
             staking: Staking::new(),
+            ax_txo_to_txn_location: map! {},
         };
 
         Ok(ledger)
@@ -1900,7 +1901,7 @@ impl LedgerStatus {
             .collect()
     }
 
-    pub fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<ATxoSID> {
+    pub fn get_owned_abars_ids(&self, addr: &AXfrPubKey) -> Vec<ATxoSID> {
         self.ax_utxos
             .iter()
             .filter(|(_, axutxo)| &axutxo.public_key == addr)
@@ -1908,11 +1909,9 @@ impl LedgerStatus {
             .collect()
     }
 
-    // pub fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<TxoSID> {
-    //     self.abar_store
-    //         .get_owned_abars_uids(addr.clone())
-    //         .map(|uid| TxoSID(uid.clone()))
-    // }
+    pub fn get_ax_utxo_by_id(&self, addr: ATxoSID) -> Option<&AnonBlindAssetRecord> {
+        self.ax_utxos.get(&addr)
+    }
 
     fn get_utxo(&self, addr: TxoSID) -> Option<&Utxo> {
         self.utxos.get(&addr)
@@ -2029,8 +2028,22 @@ impl LedgerAccess for LedgerState {
     }
 
     fn get_owned_abars(&self, addr: &AXfrPubKey) -> Vec<AnonBlindAssetRecord> {
-        // TODO should we access this through the Hashmap in status ?
-        self.abar_store.get_owned_abars(addr.clone())
+        self.status
+            .ax_utxos
+            .iter()
+            .filter(|(_, axutxo)| &axutxo.public_key == addr)
+            .map(|(_, record)| record.clone())
+            .collect()
+    }
+
+    fn get_abar_memo(&self, ax_id: ATxoSID) -> Option<Vec<Memo>> {
+        let txn_location = *self.status.ax_txo_to_txn_location.get(&ax_id).unwrap();
+        let authenticated_txn = self.get_transaction(txn_location.0).unwrap();
+        let memo = authenticated_txn.finalized_txn.txn.body.memos;
+        if memo.is_empty() {
+            return None;
+        }
+        Some(memo)
     }
 
     fn get_issuance_num(&self, code: &AssetTypeCode) -> Option<u64> {

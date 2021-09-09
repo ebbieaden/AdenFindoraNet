@@ -55,7 +55,7 @@ use ruc::*;
 use std::ops::Deref;
 
 use crate::address::operation::ConvertAccount;
-use zei::anon_xfr::structs::AXfrNote;
+use zei::anon_xfr::structs::{AXfrNote, AnonBlindAssetRecord};
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -1261,6 +1261,15 @@ impl DelegationInfo {
             ..Self::default_x()
         }
     }
+}
+#[derive(Clone, Serialize, Deserialize)]
+// Note: if the utxo field of this struct is changed, update the comment for ClientAssetRecord::from_json in wasm_data_model.rs as well.
+pub struct AuthenticatedAxUtxo {
+    pub ax_utxo: AnonBlindAssetRecord, // Utxo to authenticate
+    pub authenticated_txn: AuthenticatedTransaction, // Merkle proof that transaction containing the utxo exists on the ledger
+    //pub authenticated_spent_status: AuthenticatedUtxoStatus,    // Bitmap proof that the utxo is unspent // TODO : change this to nullifier proof
+    pub utxo_location: OutputPosition,
+    pub state_commitment_data: StateCommitmentData, // Todo change this to root hash of ABAR tree ?
 }
 
 #[derive(Clone, Serialize, Deserialize)]

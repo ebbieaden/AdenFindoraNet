@@ -1,3 +1,4 @@
+#![feature(btree_retain)]
 #![deny(warnings)]
 #![allow(clippy::needless_borrow)]
 
