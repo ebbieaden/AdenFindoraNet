@@ -21,7 +21,7 @@ use crate::{
 
 use bitmap::SparseMap;
 use chrono::prelude::*;
-use cryptohash::sha256::Digest as BitDigest;
+use cryptohash::sha256::{Digest as BitDigest, Digest};
 use cryptohash::HashValue;
 use errors::PlatformError;
 use lazy_static::lazy_static;
@@ -56,6 +56,7 @@ use std::ops::Deref;
 
 use crate::address::operation::ConvertAccount;
 use zei::anon_xfr::structs::AXfrNote;
+use zeialgebra::bls12_381::BLSScalar;
 
 pub const RANDOM_CODE_LENGTH: usize = 16;
 pub const TRANSACTION_WINDOW_WIDTH: usize = 128;
@@ -1808,6 +1809,18 @@ pub struct StateCommitmentData {
 }
 
 impl StateCommitmentData {
+    pub fn compute_commitment(&self) -> HashOf<Option<Self>> {
+        HashOf::new(&Some(self).cloned())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AnonStateCommitmentData {
+    pub(crate) abar_root_hash: BLSScalar,
+    pub(crate) nullifier_root_hash: Digest,
+}
+
+impl AnonStateCommitmentData {
     pub fn compute_commitment(&self) -> HashOf<Option<Self>> {
         HashOf::new(&Some(self).cloned())
     }

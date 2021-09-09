@@ -24,6 +24,7 @@ mod utils;
 
 /// current block height
 pub static TENDERMINT_BLOCK_HEIGHT: AtomicI64 = AtomicI64::new(0);
+const ANON_INTEGRATION_HEIGHT: i32 = 1000;
 
 lazy_static! {
     static ref REQ_BEGIN_BLOCK: Arc<Mutex<RequestBeginBlock>> =
@@ -43,9 +44,16 @@ pub fn info(s: &mut ABCISubmissionServer, req: &RequestInfo) -> ResponseInfo {
         let td_height = resp_app.get_last_block_height();
         resp.set_last_block_height(td_height);
 
+        let anon_commitment = state.get_anon_state_commitment();
+
         // last hash
-        let la_hash = commitment.0.as_ref().to_vec();
+        let mut la_hash = commitment.0.as_ref().to_vec();
         let cs_hash = resp_app.take_last_block_app_hash();
+        let mut anon_hash = anon_commitment.0.as_ref().to_vec();
+
+        if td_height > ANON_INTEGRATION_HEIGHT {
+            la_hash.append(&mut anon_hash);
+        }
         resp.set_last_block_app_hash(root_hash("info", td_height, la_hash, cs_hash));
     }
 
@@ -219,6 +227,7 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
 
     let state = la.get_committed_state().read();
     let commitment = state.get_state_commitment();
+    let anon_commitment = state.get_anon_state_commitment();
 
     let td_height = TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed);
     pnk!(pulse_cache::write_height(td_height));
@@ -228,8 +237,12 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
     pnk!(pulse_cache::write_block_pulse(la.block_pulse_count()));
 
     // set root hash
-    let la_hash = commitment.0.as_ref().to_vec();
+    let mut la_hash = commitment.0.as_ref().to_vec();
     let cs_hash = s.account_base_app.write().commit(req).data;
+    let mut anon_hash = anon_commitment.0.as_ref().to_vec();
+    if td_height > ANON_INTEGRATION_HEIGHT {
+        la_hash.append(&mut anon_hash);
+    }
     r.set_data(root_hash("commit", td_height, la_hash, cs_hash));
 
     r
@@ -251,4 +264,9 @@ fn root_hash(
     );
     la_hash.append(&mut cs_hash);
     fp_storage::hash::Sha256::hash(la_hash.as_slice()).to_vec()
+}
+
+#[test]
+fn test_anon_integration_height() {
+    assert_eq!(ANON_INTEGRATION_HEIGHT, 1000);
 }

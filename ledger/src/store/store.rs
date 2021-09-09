@@ -74,6 +74,9 @@ pub trait LedgerAccess {
     // Get the hash of the most recent checkpoint, and its sequence number.
     fn get_state_commitment(&self) -> (HashOf<Option<StateCommitmentData>>, u64);
 
+    // Get the hash of anon state commitment
+    fn get_anon_state_commitment(&self) -> HashOf<Option<AnonStateCommitmentData>>;
+
     // Get the authenticated status of a UTXO (Spent, Unspent, NonExistent).
     fn get_utxo_status(&self, addr: TxoSID) -> AuthenticatedUtxoStatus;
 
@@ -234,6 +237,8 @@ pub struct LedgerStatus {
 
     // State commitment history. The BitDigest at index i is the state commitment of the ledger at block height  i + 1.
     state_commitment_versions: Vec<HashOf<Option<StateCommitmentData>>>,
+    // Anon state commitment history.
+    anon_state_commitment_versions: Vec<HashOf<Option<AnonStateCommitmentData>>>,
     // The root hash of the abar Merkle tree for each height
     abar_commitments: Vec<BLSScalar>,
 
@@ -277,6 +282,7 @@ pub struct LedgerStatus {
     state_commitment_data: Option<StateCommitmentData>,
     block_commit_count: u64,
 
+    anon_state_commitment_data: Option<AnonStateCommitmentData>,
     // cumulative consensus specific counter, up to the current block.
     // Updated when applying next block. Always 0 if consensus does not need it,
     // for tendermint with no empty blocks flag, it will go up by exactly 1
@@ -1138,6 +1144,7 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
             self.status.pulse_count += block.pulse_count;
             block.pulse_count = 0;
 
+            self.abar_store.commit();
             // Checkpoint
             let block_merkle_id = self.checkpoint(&block).c(d!())?;
             block.temp_sids.clear();
@@ -1536,6 +1543,20 @@ impl LedgerState {
         self.status
             .state_commitment_versions
             .push(state_commitment_data_hash);
+
+        let anon_state_commitment_data = AnonStateCommitmentData {
+            abar_root_hash: self.abar_store.get_latest_hash(),
+            nullifier_root_hash: *self.nullifier.merkle_root(),
+        };
+
+        self.status.anon_state_commitment_data = Some(anon_state_commitment_data);
+        self.status
+            .anon_state_commitment_versions
+            .push(anon_state_commitment_data.compute_commitment());
+
+        self.status
+            .add_abar_comitment(self.abar_store.get_latest_hash());
+
         self.status.incr_block_commit_count();
     }
 
@@ -2055,6 +2076,14 @@ impl LedgerAccess for LedgerState {
             .cloned()
             .unwrap_or_else(|| HashOf::new(&None));
         (commitment, block_count)
+    }
+
+    fn get_anon_state_commitment(&self) -> HashOf<Option<AnonStateCommitmentData>> {
+        self.status
+            .anon_state_commitment_versions
+            .last()
+            .cloned()
+            .unwrap_or_else(|| HashOf::new(&None))
     }
 
     fn public_key(&self) -> &XfrPublicKey {
