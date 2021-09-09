@@ -4,26 +4,26 @@ import os
 import subprocess
 import toml
 
-devnet = os.path.join(os.environ['LEDGER_DIR'], "devnet")
-localhost = "127.0.0.1"
-base_url = "tcp://127.0.0.1:"
-base_port_node = 26610
-base_port_abci = 8620
+devnet = os.path.join(os.environ['FIN_DEBUG'], "devnet")
+localhost = "0.0.0.0"
+base_url = "tcp://0.0.0.0:"
+base_port_node = 26650
+base_port_abci = 8660
 base_port_evm = 8540
-blocks_interval = "15s"
+blocks_interval = "0s"
 timeout_commit = "15s"
+if os.getenv('BLOCK_INTERVAL') != None:
+    timeout_commit = "{}s".format(os.environ['BLOCK_INTERVAL'])
 toml_string = """
-abci_host = "127.0.0.1"
+abci_host = "0.0.0.0"
 abci_port = "26008"
 
-tendermint_host = "127.0.0.1"
-tendermint_port = "26007"
+tendermint_host = "0.0.0.0"
+tendermint_port = "26657"
 
-submission_host = "127.0.0.1"
-submission_port = "8609"
+submission_port = "8669"
 
-ledger_host = "127.0.0.1"
-ledger_port = "8608"
+ledger_port = "8668"
 
 evm_http_port = "8545"
 evm_ws_port = "8546"
@@ -52,11 +52,11 @@ def set_persistent_peers(config_toml, contents, i):
 
 # set ip addresses
 def set_ip_addresses(config_toml, contents, i):
-    # abci_proxy, rpc, p2p
+    # rpc, p2p
     """ e.g.
-    tcp://127.0.0.1:26008
-    tcp://127.0.0.1:26007
-    tcp://127.0.0.1:26006
+    tcp://0.0.0.0:26658
+    tcp://0.0.0.0:26657
+    tcp://0.0.0.0:26656
     """
     proxy_app = base_url + str(base_port_node + 10 * i + 8)
     rpc_laddr = base_url + str(base_port_node + 10 * i + 7)
@@ -67,7 +67,6 @@ def set_ip_addresses(config_toml, contents, i):
     set_toml(config_toml, 'proxy_app', proxy_app)
     set_toml(config_toml, 'rpc.laddr', rpc_laddr)
     set_toml(config_toml, 'p2p.laddr', p2p_laddr)
-
 
 # set time out
 def set_commit_timeout(config_toml, contents):
@@ -85,12 +84,11 @@ def gen_abci_toml(abci_toml, contents, i):
     with open(abci_toml, 'w+') as f:
         f.write(toml_string)
     
-    # abci_port, tendermint_port, submission_port, ledger_port, evm_http_port, evm_ws_port
+    # tendermint_port, submission_port, ledger_port, evm_http_port, evm_ws_port
     """ e.g.
-    26008
-    26007
-    8609
-    8608
+    26657
+    8669
+    8668
     8545
     8546
     """
