@@ -839,8 +839,6 @@ impl LedgerStatus {
             // check if nullifiers are on ledger
             // axfr_body.inputs
 
-            // check if nullifier is present in the block
-
             let user_params = UserParams::from_file_if_exists(
                 axfr_body.inputs.len(),
                 axfr_body.outputs.len(),
@@ -1117,16 +1115,19 @@ impl LedgerUpdate<ChaChaRng> for LedgerState {
                 }
             }
 
-            //TODO : Create a finalized transaction for abar
-
-            for abar in block.output_abars.iter() {
-                self.abar_store.add_abar(&abar).c(d!())?;
-            }
             for n in block.new_nullifiers.iter() {
                 let str =
                     base64::encode_config(&n.get_scalar().to_bytes(), base64::URL_SAFE);
                 let d: Key = Key::from_base64(&str).c(d!())?;
+
+                // if the nullifier hash is present in our nullifier set, fail the block
+                if self.nullifier.get(&d).is_some() {
+                    return Err(eg!("Nullifier hash already present in set"));
+                }
                 self.nullifier.set(&d, Some("".to_string()));
+            }
+            for abar in block.output_abars.iter() {
+                self.abar_store.add_abar(&abar).c(d!())?;
             }
 
             // this feels like the wrong place for this, but there's no other good place unless

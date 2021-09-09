@@ -629,9 +629,21 @@ impl TxnEffect {
                     output_abars.push(bar_to_abar.note.body.output.clone());
                 }
                 Operation::TransferAnonAsset(axfr_note) => {
+                    // verify nullifiers not double spent within txn
+                    let nullifier_list = axfr_bodies
+                        .iter()
+                        .flat_map(|ab| ab.inputs.iter().map(|i| i.0))
+                        .collect::<Vec<Nullifier>>();
+                    for i in &axfr_note.body.inputs {
+                        if nullifier_list.contains(&i.0) {
+                            return Err(eg!("Transaction has duplicate nullifiers"));
+                        }
+                    }
+
                     // verify axfr_note signatures
                     axfr_note.verify().c(d!())?;
 
+                    // push
                     axfr_bodies.push(axfr_note.body.clone());
                 }
             } // end -- match op {...}
@@ -796,7 +808,8 @@ impl BlockEffect {
                 return Err(eg!(inp_fail!()));
             }
         }
-        // Check that no nullifier are created twise
+
+        // Check that no nullifier are created twice in same block
         for axfr_body in txn_effect.axfr_bodies.iter() {
             for (nullifier, _) in axfr_body.inputs.iter() {
                 if self.new_nullifiers.contains(nullifier) {
@@ -888,11 +901,11 @@ impl BlockEffect {
         }
 
         for axfr_body in txn_effect.axfr_bodies {
-            for (nullifier, _) in axfr_body.inputs {
-                self.new_nullifiers.push(nullifier);
+            for (n, _) in axfr_body.inputs {
+                self.new_nullifiers.push(n);
             }
             for abar in axfr_body.outputs {
-                self.output_abars.push(abar);
+                self.output_abars.push(abar)
             }
         }
 
