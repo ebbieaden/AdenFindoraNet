@@ -74,13 +74,12 @@ where
     }
 
     /// Store a value under this hashed key into the provided storage instance.
-    pub fn put<D: MerkleDB>(state: Arc<RwLock<State<D>>>, val: &Value) {
+    pub fn put<D: MerkleDB>(state: Arc<RwLock<State<D>>>, val: &Value) -> Result<()> {
         Instance::set_obj::<Value, D>(
             state.write().deref_mut(),
             <Self as StoragePrefixKey>::store_key().as_ref(),
             val,
         )
-        .unwrap()
     }
 
     /// Take a value from storage, removing it afterwards.

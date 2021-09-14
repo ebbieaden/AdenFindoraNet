@@ -26,12 +26,12 @@ impl<C: Config> App<C> {
     }
 
     /// Create an account.
-    pub fn create_account(ctx: &Context, address: H160, code: Vec<u8>) {
+    pub fn create_account(ctx: &Context, address: H160, code: Vec<u8>) -> Result<()> {
         if code.is_empty() {
-            return;
+            return Ok(());
         }
 
-        AccountCodes::insert(ctx.store.clone(), &address, &code);
+        AccountCodes::insert(ctx.store.clone(), &address, &code)
     }
 
     /// Get the account code

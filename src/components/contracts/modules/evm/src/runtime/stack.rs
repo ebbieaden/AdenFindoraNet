@@ -255,7 +255,18 @@ impl<'context, 'vicinity, 'config, C: Config> StackState<'config>
                 index,
                 value,
             );
-            AccountStorages::insert(self.ctx.store.clone(), &address, &index, &value);
+            if let Err(e) =
+                AccountStorages::insert(self.ctx.store.clone(), &address, &index, &value)
+            {
+                log::error!(
+                    target: "evm",
+                    "Failed updating storage for {:?} [index: {:?}, value: {:?}], error: {:?}",
+                    address,
+                    index,
+                    value,
+                        e
+                );
+            }
         }
     }
 
@@ -272,13 +283,22 @@ impl<'context, 'vicinity, 'config, C: Config> StackState<'config>
     }
 
     fn set_code(&mut self, address: H160, code: Vec<u8>) {
+        let code_len = code.len();
         log::debug!(
             target: "evm",
             "Inserting code ({} bytes) at {:?}",
-            code.len(),
+           code_len,
             address
         );
-        App::<C>::create_account(self.ctx, address, code);
+        if let Err(e) = App::<C>::create_account(self.ctx, address, code) {
+            log::error!(
+                target: "evm",
+                "Failed inserting code ({} bytes) at {:?}, error: {:?}",
+                code_len,
+                address,
+                    e
+            );
+        }
     }
 
     fn transfer(&mut self, transfer: Transfer) -> Result<(), ExitError> {

@@ -78,13 +78,16 @@ where
     }
 
     /// Store a value to be associated with the given key from the map.
-    pub fn insert<D: MerkleDB>(state: Arc<RwLock<State<D>>>, key: &Key, val: &Value) {
+    pub fn insert<D: MerkleDB>(
+        state: Arc<RwLock<State<D>>>,
+        key: &Key,
+        val: &Value,
+    ) -> Result<()> {
         Instance::set_obj::<Value, D>(
             state.write().deref_mut(),
             Self::build_key_for(key).as_slice(),
             val,
         )
-        .unwrap()
     }
 
     /// Remove the value under a key.

@@ -29,8 +29,7 @@ impl<C: Config> AccountAsset<Address> for App<C> {
         let mut sa: SmartAccount =
             AccountStore::get(ctx.store.clone(), who).c(d!("account does not exist"))?;
         sa.nonce = sa.nonce.checked_add(1).c(d!("balance overflow"))?;
-        AccountStore::insert(ctx.store.clone(), who, &sa);
-        Ok(sa.nonce)
+        AccountStore::insert(ctx.store.clone(), who, &sa).map(|()| sa.nonce)
     }
 
     fn transfer(
@@ -56,9 +55,8 @@ impl<C: Config> AccountAsset<Address> for App<C> {
             .balance
             .checked_add(balance)
             .c(d!("balance overflow"))?;
-        AccountStore::insert(ctx.store.clone(), sender, &from_account);
-        AccountStore::insert(ctx.store.clone(), dest, &to_account);
-        Ok(())
+        AccountStore::insert(ctx.store.clone(), sender, &from_account)?;
+        AccountStore::insert(ctx.store.clone(), dest, &to_account)
     }
 
     fn mint(ctx: &Context, target: &Address, balance: u128) -> Result<()> {
@@ -66,8 +64,7 @@ impl<C: Config> AccountAsset<Address> for App<C> {
             AccountStore::get(ctx.store.clone(), target).unwrap_or_default();
         target_account.balance = target_account.balance.checked_add(balance).c(d!())?;
 
-        AccountStore::insert(ctx.store.clone(), target, &target_account);
-        Ok(())
+        AccountStore::insert(ctx.store.clone(), target, &target_account)
     }
 
     fn burn(ctx: &Context, target: &Address, balance: u128) -> Result<()> {
@@ -78,8 +75,7 @@ impl<C: Config> AccountAsset<Address> for App<C> {
             .checked_sub(balance)
             .c(d!("insufficient balance"))?;
 
-        AccountStore::insert(ctx.store.clone(), target, &target_account);
-        Ok(())
+        AccountStore::insert(ctx.store.clone(), target, &target_account)
     }
 
     fn withdraw(ctx: &Context, who: &Address, value: u128) -> Result<()> {
@@ -89,16 +85,14 @@ impl<C: Config> AccountAsset<Address> for App<C> {
             .balance
             .checked_sub(value)
             .c(d!("insufficient balance"))?;
-        AccountStore::insert(ctx.store.clone(), who, &sa);
-        Ok(())
+        AccountStore::insert(ctx.store.clone(), who, &sa)
     }
 
     fn refund(ctx: &Context, who: &Address, value: u128) -> Result<()> {
         let mut sa: SmartAccount =
             AccountStore::get(ctx.store.clone(), who).c(d!("account does not exist"))?;
         sa.balance = sa.balance.checked_add(value).c(d!("balance overflow"))?;
-        AccountStore::insert(ctx.store.clone(), who, &sa);
-        Ok(())
+        AccountStore::insert(ctx.store.clone(), who, &sa)
     }
 }
 
@@ -138,15 +132,14 @@ impl<C: Config> App<C> {
         } else {
             outputs
         };
-        MintOutputs::put(ctx.store.clone(), &ops);
-        Ok(())
+        MintOutputs::put(ctx.store.clone(), &ops)
     }
 
     pub fn consume_mint(ctx: &Context, size: usize) -> Result<Vec<MintOutput>> {
         let mut outputs = MintOutputs::get(ctx.store.clone()).unwrap_or_default();
         if outputs.len() > size {
             let vec2 = outputs.split_off(size);
-            MintOutputs::put(ctx.store.clone(), &vec2);
+            MintOutputs::put(ctx.store.clone(), &vec2)?;
         } else {
             MintOutputs::delete(ctx.store.clone());
         }

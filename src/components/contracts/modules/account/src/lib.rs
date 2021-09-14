@@ -75,7 +75,7 @@ impl<C: Config> AppModule for App<C> {
                     return resp;
                 }
                 let info = Self::account_of(&ctx, &data.unwrap()).unwrap_or_default();
-                resp.value = serde_json::to_vec(&info).unwrap();
+                resp.value = serde_json::to_vec(&info).unwrap_or_default();
                 resp
             }
             "nonce" => {
@@ -86,7 +86,7 @@ impl<C: Config> AppModule for App<C> {
                     return resp;
                 }
                 let nonce = Self::nonce(&ctx, &data.unwrap());
-                resp.value = serde_json::to_vec(&nonce).unwrap();
+                resp.value = serde_json::to_vec(&nonce).unwrap_or_default();
                 resp
             }
             _ => resp,

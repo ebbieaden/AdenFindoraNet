@@ -88,13 +88,12 @@ where
         k1: &Key1,
         k2: &Key2,
         val: &Value,
-    ) {
+    ) -> Result<()> {
         Instance::set_obj::<Value, D>(
             state.write().deref_mut(),
             Self::build_key_for(k1, k2).as_slice(),
             val,
         )
-        .unwrap()
     }
 
     /// Remove the value under a key.

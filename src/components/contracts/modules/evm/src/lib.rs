@@ -6,7 +6,8 @@ mod genesis;
 pub mod impls;
 pub mod runtime;
 
-use ethereum_types::U256;
+use abci::{RequestQuery, ResponseQuery};
+use ethereum_types::{H160, U256};
 use fp_core::{
     context::Context,
     macros::Get,
@@ -67,7 +68,30 @@ impl<C: Config> Default for App<C> {
     }
 }
 
-impl<C: Config> AppModule for App<C> {}
+impl<C: Config> AppModule for App<C> {
+    fn query_route(
+        &self,
+        ctx: Context,
+        path: Vec<&str>,
+        _req: &RequestQuery,
+    ) -> ResponseQuery {
+        let mut resp: ResponseQuery = Default::default();
+        if path.len() != 1 {
+            resp.code = 1;
+            resp.log = String::from("account: invalid query path");
+            return resp;
+        }
+        match path[0] {
+            "contract-number" => {
+                let contracts: Vec<(H160, Vec<u8>)> =
+                    storage::AccountCodes::iterate(ctx.store);
+                resp.value = serde_json::to_vec(&contracts.len()).unwrap_or_default();
+                resp
+            }
+            _ => resp,
+        }
+    }
+}
 
 impl<C: Config> Executable for App<C> {
     type Origin = Address;

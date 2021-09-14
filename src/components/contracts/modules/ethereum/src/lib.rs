@@ -7,7 +7,7 @@ mod impls;
 
 use abci::{RequestEndBlock, ResponseEndBlock};
 use bnc::{mapx::Mapx, new_mapx};
-use ethereum::{Block, Receipt};
+use ethereum::{Block, Receipt, Transaction};
 use ethereum_types::{H160, H256, U256};
 use evm::Config as EvmConfig;
 use fp_core::{
@@ -24,14 +24,21 @@ use fp_traits::{
     evm::{AddressMapping, BlockHashMapping, DecimalsMapping, FeeCalculator},
 };
 use fp_types::{actions::ethereum::Action, crypto::Address};
+use lazy_static::lazy_static;
+use parking_lot::Mutex;
 use ruc::*;
-use std::marker::PhantomData;
-use std::path::Path;
+use std::{marker::PhantomData, path::Path, sync::Arc};
 use storage::*;
 
 pub const MODULE_NAME: &str = "ethereum";
 
 static ISTANBUL_CONFIG: EvmConfig = EvmConfig::istanbul();
+
+lazy_static! {
+    /// Current building block's transactions and receipts.
+    static ref PENDING_TRANSACTIONS: Arc<Mutex<Vec<(Transaction, TransactionStatus, Receipt)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+}
 
 pub trait Config {
     /// Account module interface to read/write account assets.
@@ -57,14 +64,9 @@ pub trait Config {
 }
 
 pub mod storage {
-    use ethereum::{Receipt, Transaction};
     use ethereum_types::{H256, U256};
-
-    use fp_evm::TransactionStatus;
     use fp_storage::*;
 
-    // Current building block's transactions and receipts.
-    generate_storage!(Ethereum, Pending => Value<Vec<(Transaction, TransactionStatus, Receipt)>>);
     // Mapping for block number and hashes.
     generate_storage!(Ethereum, BlockHash => Map<U256, H256>);
     // The current Ethereum block number.
@@ -150,8 +152,10 @@ impl<C: Config> AppModule for App<C> {
         ctx: &mut Context,
         req: &RequestEndBlock,
     ) -> ResponseEndBlock {
-        let txs = Pending::get(ctx.store.clone()).map_or(0, |v| v.len());
-        if txs > 0 || self.enable_eth_empty_blocks || self.is_store_block {
+        if PENDING_TRANSACTIONS.lock().len() > 0
+            || self.enable_eth_empty_blocks
+            || self.is_store_block
+        {
             self.is_store_block = false;
             let _ = ruc::info!(self.store_block(ctx, U256::from(req.height)));
 

@@ -80,8 +80,7 @@ impl<C: Config> Executable for App<C> {
     ) -> Result<ActionResult> {
         match call {
             Action::SetValue(v) => {
-                ValueStore::put(ctx.store.clone(), &v);
-                Ok(ActionResult {
+                ValueStore::put(ctx.store.clone(), &v).map(|()| ActionResult {
                     data: v.to_be_bytes().to_vec(),
                     ..Default::default()
                 })

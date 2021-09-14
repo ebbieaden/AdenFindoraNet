@@ -1,5 +1,5 @@
 use crate::storage::*;
-use crate::{App, Config, ContractLog, TransactionExecuted};
+use crate::{App, Config, ContractLog, TransactionExecuted, PENDING_TRANSACTIONS};
 use ethereum_types::{Bloom, BloomInput, H160, H256, H64, U256};
 use evm::ExitReason;
 use fp_core::{
@@ -36,13 +36,14 @@ impl<C: Config> App<C> {
         let mut statuses: Vec<TransactionStatus> = Vec::new();
         let mut receipts: Vec<ethereum::Receipt> = Vec::new();
         let mut logs_bloom = Bloom::default();
-        if let Some(pending) = Pending::get(ctx.store.clone()) {
-            for (transaction, status, receipt) in pending {
-                Self::logs_bloom(receipt.logs.clone(), &mut logs_bloom);
-                transactions.push(transaction);
-                statuses.push(status);
-                receipts.push(receipt);
-            }
+
+        for (transaction, status, receipt) in
+            PENDING_TRANSACTIONS.lock().clone().into_iter()
+        {
+            Self::logs_bloom(receipt.logs.clone(), &mut logs_bloom);
+            transactions.push(transaction);
+            statuses.push(status);
+            receipts.push(receipt);
         }
 
         let ommers = Vec::<ethereum::Header>::new();
@@ -82,12 +83,13 @@ impl<C: Config> App<C> {
         let block = ethereum::Block::new(partial_header, transactions, ommers);
         let block_hash = block.header.hash();
 
-        CurrentBlockNumber::put(ctx.store.clone(), &block_number);
+        CurrentBlockNumber::put(ctx.store.clone(), &block_number)?;
         // CurrentBlock::insert(ctx.store.clone(), &block_hash, &block);
         // CurrentReceipts::insert(ctx.store.clone(), &block_hash, &receipts);
         // CurrentTransactionStatuses::insert(ctx.store.clone(), &block_hash, &statuses);
-        BlockHash::insert(ctx.store.clone(), &block_number, &block_hash);
-        Pending::delete(ctx.store.clone());
+        BlockHash::insert(ctx.store.clone(), &block_number, &block_hash)?;
+
+        PENDING_TRANSACTIONS.lock().clear();
 
         self.blocks.insert(block_hash, block);
         self.receipts.insert(block_hash, receipts);
@@ -109,8 +111,7 @@ impl<C: Config> App<C> {
         let transaction_hash =
             H256::from_slice(Keccak256::digest(&rlp::encode(&transaction)).as_slice());
 
-        let mut pending = Pending::get(ctx.store.clone()).unwrap_or_default();
-        let transaction_index = pending.len() as u32;
+        let transaction_index = PENDING_TRANSACTIONS.lock().len() as u32;
 
         let gas_limit = transaction.gas_limit;
         let transferred_value =
@@ -187,8 +188,9 @@ impl<C: Config> App<C> {
             logs: status.logs.clone(),
         };
 
-        pending.push((transaction, status, receipt));
-        Pending::put(ctx.store.clone(), &pending);
+        PENDING_TRANSACTIONS
+            .lock()
+            .push((transaction, status, receipt));
 
         events.push(Event::emit_event(
             Self::name(),
@@ -303,9 +305,14 @@ impl<C: Config> App<C> {
     }
 
     /// Set the latest block number
-    pub fn update_block_number(&mut self, ctx: &Context, block_number: &U256) {
-        CurrentBlockNumber::put(ctx.store.clone(), block_number);
+    pub fn update_block_number(
+        &mut self,
+        ctx: &Context,
+        block_number: &U256,
+    ) -> Result<()> {
+        CurrentBlockNumber::put(ctx.store.clone(), block_number)?;
         self.is_store_block = true;
+        Ok(())
     }
 
     /// Get header hash of given block id.

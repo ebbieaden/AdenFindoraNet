@@ -14,7 +14,9 @@ bnc = { git = "https://github.com/FindoraNetwork/BNC.git", branch = "feat-rocksd
 ethereum = { version = "0.7.1", features = ["with-serde"] }
 ethereum-types = "0.11.0"
 evm = { version = "0.27.0", features = ["with-serde"] }
+lazy_static = "1.4.0"
 log = "0.4"
+parking_lot = "0.11.1"
 rand = "0.8"
 rlp = "0.5"
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
