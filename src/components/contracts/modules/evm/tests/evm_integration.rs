@@ -66,7 +66,7 @@ fn build_erc20_balance_of_transaction(
     UncheckedTransaction::new_unsigned(function)
 }
 
-#[test]
+// #[test]
 fn erc20_works() {
     test_mint_balance(&ALICE_ECDSA.account_id, 100_0000_0000, 1);
     test_mint_balance(&BOB_ECDSA.account_id, 100_0000_0000, 1);
