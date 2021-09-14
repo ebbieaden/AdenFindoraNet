@@ -46,7 +46,7 @@ fn test_accounts_set_get() {
     };
 
     //Call set and get
-    AccountStore::insert(ctx.store.clone(), &address, &account);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok());
     assert_eq!(
         account,
         AccountStore::get(ctx.store.clone(), &address).unwrap()
@@ -72,7 +72,7 @@ fn test_account_of() {
     };
 
     //Call set and account_of
-    AccountStore::insert(ctx.store.clone(), &address, &account);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok());
     assert_eq!(account, App::<()>::account_of(&ctx, &address).unwrap());
     assert!(ctx.store.write().commit(2).is_ok());
     assert_eq!(account, App::<()>::account_of(&ctx, &address).unwrap());
@@ -95,7 +95,7 @@ fn test_account_balance() {
     };
 
     //Call set and balance
-    AccountStore::insert(ctx.store.clone(), &address, &account);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok());
     assert_eq!(account.balance, App::<()>::balance(&ctx, &address));
     assert!(ctx.store.write().commit(3).is_ok());
     assert_eq!(account.balance, App::<()>::balance(&ctx, &address));
@@ -118,7 +118,7 @@ fn test_account_nonce() {
     };
 
     //Call set and nonce
-    AccountStore::insert(ctx.store.clone(), &address, &account);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok());
     assert_eq!(account.nonce, App::<()>::nonce(&ctx, &address));
     assert!(ctx.store.write().commit(4).is_ok());
     assert_eq!(account.nonce, App::<()>::nonce(&ctx, &address));
@@ -141,7 +141,7 @@ fn test_account_inc_nonce() {
     };
 
     //Call set and inc_nonce, commit and check nonce again
-    AccountStore::insert(ctx.store.clone(), &address, &account);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok());
     assert_eq!(
         account.nonce + 1,
         App::<()>::inc_nonce(&ctx, &address).unwrap()
@@ -169,8 +169,8 @@ fn test_account_transfer() {
     acct2.balance = 200;
 
     //Setup accounts in database
-    AccountStore::insert(ctx.store.clone(), &address1, &acct1);
-    AccountStore::insert(ctx.store.clone(), &address2, &acct2);
+    assert!(AccountStore::insert(ctx.store.clone(), &address1, &acct1).is_ok());
+    assert!(AccountStore::insert(ctx.store.clone(), &address2, &acct2).is_ok());
 
     //Transfer 100 from acct2 to acct1
     assert!(App::<()>::transfer(&ctx, &address2, &address1, 100).is_ok());
@@ -203,7 +203,7 @@ fn test_account_mint() {
     };
 
     //Call set and inc_nonce, commit and check nonce again
-    AccountStore::insert(ctx.store.clone(), &address, &account);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok());
 
     //MintOutputs FRA for account
     assert!(App::<()>::mint(&ctx, &address, 500).is_ok());
@@ -227,7 +227,7 @@ fn test_account_burn() {
     };
 
     //Add account to database
-    AccountStore::insert(ctx.store.clone(), &address, &account);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok);
 
     //burn FRA
     assert!(App::<()>::burn(&ctx, &address, 200).is_ok());
@@ -251,7 +251,7 @@ fn test_account_withdraw() {
     };
 
     //Add account to database
-    AccountStore::insert(ctx.store.clone(), &address, &account);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok());
 
     //Withdraw some funds
     assert!(App::<()>::withdraw(&ctx, &address, 300).is_ok());
@@ -278,7 +278,7 @@ fn test_account_refund() {
     };
 
     //Add account to database
-    AccountStore::insert(ctx.store.clone(), &address, &account);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok());
 
     //Refund an amount to address
     assert!(App::<()>::refund(&ctx, &address, 700).is_ok());
