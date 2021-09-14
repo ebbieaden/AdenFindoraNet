@@ -359,7 +359,9 @@ pub struct ConfidentialMemo;
 pub struct Commitment([u8; 32]);
 
 #[allow(missing_docs)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Serialize,
+)]
 pub struct XfrAddress {
     pub key: XfrPublicKey,
 }
@@ -654,7 +656,19 @@ pub type TxoSIDList = Vec<TxoSID>;
 pub struct OutputPosition(pub usize);
 
 #[allow(missing_docs)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Deserialize,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+)]
 pub struct TxnSID(pub usize);
 
 impl fmt::Display for TxoSID {

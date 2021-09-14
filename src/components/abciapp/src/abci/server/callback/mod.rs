@@ -17,7 +17,10 @@ use abci::{
 use fp_storage::hash::{Sha256, StorageHasher};
 use fp_traits::base::BaseProvider;
 use lazy_static::lazy_static;
-use ledger::{converter::is_convert_tx, staking::is_coinbase_tx};
+use ledger::{
+    converter::is_convert_tx,
+    staking::{is_coinbase_tx, KEEP_HIST},
+};
 use parking_lot::Mutex;
 use protobuf::RepeatedField;
 use ruc::*;
@@ -134,10 +137,12 @@ pub fn deliver_tx(
         if !is_coinbase_tx(&tx)
             && tx.is_basic_valid(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed))
         {
-            // set attr(tags) if any
-            let attr = utils::gen_tendermint_attr(&tx);
-            if !attr.is_empty() {
-                resp.set_events(attr);
+            if *KEEP_HIST {
+                // set attr(tags) if any, only needed on a fullnode
+                let attr = utils::gen_tendermint_attr(&tx);
+                if !attr.is_empty() {
+                    resp.set_events(attr);
+                }
             }
 
             if s.la.write().cache_transaction(tx.clone()).is_ok() {
@@ -222,8 +227,15 @@ pub fn commit(s: &mut ABCISubmissionServer, req: &RequestCommit) -> ResponseComm
     let la = s.la.write();
     let mut state = la.get_committed_state().write();
 
+    // will change `struct LedgerStatus`
     state.set_tendermint_commit(TENDERMINT_BLOCK_HEIGHT.load(Ordering::Relaxed) as u64);
     state.flush_data();
+
+    // snapshot them finally
+    pnk!(serde_json::to_vec(&state.get_status())
+        .c(d!())
+        .and_then(|s| fs::write(&state.get_status().snapshot_path, s)
+            .c(d!(state.get_status().snapshot_path.clone()))));
 
     let mut r = ResponseCommit::new();
     let mut commitment = state.get_state_commitment().0.as_ref().to_vec();

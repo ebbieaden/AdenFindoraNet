@@ -10,7 +10,7 @@ readme = "README.md"
 
 [dependencies]
 abci = { git = "https://github.com/FindoraNetwork/rust-abci", tag = "v0.7.2" }
-bnc = { git = "https://github.com/FindoraNetwork/BNC.git", branch = "feat-rocksdb" }
+bnc = { git = "https://github.com/FindoraNetwork/BNC.git", branch = "master" }
 ethereum = { version = "0.7.1", features = ["with-serde"] }
 ethereum-types = "0.11.0"
 evm = { version = "0.27.0", features = ["with-serde"] }

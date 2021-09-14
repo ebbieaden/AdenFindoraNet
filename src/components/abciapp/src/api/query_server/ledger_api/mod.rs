@@ -278,7 +278,7 @@ async fn get_delegation_reward(
     // Convert from base64 representation
     let key: XfrPublicKey = globutils::wallet::public_key_from_base64(&info.address)
         .c(d!())
-        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+        .map_err(|e| error::ErrorBadRequest(e.generate_log(None)))?;
 
     let read = data.read();
     let staking = read.get_staking();
@@ -292,9 +292,10 @@ async fn get_delegation_reward(
         (0..=info.height)
             .into_iter()
             .rev()
-            .filter_map(|i| di.rwd_hist.get(&i))
+            .filter_map(|i| di.rwd_hist.as_ref().map(|rh| rh.get(&i)))
+            .flatten()
             .take(1)
-            .cloned()
+            .map(|v| v.into_inner().into_owned())
             .collect(),
     ))
 }
@@ -360,29 +361,29 @@ async fn get_validator_delegation_history(
         })
         .for_each(|h| {
             history.push(ValidatorDelegation {
-                return_rate: *staking
+                return_rate: staking
                     .query_block_rewards_rate(&h)
-                    .unwrap_or(&history.last().unwrap().return_rate), //unwrap is safe here
-                delegated: {
-                    if v_self_delegation.delegation_amount.is_empty()
-                        || v_self_delegation
-                            .delegation_amount
-                            .iter()
-                            .take(1)
-                            .all(|(&i, _)| i > h)
-                    {
-                        0
-                    } else {
-                        *v_self_delegation
-                            .delegation_amount
-                            .get(&h)
-                            .unwrap_or(&history.last().unwrap().delegated)
-                    }
-                },
-                self_delegation: *v_self_delegation
-                    .self_delegation_hist
-                    .get(&h)
-                    .unwrap_or(&history.last().unwrap().self_delegation),
+                    .unwrap_or(history.last().unwrap().return_rate), //unwrap is safe here
+                delegated: v_self_delegation
+                    .delegation_amount_hist
+                    .as_ref()
+                    .map(|dah| {
+                        if dah.is_empty() || dah.iter().take(1).all(|(i, _)| i > h) {
+                            0
+                        } else {
+                            dah.get(&h)
+                                .map(|v| v.into_inner().into_owned())
+                                .unwrap_or(history.last().unwrap().delegated)
+                        }
+                    })
+                    .unwrap_or(0),
+                self_delegation: v_self_delegation
+                    .delegation_amount_hist
+                    .as_ref()
+                    .map(|dah| dah.get(&h))
+                    .flatten()
+                    .map(|v| v.into_inner().into_owned())
+                    .unwrap_or(history.last().unwrap().self_delegation),
             })
         });
 
@@ -532,7 +533,7 @@ async fn query_delegation_info(
 ) -> actix_web::Result<web::Json<DelegationInfo>> {
     let pk = globutils::wallet::public_key_from_base64(address.as_str())
         .c(d!())
-        .map_err(|e| error::ErrorBadRequest(e.generate_log()))?;
+        .map_err(|e| error::ErrorBadRequest(e.generate_log(None)))?;
 
     let read = data.read();
     let staking = read.get_staking();
@@ -618,7 +619,7 @@ async fn query_owned_utxos(
 ) -> actix_web::Result<web::Json<BTreeMap<TxoSID, (Utxo, Option<OwnerMemo>)>>> {
     globutils::wallet::public_key_from_base64(owner.as_str())
         .c(d!())
-        .map_err(|e| error::ErrorBadRequest(e.generate_log()))
+        .map_err(|e| error::ErrorBadRequest(e.generate_log(None)))
         .map(|pk| web::Json(pnk!(data.read().get_owned_utxos(&pk))))
 }
 

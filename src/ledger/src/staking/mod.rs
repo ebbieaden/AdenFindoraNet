@@ -16,8 +16,10 @@ pub mod init;
 pub mod ops;
 
 use crate::data_model::{Operation, Transaction, TransferAsset, TxoRef, FRA_DECIMALS};
+use bnc::{mapx::Mapx, new_mapx};
 use cosig::CoSigRule;
 use cryptohash::sha256::{self, Digest};
+use globutils::wallet;
 use lazy_static::lazy_static;
 use ops::{
     fra_distribution::FraDistributionOps,
@@ -38,9 +40,9 @@ use std::{
 use zei::xfr::sig::{XfrKeyPair, XfrPublicKey};
 
 lazy_static! {
-    // will be set in `findorad` together with '--enable-query-server' option,
-    // full-nodes may need this feature, meaningless in other kinds of node.
-    static ref KEEP_HIST: bool = env::var("FINDORA_KEEP_STAKING_HIST").is_ok();
+    /// will be set in `findorad` together with '--enable-query-server' option,
+    /// full-nodes may need this feature, meaningless in other kinds of node.
+    pub static ref KEEP_HIST: bool = env::var("FINDORA_KEEP_STAKING_HIST").is_ok();
 }
 
 /// Staking entry
@@ -96,32 +98,20 @@ impl Staking {
     #[inline(always)]
     pub fn record_block_rewards_rate(&mut self, rate: [u128; 2]) {
         alt!(!*KEEP_HIST, return);
-
-        if let Some(v) = self
-            .di
-            .rate_hist
-            .range(..self.cur_height)
-            .rev()
-            .next()
-            .map(|(_, v)| *v)
-        {
-            if v != rate {
-                self.di.rate_hist.insert(self.cur_height, rate);
-            }
-        } else {
-            self.di.rate_hist.insert(self.cur_height, rate);
+        let h = self.cur_height;
+        if let Some(rh) = self.di.rate_hist.as_mut() {
+            rh.insert(h, rate);
         }
     }
 
     /// retrieve block reward rate at specified block height
     #[inline(always)]
-    pub fn query_block_rewards_rate(&self, height: &BlockHeight) -> Option<&[u128; 2]> {
+    pub fn query_block_rewards_rate(&self, height: &BlockHeight) -> Option<[u128; 2]> {
         self.di
             .rate_hist
-            .range(..height)
-            .rev()
-            .next()
-            .map(|(_, v)| v)
+            .as_ref()
+            .map(|rh| rh.get(height).map(|v| v.into_inner().into_owned()))
+            .flatten()
     }
 
     ///get the delegationInfo
@@ -462,16 +452,16 @@ impl Staking {
         let h = self.cur_height;
         let new = || Delegation {
             entries: map! {B validator => 0},
-            self_delegation_hist: map! {B},
+            self_delegation_hist: alt!(*KEEP_HIST, Some(new_mapx!()), None),
             delegators: indexmap::IndexMap::new(),
-            delegation_amount: map! {B},
+            delegation_amount_hist: alt!(*KEEP_HIST, Some(new_mapx!()), None),
             id: owner,
             receiver_pk: None,
             start_height: h,
             end_height,
             state: DelegationState::Bond,
             rwd_amount: 0,
-            rwd_hist: map! {B},
+            rwd_hist: alt!(*KEEP_HIST, Some(new_mapx!()), None),
             delegation_rwd_cnt: 0,
             proposer_rwd_cnt: 0,
         };
@@ -490,10 +480,12 @@ impl Staking {
         d.state = DelegationState::Bond;
 
         *d.entries.entry(validator).or_insert(0) += am;
+
         // record self-delegation amount for a validator
         if owner == validator && *KEEP_HIST {
-            d.self_delegation_hist
-                .insert(self.cur_height, d.entries.values().sum());
+            let h = self.cur_height;
+            let v = d.entries.values().sum();
+            d.self_delegation_hist.as_mut().map(|sdh| sdh.insert(h, v));
         }
 
         // update delegator entries for this validator
@@ -501,8 +493,13 @@ impl Staking {
             if owner != validator {
                 *vd.delegators.entry(owner).or_insert(0) += am;
                 vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
-                vd.delegation_amount
-                    .insert(self.cur_height, vd.delegators.values().sum());
+                if *KEEP_HIST {
+                    let h = self.cur_height;
+                    let v = vd.delegators.values().sum();
+                    vd.delegation_amount_hist
+                        .as_mut()
+                        .map(|dah| dah.insert(h, v));
+                }
             }
         }
 
@@ -550,7 +547,9 @@ impl Staking {
             }
             if self.addr_is_validator(addr) {
                 // clear its power when a validator propose a complete undelegation
-                // > `panic` should not happen without bug[s]
+                //   - `panic` should not happen without bug[s]
+                //
+                // is this logic reasonable ?
                 pnk!(self.validator_change_power(addr, u64::MAX, true));
                 is_validator = true;
             }
@@ -654,23 +653,24 @@ impl Staking {
                 *am = am.saturating_sub(pu.am);
                 new_tmp_delegator = Delegation {
                     entries: map! {B target_validator => actual_am},
-                    self_delegation_hist: map! {B},
+                    self_delegation_hist: None,
                     delegators: indexmap::IndexMap::new(),
-                    delegation_amount: map! {B},
+                    delegation_amount_hist: None,
                     id: pu.new_delegator_id,
                     receiver_pk: Some(d.id),
                     start_height: d.start_height,
                     end_height: h + UNBOND_BLOCK_CNT,
                     state: DelegationState::Bond,
                     rwd_amount: 0,
-                    rwd_hist: map! {B},
+                    rwd_hist: None,
                     delegation_rwd_cnt: 0,
                     proposer_rwd_cnt: 0,
                 };
                 // record per-block-height self-delegation amount for a validator
                 if target_validator == *addr && *KEEP_HIST {
-                    d.self_delegation_hist
-                        .insert(self.cur_height, d.entries.values().sum());
+                    let h = self.cur_height;
+                    let v = d.entries.values().sum();
+                    d.self_delegation_hist.as_mut().map(|sdh| sdh.insert(h, v));
                 }
             } else {
                 return Err(eg!("delegator is out of bond"));
@@ -699,8 +699,6 @@ impl Staking {
                 *am -= pu.am;
             }
             vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
-            vd.delegation_amount
-                .insert(self.cur_height, vd.delegators.values().sum());
         }
 
         Ok(())
@@ -908,8 +906,13 @@ impl Staking {
                         if let Some(vd) = self.di.addr_map.get_mut(&v) {
                             vd.delegators.remove(&addr);
                             vd.delegators.sort_by(|_, v1, _, v2| v2.cmp(&v1));
-                            vd.delegation_amount
-                                .insert(self.cur_height, vd.delegators.values().sum());
+                            if *KEEP_HIST {
+                                let h = self.cur_height;
+                                let v = vd.delegators.values().sum();
+                                vd.delegation_amount_hist
+                                    .as_mut()
+                                    .map(|dah| dah.insert(h, v));
+                            }
                         }
                     });
                 }
@@ -1009,18 +1012,19 @@ impl Staking {
 
         if *KEEP_HIST {
             let bond_am = d.amount();
-            d.rwd_hist
-                .entry(self.cur_height)
-                .or_insert(DelegationRwdDetail {
-                    bond: bond_am,
-                    amount: 0,
-                    penalty_amount: 0,
-                    return_rate: None,
-                    commission_rate: None,
-                    global_delegation_percent: None,
-                    block_height: self.cur_height,
-                })
-                .penalty_amount += am;
+            if let Some(rh) = d.rwd_hist.as_mut() {
+                rh.entry(self.cur_height)
+                    .or_insert(DelegationRwdDetail {
+                        bond: bond_am,
+                        amount: 0,
+                        penalty_amount: 0,
+                        return_rate: None,
+                        commission_rate: None,
+                        global_delegation_percent: None,
+                        block_height: self.cur_height,
+                    })
+                    .penalty_amount += am;
+            }
         }
 
         if DelegationState::Paid == d.state {
@@ -1329,7 +1333,7 @@ lazy_static! {
     /// Reserved accounts of Findora Foundation or System.
     pub static ref FF_PK_LIST: Vec<XfrPublicKey> = FF_ADDR_LIST
         .iter()
-        .map(|addr| pnk!(globutils::wallet::public_key_from_bech32(addr)))
+        .map(|addr| pnk!(wallet::public_key_from_bech32(addr)))
         .collect();
 }
 
@@ -1555,10 +1559,10 @@ impl ValidatorData {
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DelegationInfo {
     pub(crate) global_amount: Amount,
+    // validator pubkey => delegation info
     pub(crate) addr_map: BTreeMap<XfrPublicKey, Delegation>,
     pub(crate) end_height_map: BTreeMap<BlockHeight, BTreeSet<XfrPublicKey>>,
-    #[serde(rename = "block_rewards_rate")]
-    pub(crate) rate_hist: BTreeMap<BlockHeight, [u128; 2]>,
+    pub(crate) rate_hist: Option<Mapx<BlockHeight, [u128; 2]>>,
 }
 
 impl DelegationInfo {
@@ -1567,7 +1571,7 @@ impl DelegationInfo {
             global_amount: 0,
             addr_map: BTreeMap::new(),
             end_height_map: BTreeMap::new(),
-            rate_hist: BTreeMap::new(),
+            rate_hist: Some(new_mapx!()),
         }
     }
 }
@@ -1690,21 +1694,10 @@ impl Validator {
 /// - validator's self-delegation
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Delegation {
-    /// - the target validator
-    /// - `NonConfidential` FRAs amount
+    /// validator pubkey => amount
+    ///   - `NonConfidential` FRAs amount
+    ///   - valid for all delegators
     pub entries: BTreeMap<XfrPublicKey, Amount>,
-
-    /// - per-block-height self-delegation amount for a validator
-    /// - `NonConfidential` FRAs amount
-    #[serde(rename = "self_delegation_detail")]
-    pub self_delegation_hist: BTreeMap<BlockHeight, Amount>,
-
-    /// - delegator entries on current block height
-    /// - only valid for a validator
-    pub delegators: indexmap::IndexMap<XfrPublicKey, Amount>,
-    /// - delegation amount per block height
-    /// - only valid for a validator
-    pub delegation_amount: BTreeMap<BlockHeight, Amount>,
 
     /// delegation rewards will be paid to this pk by default
     pub id: XfrPublicKey,
@@ -1722,13 +1715,26 @@ pub struct Delegation {
     pub state: DelegationState,
     /// set this field when `Bond` state finished
     pub rwd_amount: Amount,
-    /// rewards history, used on some pulic nodes, such as fullnode
-    #[serde(rename = "rwd_detail")]
-    pub rwd_hist: BTreeMap<BlockHeight, DelegationRwdDetail>,
     /// how many times you get proposer rewards
     pub proposer_rwd_cnt: u64,
     /// how many times you get delegation rewards
     pub delegation_rwd_cnt: u64,
+
+    /// rewards history, used on some pulic nodes, such as fullnode
+    pub rwd_hist: Option<Mapx<BlockHeight, DelegationRwdDetail>>,
+
+    // TODO: the following fields should be members of the `Validator` structure
+    /// delegator pubkey => amount
+    ///   - delegator entries on current block height
+    ///   - only valid for validators
+    pub delegators: indexmap::IndexMap<XfrPublicKey, Amount>,
+    /// - self-delegation amount history
+    ///   - `NonConfidential` FRAs amount
+    ///   - only valid for validators
+    pub self_delegation_hist: Option<Mapx<BlockHeight, Amount>>,
+    /// - delegation amount per block height
+    /// - only valid for a validator
+    pub delegation_amount_hist: Option<Mapx<BlockHeight, Amount>>,
 }
 
 /// Detail of each reward entry.
@@ -1820,7 +1826,10 @@ impl Delegation {
                     am += self.rwd_amount.saturating_mul(am) / self.amount();
                     calculate_delegation_rewards(am, return_rate).c(d!())
                 } else {
-                    Err(eg!())
+                    Err(eg!(format!(
+                        "staking amount of <{}> available is less than 0",
+                        wallet::public_key_to_base64(validator)
+                    )))
                 }
             })
             .and_then(|mut n| {
@@ -1828,18 +1837,23 @@ impl Delegation {
                     n.saturating_mul(commission_rate[0]) / commission_rate[1];
                 n = n.checked_sub(commission).c(d!())?;
                 if is_delegation_rwd && *KEEP_HIST {
-                    self.rwd_hist.insert(
-                        cur_height,
-                        DelegationRwdDetail {
-                            bond: self.amount(),
-                            amount: n,
-                            penalty_amount: 0,
-                            return_rate: Some(return_rate),
-                            commission_rate: Some(commission_rate),
-                            global_delegation_percent: Some(global_delegation_percent),
-                            block_height: cur_height,
-                        },
-                    );
+                    let bond = self.amount();
+                    if let Some(rh) = self.rwd_hist.as_mut() {
+                        rh.insert(
+                            cur_height,
+                            DelegationRwdDetail {
+                                bond,
+                                amount: n,
+                                penalty_amount: 0,
+                                return_rate: Some(return_rate),
+                                commission_rate: Some(commission_rate),
+                                global_delegation_percent: Some(
+                                    global_delegation_percent,
+                                ),
+                                block_height: cur_height,
+                            },
+                        );
+                    }
                 }
                 self.rwd_amount.checked_add(n).c(d!()).map(|i| {
                     self.rwd_amount = i;

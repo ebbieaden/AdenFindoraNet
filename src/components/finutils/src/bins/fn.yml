@@ -433,7 +433,6 @@ subcommands:
             long: addr
             takes_value: true
             value_name: WALLET ADDRESS
-            required: true
         - amount:
             help: withdraw FRA amount
             short: n

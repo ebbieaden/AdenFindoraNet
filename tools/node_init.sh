@@ -60,9 +60,6 @@ set_env() {
     perl -pi -e 's/^(recheck =).*/$1 false/' $tc
     perl -pi -e 's/^(size =) 5000/$1 2000/' $tc
     # perl -pi -e 's/^(fast_sync =).*/$1 false/' $tc
-    toml unset --toml-path "${HOME}"/.tendermint/config/config.toml tx_index.index_keys
-    toml set   --toml-path "${HOME}"/.tendermint/config/config.toml tx_index.index_all_keys true
-    toml set   --toml-path "${HOME}"/.tendermint/config/config.toml rpc.laddr tcp://0.0.0.0:26657
 
 
     curl ${serv_url}:26657/genesis \

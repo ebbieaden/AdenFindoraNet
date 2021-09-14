@@ -35,8 +35,8 @@ indexmap = { version = "1.6.2", features = ["serde"] }
 fp-types = { path = "../components/contracts/primitives/types" }
 
 ruc = { git = "https://github.com/FindoraNetwork/RUC.git", branch = "master" }
-zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.4b" }
-zeiutils = { package = "utils", git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.4b" }
+zei = { git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.4c" }
+zeiutils = { package = "utils", git = "ssh://git@github.com/FindoraNetwork/zei", tag = "v0.1.4c" }
 bulletproofs = { package = "bulletproofs", git = "ssh://git@github.com/FindoraNetwork/bulletproofs", branch = "batch_verification", features = ["yoloproofs"] }
 
 globutils = { path = "../libs/globutils" }
@@ -61,7 +61,7 @@ version = "0.4.6"
 features = ["f16", "serde"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-bnc = { git = "https://github.com/FindoraNetwork/BNC.git", branch = "feat-rocksdb" }
+bnc = { git = "https://github.com/FindoraNetwork/BNC.git", branch = "master" }
 sodiumoxide = "0.2.1"
 fs2 = "0.4"
 

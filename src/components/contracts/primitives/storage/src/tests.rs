@@ -38,7 +38,7 @@ fn storage_value_works() {
 
     let state = setup_temp_db();
 
-    Number::put(state.clone(), &10);
+    assert!(Number::put(state.clone(), &10).is_ok());
 
     assert_eq!(Number::get(state.clone()), Some(10));
     assert!(Number::exists(state.clone()));
@@ -55,9 +55,9 @@ fn storage_map_test() {
     assert_eq!(Account::storage_prefix(), b"Account");
 
     let state = setup_temp_db();
-    Account::insert(state.clone(), &"a".to_string(), &10);
-    Account::insert(state.clone(), &"b".to_string(), &20);
-    Account::insert(state.clone(), &"c".to_string(), &30);
+    assert!(Account::insert(state.clone(), &"a".to_string(), &10).is_ok());
+    assert!(Account::insert(state.clone(), &"b".to_string(), &20).is_ok());
+    assert!(Account::insert(state.clone(), &"c".to_string(), &30).is_ok());
 
     assert_eq!(Account::get(state.clone(), &"a".to_string()), Some(10));
     assert!(Account::contains_key(state.clone(), &"a".to_string()));
@@ -81,10 +81,10 @@ fn storage_double_map_test() {
     assert_eq!(Data::storage_prefix(), b"Data");
 
     let state = setup_temp_db();
-    Data::insert(state.clone(), &1, &2, &10);
-    Data::insert(state.clone(), &1, &3, &20);
-    Data::insert(state.clone(), &2, &3, &30);
-    Data::insert(state.clone(), &2, &4, &40);
+    assert!(Data::insert(state.clone(), &1, &2, &10).is_ok());
+    assert!(Data::insert(state.clone(), &1, &3, &20).is_ok());
+    assert!(Data::insert(state.clone(), &2, &3, &30).is_ok());
+    assert!(Data::insert(state.clone(), &2, &4, &40).is_ok());
 
     assert_eq!(Data::get(state.clone(), &1, &2), Some(10));
     assert!(Data::contains_key(state.clone(), &1, &2));
