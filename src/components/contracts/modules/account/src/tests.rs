@@ -227,7 +227,7 @@ fn test_account_burn() {
     };
 
     //Add account to database
-    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok);
+    assert!(AccountStore::insert(ctx.store.clone(), &address, &account).is_ok());
 
     //burn FRA
     assert!(App::<()>::burn(&ctx, &address, 200).is_ok());
