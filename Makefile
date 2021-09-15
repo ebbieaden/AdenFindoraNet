@@ -154,32 +154,36 @@ wasm:
 	cd src/components/wasm && wasm-pack build
 	tar -zcpf $(WASM_PKG) src/components/wasm/pkg
 
-debug_env: stop_debug_env build_release_debug
+debug_env: stop_env build_release_debug
 	@- rm -rf $(FIN_DEBUG)
 	@ mkdir $(FIN_DEBUG)
 	@ cp tools/debug_env.tar.gz $(FIN_DEBUG)/
 	@ cd $(FIN_DEBUG) && tar -xpf debug_env.tar.gz && mv debug_env devnet
 	@ ./tools/devnet/startnodes.sh
 
-run_staking_demo: stop_debug_env
+run_staking_demo: stop_env
 	bash tools/staking/demo.sh
 
 start_debug_env:
-	bash ./tools/devnet/startnodes.sh
+	@./tools/devnet/startnodes.sh
 
-stop_debug_env:
-	bash ./tools/devnet/stopnodes.sh
+stop_env:
+	@./tools/devnet/stopnodes.sh
 
-join_qa01: stop_debug_env build_release_goleveldb
+reset_env: stop_env
+	@- rm -rf $(FIN_DEBUG)/devnet
+	@ mkdir -p $(FIN_DEBUG)/devnet
+
+join_qa01: stop_env build_release_goleveldb
 	bash -x tools/node_init.sh qa01
 
-join_qa02: stop_debug_env build_release_goleveldb
+join_qa02: stop_env build_release_goleveldb
 	bash -x tools/node_init.sh qa02
 
-join_testnet: stop_debug_env build_release_goleveldb
+join_testnet: stop_env build_release_goleveldb
 	bash -x tools/node_init.sh testnet
 
-join_mainnet: stop_debug_env build_release_goleveldb
+join_mainnet: stop_env build_release_goleveldb
 	bash -x tools/node_init.sh mainnet
 
 # ci_build_image:
@@ -279,3 +283,8 @@ snapshot:
 	@./tools/devnet/snapshot.sh
 
 devnet: reset snapshot
+
+evm_env: reset_env
+	@ cp tools/evm_env.tar.gz $(FIN_DEBUG)
+	@ cd $(FIN_DEBUG) && tar -xpf evm_env.tar.gz -C devnet
+	@ ./tools/devnet/startnodes.sh
