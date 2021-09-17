@@ -39,7 +39,8 @@ type Issuances = Vec<(TxOutput, Option<OwnerMemo>)>;
 /// data from ledgerState
 #[derive(Serialize, Deserialize)]
 pub struct QueryServer {
-    snapshot_path: String,
+    pub(crate) basedir: String,
+    snapshot_file: String,
     #[serde(skip)]
     pub(crate) state: Option<Arc<RwLock<LedgerState>>>,
     addresses_to_utxos: Mapx<XfrAddress, HashSet<TxoSID>>,
@@ -81,10 +82,10 @@ impl QueryServer {
     /// create query server
     pub fn new(
         ledger: Arc<RwLock<LedgerState>>,
-        base_dir: Option<&str>,
+        basedir: Option<&str>,
     ) -> Result<QueryServer> {
-        let base_dir = if let Some(path) = base_dir {
-            format!("{}/query_server", path)
+        let basedir = if let Some(path) = basedir {
+            path.to_owned()
         } else {
             bnc::clear();
             globutils::fresh_tmp_dir()
@@ -93,11 +94,11 @@ impl QueryServer {
                 .into_owned()
         };
 
-        fs::create_dir_all(&base_dir).c(d!())?;
-        let snapshot_path = base_dir + "/query_server";
+        fs::create_dir_all(&basedir).c(d!())?;
 
-        match fs::read_to_string(&snapshot_path) {
+        match fs::read_to_string(format!("{}/query_server", &basedir)) {
             Ok(s) => serde_json::from_str(&s).c(d!()).map(|mut r: QueryServer| {
+                r.basedir = basedir;
                 r.state = Some(ledger);
                 r
             }),
@@ -105,33 +106,46 @@ impl QueryServer {
                 if ErrorKind::NotFound != e.kind() {
                     Err(eg!(e))
                 } else {
-                    Ok(Self::create(ledger, snapshot_path))
+                    Ok(Self::create(ledger, &basedir, "query_server"))
                 }
             }
         }
     }
 
-    fn create(ledger: Arc<RwLock<LedgerState>>, snapshot_path: String) -> QueryServer {
+    fn create(
+        ledger: Arc<RwLock<LedgerState>>,
+        basedir: &str,
+        snapshot_file: &str,
+    ) -> QueryServer {
         QueryServer {
+            basedir: basedir.to_owned(),
             state: Some(ledger),
-            snapshot_path,
-            addresses_to_utxos: new_mapx!("addresses_to_utxos"),
-            related_transactions: new_mapx!("related_transactions"),
-            related_transfers: new_mapx!("related_transfers"),
-            claim_hist_txns: new_mapx!("claim_hist_txns"),
-            coinbase_oper_hist: new_mapx!("coinbase_oper_hist"),
-            owner_memos: new_mapx!("owner_memos"),
-            created_assets: new_mapx!("created_assets"),
-            issuances: new_mapx!("issuances"),
-            token_code_issuances: new_mapx!("token_code_issuances"),
-            utxos_to_map_index: new_mapx!("utxos_to_map_index"),
-            txo_to_txnid: new_mapx!("txo_to_txnid"),
-            txn_sid_to_hash: new_mapx!("txn_sid_to_hash"),
-            txn_hash_to_sid: new_mapx!("txn_hash_to_sid"),
-            staking_global_rate_hist: new_mapx!("staking_rate_hist"),
-            staking_self_delegation_hist: new_mapx!("staking_self_delegation_hist"),
-            staking_delegation_amount_hist: new_mapx!("staking_delegation_amount_hist"),
-            staking_delegation_rwd_hist: new_mapx!("staking_rwd_hist"),
+            snapshot_file: snapshot_file.to_owned(),
+            addresses_to_utxos: new_mapx!("query_server_subdata/addresses_to_utxos"),
+            related_transactions: new_mapx!("query_server_subdata/related_transactions"),
+            related_transfers: new_mapx!("query_server_subdata/related_transfers"),
+            claim_hist_txns: new_mapx!("query_server_subdata/claim_hist_txns"),
+            coinbase_oper_hist: new_mapx!("query_server_subdata/coinbase_oper_hist"),
+            owner_memos: new_mapx!("query_server_subdata/owner_memos"),
+            created_assets: new_mapx!("query_server_subdata/created_assets"),
+            issuances: new_mapx!("query_server_subdata/issuances"),
+            token_code_issuances: new_mapx!("query_server_subdata/token_code_issuances"),
+            utxos_to_map_index: new_mapx!("query_server_subdata/utxos_to_map_index"),
+            txo_to_txnid: new_mapx!("query_server_subdata/txo_to_txnid"),
+            txn_sid_to_hash: new_mapx!("query_server_subdata/txn_sid_to_hash"),
+            txn_hash_to_sid: new_mapx!("query_server_subdata/txn_hash_to_sid"),
+            staking_global_rate_hist: new_mapx!(
+                "query_server_subdata/staking_rate_hist"
+            ),
+            staking_self_delegation_hist: new_mapx!(
+                "query_server_subdata/staking_self_delegation_hist"
+            ),
+            staking_delegation_amount_hist: new_mapx!(
+                "query_server_subdata/staking_delegation_amount_hist"
+            ),
+            staking_delegation_rwd_hist: new_mapx!(
+                "query_server_subdata/staking_rwd_hist"
+            ),
             app_block_cnt: 0,
         }
     }
@@ -437,7 +451,7 @@ impl QueryServer {
 
     /// Updates query server cache with new transactions from a block.
     /// Each new block must be consistent with the state of the cached ledger up until this point
-    fn apply_new_blocks(&mut self) -> Result<()> {
+    fn apply_new_blocks(&mut self, basedir: &str) -> Result<()> {
         self.cache_hist_data();
 
         let ledger = Arc::clone(self.state.as_ref().unwrap());
@@ -570,16 +584,17 @@ impl QueryServer {
         flush_data();
 
         // snapshot them finally
-        serde_json::to_vec(&self).c(d!()).and_then(|s| {
-            fs::write(&self.snapshot_path, s).c(d!(self.snapshot_path.clone()))
-        })
+        let path = format!("{}/{}", basedir, &self.snapshot_file);
+        serde_json::to_vec(&self)
+            .c(d!())
+            .and_then(|s| fs::write(&path, s).c(d!(path)))
     }
 
     /// update data of query server
     /// call update when the block into end_block and commit to ledgerState
     #[inline(always)]
-    pub fn update(&mut self) {
-        pnk!(self.apply_new_blocks());
+    pub fn update(&mut self, basedir: &str) {
+        pnk!(self.apply_new_blocks(basedir));
     }
 
     /// retrieve block reward rate at specified block height
