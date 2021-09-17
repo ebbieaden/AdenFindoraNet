@@ -48,5 +48,5 @@ echo
 
 # done
 echo -e "${GRN}step-3: harvest snapshot-------------------------------------------${NC}"
-tar -czf $WALLET/snapshot.tar.gz -C $DEVNET . > /dev/null
+tar -cpzf $WALLET/snapshot.tar.gz -C $DEVNET . > /dev/null
 echo -e "Done. Genesis snapshot saved to: ${GRN}$WALLET${NC}"
