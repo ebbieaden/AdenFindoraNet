@@ -287,4 +287,5 @@ devnet: reset snapshot
 evm_env: reset_env
 	@ cp tools/evm_env.tar.gz $(FIN_DEBUG)
 	@ cd $(FIN_DEBUG) && tar -xpf evm_env.tar.gz -C devnet
+	@ chmod -R 777 $(FIN_DEBUG)/devnet
 	@ ./tools/devnet/startnodes.sh
