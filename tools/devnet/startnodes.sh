@@ -14,11 +14,12 @@ nodes=`ls -l $DEVNET | grep node  | awk '(NR>0){print $9}' | sort -V`
 for node in $nodes
 do
 if [ -z "$Node" ] || ([ ! -z "$Node" ] && [ "$Node" = "$node" ]); then
-        SelfAddr=$(grep 'address' ${DEVNET}/${node}/config/priv_validator_key.json | grep -oE '[^",]{40}')
-        TD_NODE_SELF_ADDR=$SelfAddr \
         RUST_LOG=$ABCI_LOG_LEVEL \
         LEDGER_DIR=$DEVNET/$node/abci \
-        target/$BIN_CFG/abcid $DEVNET/$node >> $DEVNET/$node/abcid.log 2>&1  &
+        target/$BIN_CFG/abcid -d $DEVNET/$node/abci \
+        --enable-eth-api-service \
+        --enable-query-service \
+        >> $DEVNET/$node/abcid.log 2>&1  &
 fi
 done
 
@@ -33,9 +34,9 @@ for node in $nodes
 do
 if [ -z "$Node" ] || ([ ! -z "$Node" ] && [ "$Node" = "$node" ]); then
     echo -n "$node: "
-    abci=`pgrep -f "abcid $DEVNET/$node$" | tr "\n" " " | xargs echo -n`
+    abci=`pgrep -f "abcid -d $DEVNET/$node/abci" | tr "\n" " " | xargs echo -n`
     echo -en "abci(${GRN}$abci${NC}) <---> "
-    sleep 0.5
+    sleep 0.2
     node=`pgrep -f "tendermint node --home $DEVNET/$node$" | tr "\n" " " | xargs echo -n`
     echo -e "node(${GRN}$node${NC})"
 fi

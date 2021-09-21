@@ -13,20 +13,30 @@ fi
 nodes=`ls -l $DEVNET | grep node  | awk '(NR>0){print $9}' | sort -V`
 
 killed=false
+tdmt_pids=()
 for node in $nodes
 do
-    abci=`pgrep -f "abcid $DEVNET/$node$" | tr "\n" " " | xargs echo -n`
+    abci=`pgrep -f "abcid -d $DEVNET/$node/abci" | tr "\n" " " | xargs echo -n`
+    tdmt=`pgrep -f "tendermint node --home $DEVNET/$node$"`
     if [ ! -z "$abci" ] && ([ -z "$Node" ] || [ "$Node" = "$node" ]); then
         if [ "$killed" = false ]; then
             echo -n "killed abci: "
             killed=true
         fi
+        kill -9 $tdmt
         kill -9 $abci
+        tdmt_pids+=("$tdmt")
         echo -en "${YEL}$abci ${NC}"
     fi
 done
 
 if [ "$killed" = true ]; then
+    echo
+    echo -n "killed node: "
+    for tdmt in "${tdmt_pids[@]}"
+    do
+        echo -en "${YEL}$tdmt ${NC}"
+    done
     echo
 fi
 
