@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
 
-RED='\033[31m'
-GRN="\033[32m"
-NC='\033[0m'
-
-# paths
-DEVNET="$LEDGER_DIR/devnet"
+# env
+source tools/devnet/env.sh || exit 1
 
 # show abcis and nodes
 nodes=`ls -l $DEVNET | grep node  | awk '(NR>0){print $9}' | sort -V`
 for node in $nodes
 do
-    abci=`pgrep -f "abcid $DEVNET/$node$" | tr "\n" " " | xargs echo -n`
+    abci=`pgrep -f "abcid -d $DEVNET/$node/abci" | tr "\n" " " | xargs echo -n`
     if ! [ -z "$abci" ]
     then
         echo -n "$node: "
